@@ -1,0 +1,26 @@
+modules = ["nodejs-24", "postgresql-16"]
+
+[[artifacts]]
+id = "artifacts/api-server"
+
+[[artifacts]]
+id = "artifacts/mockup-sandbox"
+
+[deployment]
+deploymentTarget = "autoscale"
+build = ["bash", "-c", "pnpm install --frozen-lockfile && pnpm --filter @workspace/edtech run build && pnpm --filter @workspace/api-server run build"]
+run = ["bash", "-c", "NODE_ENV=production node --enable-source-maps artifacts/api-server/dist/index.mjs"]
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[nix]
+channel = "stable-25_05"

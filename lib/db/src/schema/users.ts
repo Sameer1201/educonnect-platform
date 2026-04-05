@@ -1,0 +1,24 @@
+import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+
+export const usersTable = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull().unique(),
+  role: text("role", { enum: ["student", "admin", "super_admin", "planner"] }).notNull().default("student"),
+  status: text("status", { enum: ["pending", "approved", "rejected", "active"] }).notNull().default("pending"),
+  phone: text("phone"),
+  subject: text("subject"),
+  avatarUrl: text("avatar_url"),
+  approvedById: integer("approved_by_id"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type User = typeof usersTable.$inferSelect;
