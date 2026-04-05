@@ -128,7 +128,7 @@ function TeacherRow({ teacher, rank }: {
 
 /* ─── Main Dashboard ─── */
 export default function SuperAdminDashboard() {
-  const { data, isLoading, refetch } = useGetSuperAdminDashboard();
+  const { data, isLoading, isError, error, refetch } = useGetSuperAdminDashboard();
   const approveStudent = useApproveStudent();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -174,7 +174,53 @@ export default function SuperAdminDashboard() {
     );
   }
 
-  if (!data) return null;
+  if (isError) {
+    return (
+      <DashboardScene accent="from-orange-500/18 via-red-500/12 to-violet-500/12">
+        <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-6 text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)]">
+          <div className="flex items-start gap-4">
+            <div className="mt-0.5 rounded-xl bg-red-500/20 p-3">
+              <Activity size={20} className="text-red-200" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold">Dashboard data load nahi ho paaya</h2>
+              <p className="mt-2 text-sm text-white/75">
+                {error instanceof Error ? error.message : "Super admin dashboard request failed."}
+              </p>
+              <div className="mt-4 flex gap-3">
+                <Button onClick={() => refetch()} className="bg-white text-slate-900 hover:bg-white/90">
+                  Retry
+                </Button>
+                <Link href="/super-admin/students">
+                  <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10">
+                    Open Students
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </DashboardScene>
+    );
+  }
+
+  if (!data) {
+    return (
+      <DashboardScene accent="from-orange-500/18 via-red-500/12 to-violet-500/12">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)]">
+          <h2 className="text-lg font-semibold">Dashboard data abhi available nahi hai</h2>
+          <p className="mt-2 text-sm text-white/65">
+            Super admin page blank nahi rahega. Yahan data aate hi summary render ho jayegi.
+          </p>
+          <div className="mt-4">
+            <Button onClick={() => refetch()} className="bg-white text-slate-900 hover:bg-white/90">
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </DashboardScene>
+    );
+  }
 
   const d = data as any;
 
