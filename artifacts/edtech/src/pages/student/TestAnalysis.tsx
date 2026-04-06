@@ -1,101 +1,132 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
+import type { ViewMode } from "@/App";
+import { setAnalysisDataset, resetAnalysisDataset } from "@/data/testData";
+import { buildAnalysisDataset } from "@/features/test-analysis/buildAnalysisDataset";
+import Sidebar from "@/features/test-analysis/components/Sidebar";
+import Header from "@/features/test-analysis/components/Header";
+import Overview from "@/features/test-analysis/pages/Overview";
+import PerformanceAnalysis from "@/features/test-analysis/pages/PerformanceAnalysis";
+import TimeAnalysis from "@/features/test-analysis/pages/TimeAnalysis";
+import AttemptAnalysis from "@/features/test-analysis/pages/AttemptAnalysis";
+import DifficultyAnalysis from "@/features/test-analysis/pages/DifficultyAnalysis";
+import SubjectMovement from "@/features/test-analysis/pages/SubjectMovement";
+import QuestionJourney from "@/features/test-analysis/pages/QuestionJourney";
+import QsByQsAnalysis from "@/features/test-analysis/pages/QsByQsAnalysis";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const EXACT_ANALYSIS_URL = "http://127.0.0.1:4174";
+const pageTitles: Record<string, string> = {
+  overview: "Overview",
+  performance: "Performance Analysis",
+  time: "Time Analysis",
+  attempt: "Attempt Analysis",
+  difficulty: "Difficulty Analysis",
+  subject: "Subject Movement",
+  journey: "Question Journey",
+  qsbyqs: "Qs by Qs Analysis",
+};
 
-interface AnalysisSection {
-  id: number;
-  title: string;
-  subjectLabel?: string | null;
-}
-
-interface TestDetail {
-  id: number;
-  sections?: AnalysisSection[];
+function renderPage(activeTab: string, mode: ViewMode) {
+  switch (activeTab) {
+    case "overview":
+      return <Overview mode={mode} />;
+    case "performance":
+      return <PerformanceAnalysis mode={mode} />;
+    case "time":
+      return <TimeAnalysis mode={mode} />;
+    case "attempt":
+      return <AttemptAnalysis mode={mode} />;
+    case "difficulty":
+      return <DifficultyAnalysis mode={mode} />;
+    case "subject":
+      return <SubjectMovement />;
+    case "journey":
+      return <QuestionJourney />;
+    case "qsbyqs":
+      return <QsByQsAnalysis />;
+    default:
+      return <Overview mode={mode} />;
+  }
 }
 
 export default function StudentTestAnalysis() {
   const { id } = useParams<{ id: string }>();
-  const [status, setStatus] = useState<"checking" | "ready" | "down">("checking");
+  const [activeTab, setActiveTab] = useState("overview");
+  const [mode, setMode] = useState<ViewMode>("personal");
+  const [datasetReady, setDatasetReady] = useState(false);
 
-  const { data: test } = useQuery<TestDetail>({
-    queryKey: ["student-analysis-test-meta", id],
+  const analysisQuery = useQuery({
+    queryKey: ["student-analysis", id],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/tests/${id}`, { credentials: "include" });
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
+      const response = await fetch(`/api/tests/${id}/my-analysis`, { credentials: "include" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Failed to load analysis");
+      }
+      return response.json();
     },
     enabled: !!id,
   });
 
-  const iframeUrl = useMemo(() => {
-    const sectionLabels = (test?.sections ?? [])
-      .map((section) => section.subjectLabel?.trim() || section.title?.trim())
-      .filter(Boolean)
-      .slice(0, 3);
-    if (sectionLabels.length === 0) return EXACT_ANALYSIS_URL;
-    const params = new URLSearchParams();
-    params.set("subjects", sectionLabels.join("|"));
-    return `${EXACT_ANALYSIS_URL}?${params.toString()}`;
-  }, [test]);
-
   useEffect(() => {
-    let cancelled = false;
+    if (!analysisQuery.data) {
+      setDatasetReady(false);
+      return;
+    }
+    const dataset = buildAnalysisDataset(analysisQuery.data);
+    setAnalysisDataset(dataset);
+    setDatasetReady(true);
+    return () => resetAnalysisDataset();
+  }, [analysisQuery.data]);
 
-    fetch(EXACT_ANALYSIS_URL, { method: "GET" })
-      .then((response) => {
-        if (!cancelled) {
-          setStatus(response.ok ? "ready" : "down");
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStatus("down");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (status === "checking") {
+  if (analysisQuery.isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f9fafb]">
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB]">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-          <p className="text-sm text-slate-600">Loading exact analysis dashboard...</p>
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#5B4DFF] border-t-transparent" />
+          <p className="text-sm text-[#6B7280]">Loading test analysis...</p>
         </div>
       </div>
     );
   }
 
-  if (status === "down") {
+  if (analysisQuery.isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f9fafb] px-6">
-        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-xl font-bold text-slate-900">Exact analysis frontend is offline</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            The standalone test-analysis app from your other project is not running on port 4174.
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB] px-6">
+        <div className="max-w-md rounded-2xl border border-[#E5E7EB] bg-white p-6 text-center shadow-sm">
+          <h1 className="text-xl font-bold text-[#111827]">Unable to load analysis</h1>
+          <p className="mt-2 text-sm text-[#6B7280]">
+            {analysisQuery.error instanceof Error ? analysisQuery.error.message : "Something went wrong while loading your test analysis."}
           </p>
-          <div className="mt-4 flex justify-center">
-            <Button onClick={() => window.location.reload()}>Retry</Button>
-          </div>
+          <button
+            onClick={() => analysisQuery.refetch()}
+            className="mt-4 rounded-full bg-[#5B4DFF] px-5 py-2 text-sm font-semibold text-white shadow-[0_6px_18px_rgba(91,77,255,0.25)]"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!datasetReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB]">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#5B4DFF] border-t-transparent" />
+          <p className="text-sm text-[#6B7280]">Preparing analysis dataset...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-full bg-[#f9fafb]">
-      <iframe
-        title="Exact Test Analysis"
-        src={iframeUrl}
-        className="h-full w-full border-0"
-      />
+    <div className="flex min-h-screen bg-[#F5F7FB]">
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} mode={mode} onModeChange={setMode} />
+      <main className="flex-1 overflow-auto p-7">
+        <Header title={pageTitles[activeTab] || "Overview"} />
+        {renderPage(activeTab, mode)}
+      </main>
     </div>
   );
 }

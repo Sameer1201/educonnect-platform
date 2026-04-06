@@ -36,6 +36,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -158,9 +160,7 @@ interface ExamTemplate {
   examHeader?: string | null;
   examSubheader?: string | null;
   durationMinutes: number;
-  passingScore: number;
-  defaultPositiveMarks: number;
-  defaultNegativeMarks: number;
+  passingScore: number | null;
   sections: Array<{
     title: string;
     subjectLabel?: string | null;
@@ -241,17 +241,16 @@ function MetricTile({
 export default function PlannerDashboard() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: platformSettings } = usePlatformSettings(!!user);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
-  const [templateKey, setTemplateKey] = useState("");
   const [templateName, setTemplateName] = useState("");
   const [templateDescription, setTemplateDescription] = useState("");
   const [templateHeader, setTemplateHeader] = useState("");
   const [templateSubheader, setTemplateSubheader] = useState("");
   const [templateDuration, setTemplateDuration] = useState("180");
   const [templatePassing, setTemplatePassing] = useState("60");
-  const [templatePositive, setTemplatePositive] = useState("1");
-  const [templateNegative, setTemplateNegative] = useState("0");
   const [templateSections, setTemplateSections] = useState<ExamTemplateSectionDraft[]>([makeTemplateSection()]);
 
   const { data: lecturePlans = [], isLoading: plansLoading } = useQuery<LecturePlan[]>({
@@ -297,15 +296,12 @@ export default function PlannerDashboard() {
 
   const resetTemplateForm = () => {
     setEditingTemplateId(null);
-    setTemplateKey("");
     setTemplateName("");
     setTemplateDescription("");
     setTemplateHeader("");
     setTemplateSubheader("");
     setTemplateDuration("180");
-    setTemplatePassing("60");
-    setTemplatePositive("1");
-    setTemplateNegative("0");
+    setTemplatePassing("");
     setTemplateSections([makeTemplateSection()]);
   };
 
@@ -316,15 +312,12 @@ export default function PlannerDashboard() {
       return;
     }
     setEditingTemplateId(template.id);
-    setTemplateKey(template.key);
     setTemplateName(template.name);
     setTemplateDescription(template.description ?? "");
     setTemplateHeader(template.examHeader ?? "");
     setTemplateSubheader(template.examSubheader ?? "");
     setTemplateDuration(String(template.durationMinutes));
-    setTemplatePassing(String(template.passingScore));
-    setTemplatePositive(String(template.defaultPositiveMarks));
-    setTemplateNegative(String(template.defaultNegativeMarks));
+    setTemplatePassing(template.passingScore == null ? "" : String(template.passingScore));
     setTemplateSections(template.sections.map((section) => makeTemplateSection({
       title: section.title,
       subjectLabel: section.subjectLabel ?? "",
@@ -340,19 +333,17 @@ export default function PlannerDashboard() {
   const saveTemplateMutation = useMutation({
     mutationFn: async () => {
       const payload = {
-        key: templateKey.trim() || templateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        key: templateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         name: templateName.trim(),
         description: templateDescription.trim() || null,
         examHeader: templateHeader.trim() || null,
         examSubheader: templateSubheader.trim() || null,
         durationMinutes: Number(templateDuration) || 180,
-        passingScore: Number(templatePassing) || 60,
-        defaultPositiveMarks: Number(templatePositive) || 1,
-        defaultNegativeMarks: Number(templateNegative) || 0,
-        sections: templateSections.filter((section) => section.title.trim()).map((section) => ({
-          title: section.title.trim(),
+        passingScore: templatePassing.trim() ? Number(templatePassing) : null,
+        sections: templateSections.filter((section) => (section.subjectLabel.trim() || section.title.trim())).map((section) => ({
+          title: (section.subjectLabel.trim() || section.title.trim()),
           subjectLabel: section.subjectLabel.trim() || null,
-          description: section.description.trim() || null,
+          description: null,
           questionCount: section.questionCount ? Number(section.questionCount) : null,
           marksPerQuestion: section.marksPerQuestion ? Number(section.marksPerQuestion) : null,
           negativeMarks: section.negativeMarks ? Number(section.negativeMarks) : null,
@@ -367,13 +358,29 @@ export default function PlannerDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error("Failed to save exam template");
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to save exam template");
+      }
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["planner-dashboard", "exam-templates"] });
       setTemplateOpen(false);
       resetTemplateForm();
+      toast({
+        title: editingTemplateId ? "Template updated" : "Template created",
+        description: editingTemplateId
+          ? "Exam template successfully updated."
+          : "New exam template added successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Template save failed",
+        description: error.message || "Please check the template fields and try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -491,6 +498,7 @@ export default function PlannerDashboard() {
   }
 
   const plannerName = user?.fullName?.split(" ")[0] ?? "Planner";
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
   return (
     <DashboardScene accent="from-fuchsia-500/18 via-cyan-500/10 to-blue-500/18">
@@ -510,16 +518,18 @@ export default function PlannerDashboard() {
               {nextPlan ? ` The next session is ${format(new Date(nextPlan.scheduledAt), "EEE, MMM d · h:mm a")} for ${nextPlan.teacherName ?? "your assigned teacher"}.` : " Start by creating the first lecture plan for your teaching team."}
             </p>
             <div className="flex flex-wrap gap-2.5 mt-5">
-              <Link href="/schedule">
-                <Button size="sm" className="bg-white text-teal-700 hover:bg-white/92 shadow-sm gap-1.5">
-                  <CalendarDays size={14} /> Open Planner Schedule
-                </Button>
-              </Link>
               <Link href="/community">
                 <Button size="sm" className="bg-white/14 hover:bg-white/20 border-0 text-white gap-1.5">
                   <MessageSquare size={14} /> Open Community
                 </Button>
               </Link>
+              {learningAccessEnabled && (
+                <Link href="/schedule">
+                  <Button size="sm" className="bg-white text-teal-700 hover:bg-white/92 shadow-sm gap-1.5">
+                    <CalendarDays size={14} /> Open Planner Schedule
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
 
@@ -553,6 +563,7 @@ export default function PlannerDashboard() {
         <div className="absolute bottom-0 left-1/3 w-44 h-44 rounded-full bg-cyan-300/10 blur-2xl" />
       </div>
 
+      {learningAccessEnabled ? (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricTile
           label="Total Plans"
@@ -583,7 +594,40 @@ export default function PlannerDashboard() {
           subtext={plansWithin24Hours > 0 ? "Short-term plans that may need a last review." : "No immediate schedule pressure right now."}
         />
       </div>
+      ) : (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <MetricTile
+          label="Exam Templates"
+          value={examTemplates.length}
+          icon={<Layers3 size={20} className="text-white" />}
+          gradient="bg-gradient-to-br from-indigo-600 to-violet-700"
+          subtext="Planner-owned exam patterns available for teacher test creation."
+        />
+        <MetricTile
+          label="Teachers Covered"
+          value={assignedTeacherIds.size}
+          icon={<Users size={20} className="text-white" />}
+          gradient="bg-gradient-to-br from-violet-600 to-fuchsia-700"
+          subtext="Teachers with at least one active planner-linked test or plan."
+        />
+        <MetricTile
+          label="Exam Categories"
+          value={insights?.examCalendarMapping.length ?? 0}
+          icon={<Target size={20} className="text-white" />}
+          gradient="bg-gradient-to-br from-cyan-600 to-blue-700"
+          subtext="Exam types currently mapped by planner for student-facing tests."
+        />
+        <MetricTile
+          label="Community Focus"
+          value={1}
+          icon={<MessageSquare size={20} className="text-white" />}
+          gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+          subtext="Learning modules paused. Planner is focused on community, tests, and question flows."
+        />
+      </div>
+      )}
 
+      {learningAccessEnabled ? (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <Card className="xl:col-span-2 overflow-hidden">
           <CardHeader className="border-b bg-muted/20">
@@ -694,7 +738,65 @@ export default function PlannerDashboard() {
           </CardContent>
         </Card>
       </div>
+      ) : (
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <Card className="xl:col-span-2 overflow-hidden">
+          <CardHeader className="border-b bg-muted/20">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <MessageSquare size={16} className="text-emerald-600" />
+                  Focus Mode
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Super admin ne class-related planner controls pause kiye hain. Planner abhi exam templates, community, tests, aur question workflows par focus karega.
+                </p>
+              </div>
+              <Badge variant="outline" className="text-xs">Planner Focus Active</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-5 grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border p-5">
+              <p className="text-sm font-semibold">Exam Template Library</p>
+              <p className="text-xs text-muted-foreground mt-2">Default patterns aur custom templates ko yahin se manage karo.</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {examTemplates.slice(0, 6).map((template) => (
+                  <Badge key={template.id} variant="secondary">{template.name}</Badge>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border p-5">
+              <p className="text-sm font-semibold">Planner Community Actions</p>
+              <p className="text-xs text-muted-foreground mt-2">Teacher coordination aur internal planning updates community se continue kar sakte ho.</p>
+              <div className="mt-4 flex gap-2">
+                <Link href="/community"><Button size="sm">Open Community</Button></Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
+        <Card className="overflow-hidden">
+          <CardHeader className="border-b bg-muted/20">
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-500" />
+              Planner Alerts
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-5 space-y-3">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+              <p className="text-sm font-semibold">Class-side controls paused</p>
+              <p className="text-xs text-muted-foreground mt-2">Course, schedule, readiness, and capacity planning are hidden until super admin re-enables learning access.</p>
+            </div>
+            <div className="rounded-2xl border p-4">
+              <p className="text-sm font-semibold">What remains active</p>
+              <p className="text-xs text-muted-foreground mt-2">Exam templates, planner community, teacher test structure support, and question/test planning remain available.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      )}
+
+      {learningAccessEnabled && (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
         <Card className="overflow-hidden">
           <CardHeader className="border-b bg-muted/20">
@@ -821,8 +923,9 @@ export default function PlannerDashboard() {
           </Card>
         </div>
       </div>
+      )}
 
-      {insights && (
+      {insights && learningAccessEnabled && (
         <>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <Card className="overflow-hidden">
@@ -988,15 +1091,13 @@ export default function PlannerDashboard() {
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                       <span>{template.durationMinutes} min</span>
-                      <span>Pass {template.passingScore}%</span>
-                      <span>+{template.defaultPositiveMarks}</span>
-                      <span>-{template.defaultNegativeMarks}</span>
+                      <span>{template.passingScore == null ? "No pass cutoff" : `Pass ${template.passingScore}%`}</span>
                       <span>{template.sections.length} sections</span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {template.sections.map((section) => (
                         <Badge key={`${template.id}-${section.title}`} variant="secondary">
-                          {section.title}
+                          {section.subjectLabel || section.title}
                         </Badge>
                       ))}
                     </div>
@@ -1015,10 +1116,7 @@ export default function PlannerDashboard() {
           <DialogTitle>{editingTemplateId ? "Edit Exam Template" : "Add Exam Template"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div><Label>Name</Label><Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="mt-1" placeholder="e.g. GATE DA" /></div>
-            <div><Label>Key</Label><Input value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="mt-1" placeholder="e.g. gate-da" /></div>
-          </div>
+          <div><Label>Name</Label><Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="mt-1" placeholder="e.g. GATE DA" /></div>
           <div><Label>Description</Label><Textarea value={templateDescription} onChange={(e) => setTemplateDescription(e.target.value)} className="mt-1 resize-none" rows={2} placeholder="What structure this exam follows" /></div>
           <div className="grid gap-4 md:grid-cols-2">
             <div><Label>Exam Header</Label><Input value={templateHeader} onChange={(e) => setTemplateHeader(e.target.value)} className="mt-1" placeholder="e.g. GRADUATE APTITUDE TEST IN ENGINEERING" /></div>
@@ -1026,9 +1124,7 @@ export default function PlannerDashboard() {
           </div>
           <div className="grid gap-4 md:grid-cols-4">
             <div><Label>Duration</Label><Input type="number" value={templateDuration} onChange={(e) => setTemplateDuration(e.target.value)} className="mt-1" /></div>
-            <div><Label>Passing %</Label><Input type="number" value={templatePassing} onChange={(e) => setTemplatePassing(e.target.value)} className="mt-1" /></div>
-            <div><Label>Default +ve</Label><Input type="number" step="0.01" value={templatePositive} onChange={(e) => setTemplatePositive(e.target.value)} className="mt-1" /></div>
-            <div><Label>Default -ve</Label><Input type="number" step="0.01" value={templateNegative} onChange={(e) => setTemplateNegative(e.target.value)} className="mt-1" /></div>
+            <div><Label>Passing %</Label><Input type="number" value={templatePassing} onChange={(e) => setTemplatePassing(e.target.value)} className="mt-1" placeholder="Optional" /></div>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -1037,9 +1133,8 @@ export default function PlannerDashboard() {
             </div>
             {templateSections.map((section) => (
               <div key={section.id} className="rounded-2xl border p-4 space-y-3">
-                <div className="grid gap-3 md:grid-cols-4">
-                  <div><Label className="text-xs">Title</Label><Input value={section.title} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, title: e.target.value } : item))} className="mt-1" /></div>
-                  <div><Label className="text-xs">Subject Label</Label><Input value={section.subjectLabel} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, subjectLabel: e.target.value } : item))} className="mt-1" /></div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div><Label className="text-xs">Subject Label</Label><Input value={section.subjectLabel} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, subjectLabel: e.target.value, title: e.target.value } : item))} className="mt-1" placeholder="e.g. Physics / Core Subject / General Aptitude" /></div>
                   <div><Label className="text-xs">Question Count</Label><Input type="number" value={section.questionCount} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, questionCount: e.target.value } : item))} className="mt-1" /></div>
                   <div><Label className="text-xs">Preferred Type</Label>
                     <Select value={section.preferredQuestionType} onValueChange={(value) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, preferredQuestionType: value as QuestionType } : item))}>
@@ -1057,13 +1152,12 @@ export default function PlannerDashboard() {
                   <div><Label className="text-xs">-ve Marks</Label><Input type="number" step="0.01" value={section.negativeMarks} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, negativeMarks: e.target.value } : item))} className="mt-1" /></div>
                   <div className="flex items-end justify-end"><Button variant="ghost" className="text-destructive" onClick={() => setTemplateSections((prev) => prev.length > 1 ? prev.filter((item) => item.id !== section.id) : prev)}>Remove</Button></div>
                 </div>
-                <div><Label className="text-xs">Description</Label><Textarea value={section.description} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, description: e.target.value } : item))} className="mt-1 resize-none" rows={2} /></div>
               </div>
             ))}
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => { setTemplateOpen(false); resetTemplateForm(); }}>Cancel</Button>
-            <Button disabled={!templateName.trim() || templateSections.every((section) => !section.title.trim()) || saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate()}>
+            <Button disabled={!templateName.trim() || templateSections.every((section) => !section.subjectLabel.trim()) || saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate()}>
               {saveTemplateMutation.isPending ? "Saving..." : editingTemplateId ? "Update Template" : "Create Template"}
             </Button>
           </div>

@@ -13,7 +13,7 @@ interface Test {
   classId: number | null;
   title: string;
   durationMinutes: number;
-  passingScore: number;
+  passingScore: number | null;
   isPublished: boolean;
   scheduledAt: string | null;
   className: string | null;
@@ -91,7 +91,7 @@ export default function SuperAdminTests() {
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                       <span>{test.durationMinutes} min</span>
-                      <span>Pass: {test.passingScore}%</span>
+                      <span>{test.passingScore == null ? "No pass cutoff" : `Pass: ${test.passingScore}%`}</span>
                       {test.scheduledAt && <span>{format(new Date(test.scheduledAt), "MMM d, yyyy")}</span>}
                     </div>
                   </div>

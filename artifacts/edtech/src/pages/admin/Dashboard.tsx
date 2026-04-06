@@ -20,32 +20,29 @@ function greeting() {
   return "Good evening";
 }
 
-function StatTile({ label, value, icon, gradient, sub, pulse }: {
-  label: string; value: number; icon: React.ReactNode; gradient: string; sub?: string; pulse?: boolean;
+function StatTile({ label, value, icon, tone, sub, pulse }: {
+  label: string; value: number; icon: React.ReactNode; tone: string; sub?: string; pulse?: boolean;
 }) {
   const displayVal = useCountUp(value);
   return (
     <TiltCard className="group">
-    <div className={`relative overflow-hidden rounded-2xl p-5 text-white ${gradient} shadow-[0_20px_48px_rgba(15,23,42,0.28)] ring-1 ring-white/15 hover:shadow-xl transition-all duration-200 cursor-default`}>
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.2),transparent_35%)]" />
+    <div className="relative overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white p-5 shadow-sm transition-all duration-200 cursor-default hover:shadow-md">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium text-white/70 uppercase tracking-wider">{label}</p>
-          <p className="text-4xl font-bold mt-1 leading-none tabular-nums">{displayVal}</p>
-          {sub && <p className="text-xs text-white/55 mt-1">{sub}</p>}
+          <p className="text-xs font-medium uppercase tracking-wider text-[#6B7280]">{label}</p>
+          <p className="mt-1 text-4xl font-bold leading-none tabular-nums text-[#111827]">{displayVal}</p>
+          {sub && <p className="mt-1 text-xs text-[#6B7280]">{sub}</p>}
         </div>
-        <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0">{icon}</div>
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>{icon}</div>
       </div>
       {pulse && (
         <div className="absolute top-3 right-3">
           <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#22C55E] opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#22C55E]" />
           </span>
         </div>
       )}
-      <div className="absolute -bottom-4 -right-4 w-20 h-20 rounded-full bg-white/8" />
-      <div className="absolute -bottom-2 -right-8 w-28 h-28 rounded-full bg-white/5" />
     </div>
     </TiltCard>
   );
@@ -76,53 +73,50 @@ export default function AdminDashboard() {
   const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
   return (
-    <DashboardScene accent="from-cyan-500/16 via-blue-500/10 to-emerald-500/14">
+    <DashboardScene>
     <div className="space-y-6">
       {/* ── Hero ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-cyan-600 to-teal-600 p-6 text-white shadow-lg">
+      <div className="rounded-2xl border border-[#E5E7EB] bg-white p-6 shadow-sm">
         <div className="relative z-10">
-          <p className="text-sm font-medium text-white/65">{greeting()},</p>
+          <p className="text-sm font-medium text-[#6B7280]">{greeting()},</p>
           <h1 className="text-2xl sm:text-3xl font-bold mt-0.5">{firstName} 👋</h1>
-          <p className="text-white/60 text-sm mt-2 max-w-md">
+          <p className="mt-2 max-w-md text-sm text-[#6B7280]">
             {learningAccessEnabled ? (
               <>
-                Managing <span className="text-white font-semibold">{data.totalClasses}</span> {data.totalClasses === 1 ? "class" : "classes"} with <span className="text-white font-semibold">{data.totalStudents}</span> {data.totalStudents === 1 ? "student" : "students"}
-                {data.pendingStudents > 0 && <> · <span className="text-yellow-300 font-semibold">{data.pendingStudents} pending approval</span></>}.
+                Managing <span className="font-semibold text-[#111827]">{data.totalClasses}</span> {data.totalClasses === 1 ? "class" : "classes"} with <span className="font-semibold text-[#111827]">{data.totalStudents}</span> {data.totalStudents === 1 ? "student" : "students"}
+                {data.pendingStudents > 0 && <> · <span className="font-semibold text-[#F97316]">{data.pendingStudents} pending approval</span></>}.
               </>
             ) : (
               <>
-                Learning modules are paused by super admin right now. Focus on <span className="text-white font-semibold">question bank</span>, <span className="text-white font-semibold">tests</span>, and <span className="text-white font-semibold">community</span>.
+                Learning modules are paused by super admin right now. Focus on <span className="font-semibold text-[#111827]">question bank</span>, <span className="font-semibold text-[#111827]">tests</span>, and <span className="font-semibold text-[#111827]">community</span>.
               </>
             )}
           </p>
           <div className="flex flex-wrap gap-2 mt-4">
             {learningAccessEnabled && (
               <Link href="/admin/classes">
-                <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                  <Plus size={13} /> New Class
+                <Button size="sm" className="h-8 gap-1.5 border border-[#E5E7EB] bg-[#F5F7FB] text-[#111827] shadow-none hover:bg-[#EEF2FF]">
+                  <Plus size={13} className="text-[#5B4DFF]" /> New Class
                 </Button>
               </Link>
             )}
             <Link href="/admin/question-bank">
-              <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                <BookOpen size={13} /> Question Bank
+              <Button size="sm" className="h-8 gap-1.5 border border-[#E5E7EB] bg-[#F5F7FB] text-[#111827] shadow-none hover:bg-[#EEF2FF]">
+                <BookOpen size={13} className="text-[#3B82F6]" /> Question Bank
               </Button>
             </Link>
             <Link href="/admin/tests">
-              <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                <ClipboardList size={13} /> Tests
+              <Button size="sm" className="h-8 gap-1.5 border border-[#E5E7EB] bg-[#F5F7FB] text-[#111827] shadow-none hover:bg-[#EEF2FF]">
+                <ClipboardList size={13} className="text-[#5B4DFF]" /> Tests
               </Button>
             </Link>
             <Link href="/community">
-              <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                <FileText size={13} /> Community
+              <Button size="sm" className="h-8 gap-1.5 border border-[#E5E7EB] bg-[#F5F7FB] text-[#111827] shadow-none hover:bg-[#EEF2FF]">
+                <FileText size={13} className="text-[#22C55E]" /> Community
               </Button>
             </Link>
           </div>
         </div>
-        <div className="absolute top-0 right-0 w-52 h-52 bg-white/5 rounded-full -translate-y-14 translate-x-14" />
-        <div className="absolute bottom-0 right-16 w-36 h-36 bg-white/4 rounded-full translate-y-12" />
-        <div className="absolute top-1/2 right-4 w-20 h-20 bg-white/3 rounded-full -translate-y-1/2" />
       </div>
 
       {/* ── Stat tiles ── */}
@@ -131,13 +125,13 @@ export default function AdminDashboard() {
           <>
             <StatTile
               label="My Classes" value={data.totalClasses}
-              icon={<BookOpen size={18} className="text-white" />}
-              gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+              icon={<BookOpen size={18} className="text-[#3B82F6]" />}
+              tone="bg-[#EFF6FF]"
             />
             <StatTile
               label="Live Now" value={data.liveClasses}
-              icon={<Zap size={18} className="text-white" />}
-              gradient={data.liveClasses > 0 ? "bg-gradient-to-br from-red-500 to-rose-700" : "bg-gradient-to-br from-slate-400 to-slate-600"}
+              icon={<Zap size={18} className="text-[#F97316]" />}
+              tone={data.liveClasses > 0 ? "bg-[#FFF7ED]" : "bg-[#F3F4F6]"}
               pulse={data.liveClasses > 0}
             />
           </>
@@ -145,25 +139,25 @@ export default function AdminDashboard() {
           <>
             <StatTile
               label="Question Bank" value={1}
-              icon={<BookOpen size={18} className="text-white" />}
-              gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+              icon={<BookOpen size={18} className="text-[#3B82F6]" />}
+              tone="bg-[#EFF6FF]"
             />
             <StatTile
               label="Tests Focus" value={1}
-              icon={<ClipboardList size={18} className="text-white" />}
-              gradient="bg-gradient-to-br from-red-500 to-rose-700"
+              icon={<ClipboardList size={18} className="text-[#5B4DFF]" />}
+              tone="bg-[#EEF2FF]"
             />
           </>
         )}
         <StatTile
           label="My Students" value={data.totalStudents}
-          icon={<Users size={18} className="text-white" />}
-          gradient="bg-gradient-to-br from-violet-500 to-purple-700"
+          icon={<Users size={18} className="text-[#22C55E]" />}
+          tone="bg-[#ECFDF5]"
         />
         <StatTile
           label="Pending Approval" value={data.pendingStudents}
-          icon={<Clock size={18} className="text-white" />}
-          gradient={data.pendingStudents > 0 ? "bg-gradient-to-br from-amber-500 to-orange-600" : "bg-gradient-to-br from-emerald-500 to-teal-600"}
+          icon={<Clock size={18} className={data.pendingStudents > 0 ? "text-[#F97316]" : "text-[#22C55E]"} />}
+          tone={data.pendingStudents > 0 ? "bg-[#FFF7ED]" : "bg-[#ECFDF5]"}
           sub={data.pendingStudents > 0 ? "needs action" : "all clear"}
         />
       </div>

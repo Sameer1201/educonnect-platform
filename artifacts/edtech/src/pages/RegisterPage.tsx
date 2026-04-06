@@ -14,7 +14,9 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 interface RegistrationExamOption {
   exam: string;
-  batchCount: number;
+  label: string;
+  description?: string | null;
+  durationMinutes?: number | null;
 }
 
 export default function RegisterPage() {
@@ -192,7 +194,7 @@ export default function RegisterPage() {
                     <option value="">Select exam</option>
                     {examOptions.map((option) => (
                       <option key={option.exam} value={option.exam}>
-                        {option.exam} {option.batchCount > 1 ? `(${option.batchCount} batches)` : "(1 batch)"}
+                        {option.label || option.exam}
                       </option>
                     ))}
                   </select>
@@ -208,7 +210,7 @@ export default function RegisterPage() {
                   />
                 )}
                 <p className="text-xs text-muted-foreground">
-                  You will be assigned to the matching batch after approval.
+                  Only planner-enabled exams are shown here. You will see tests for the same exam pattern after approval.
                 </p>
               </div>
 

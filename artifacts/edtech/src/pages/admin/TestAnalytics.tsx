@@ -63,7 +63,7 @@ interface StudentResult {
 }
 
 interface Analytics {
-  test: { id: number; title: string; passingScore: number; durationMinutes: number };
+  test: { id: number; title: string; passingScore: number | null; durationMinutes: number };
   total: number;
   passCount: number;
   failCount: number;
@@ -254,7 +254,7 @@ export default function TestAnalytics() {
                 </div>
                 <div className="bg-muted/40 rounded-xl p-3 border border-border">
                   <p className="text-xs text-muted-foreground mb-1">Passing Mark</p>
-                  <p className="text-xl font-bold">{analytics.test.passingScore}%</p>
+                  <p className="text-xl font-bold">{analytics.test.passingScore == null ? "No cutoff" : `${analytics.test.passingScore}%`}</p>
                 </div>
               </div>
 
@@ -271,10 +271,9 @@ export default function TestAnalytics() {
                         <XAxis dataKey="range" tick={{ fontSize: 10 }} />
                         <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
                         <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => [v, "Students"]} />
-                        <ReferenceLine x="61–80%" stroke="#22c55e" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: "Pass", position: "top", fontSize: 10, fill: "#22c55e" }} />
                         <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                           {analytics.scoreDistribution.map((b, i) => (
-                            <Cell key={i} fill={b.min >= analytics.test.passingScore ? "#22c55e" : b.max < analytics.test.passingScore ? "#ef4444" : "#f59e0b"} />
+                            <Cell key={i} fill={analytics.test.passingScore == null ? "#6366f1" : b.min >= analytics.test.passingScore ? "#22c55e" : b.max < analytics.test.passingScore ? "#ef4444" : "#f59e0b"} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -714,7 +713,9 @@ export default function TestAnalytics() {
                         <Tooltip contentStyle={{ fontSize: 12 }} cursor={{ strokeDasharray: "3 3" }}
                           formatter={(v, name) => [name === "time" ? fmtTime(Number(v)) : `${v}%`, name === "time" ? "Time" : "Score"]}
                         />
-                        <ReferenceLine y={analytics.test.passingScore} stroke="#ef4444" strokeDasharray="3 3" />
+                        {analytics.test.passingScore != null && (
+                          <ReferenceLine y={analytics.test.passingScore} stroke="#ef4444" strokeDasharray="3 3" />
+                        )}
                         <Scatter
                           data={analytics.studentBreakdown.map((s) => ({ time: s.totalTime, score: s.percentage, name: s.studentName, passed: s.passed }))}
                           fill="#6366f1"
@@ -725,7 +726,7 @@ export default function TestAnalytics() {
                         </Scatter>
                       </ScatterChart>
                     </ResponsiveContainer>
-                    <p className="text-xs text-muted-foreground text-center mt-1">Green = Pass · Red = Fail · Dashed line = Passing mark</p>
+                    <p className="text-xs text-muted-foreground text-center mt-1">Green = Pass · Red = Fail{analytics.test.passingScore != null ? " · Dashed line = Passing mark" : ""}</p>
                   </CardContent>
                 </Card>
               )}
@@ -760,7 +761,7 @@ export default function TestAnalytics() {
                                 <p className="text-xs text-muted-foreground">@{s.studentUsername}</p>
                               </td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`text-sm font-bold ${s.percentage >= analytics.test.passingScore ? "text-green-600" : "text-red-600"}`}>
+                                <span className={`text-sm font-bold ${analytics.test.passingScore == null || s.percentage >= analytics.test.passingScore ? "text-green-600" : "text-red-600"}`}>
                                   {s.percentage}%
                                 </span>
                                 <p className="text-xs text-muted-foreground">{s.score}/{s.totalPoints} pts</p>
@@ -804,7 +805,9 @@ export default function TestAnalytics() {
                           <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                           <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
                           <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => [`${v}%`, "Avg Score"]} />
-                          <ReferenceLine y={analytics.test.passingScore} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "Pass", position: "right", fontSize: 10, fill: "#ef4444" }} />
+                          {analytics.test.passingScore != null && (
+                            <ReferenceLine y={analytics.test.passingScore} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "Pass", position: "right", fontSize: 10, fill: "#ef4444" }} />
+                          )}
                           <Line type="monotone" dataKey="avgScore" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} />
                         </LineChart>
                       </ResponsiveContainer>

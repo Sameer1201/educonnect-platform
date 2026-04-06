@@ -75,11 +75,11 @@
   --elevate-2: rgba(0,0,0, .08);
 
   --background: 220 33% 98%;
-  --foreground: 224 71% 10%;
-  --border: 220 20% 88%;
+  --foreground: 220 20% 10%;
+  --border: 220 14% 90%;
   --card: 0 0% 100%;
   --card-foreground: 224 71% 10%;
-  --card-border: 220 20% 90%;
+  --card-border: 220 14% 90%;
   --sidebar: 224 64% 14%;
   --sidebar-foreground: 210 40% 96%;
   --sidebar-border: 224 50% 20%;
@@ -91,23 +91,23 @@
   --popover: 0 0% 100%;
   --popover-foreground: 224 71% 10%;
   --popover-border: 220 20% 88%;
-  --primary: 224 76% 48%;
+  --primary: 246 100% 65%;
   --primary-foreground: 0 0% 100%;
   --secondary: 217 91% 95%;
   --secondary-foreground: 224 76% 30%;
-  --muted: 220 20% 95%;
-  --muted-foreground: 220 14% 46%;
+  --muted: 220 20% 96%;
+  --muted-foreground: 220 9% 46%;
   --accent: 210 100% 94%;
   --accent-foreground: 224 76% 30%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
   --input: 220 20% 88%;
-  --ring: 224 76% 48%;
-  --chart-1: 224 76% 48%;
-  --chart-2: 142 76% 36%;
-  --chart-3: 38 92% 50%;
+  --ring: 246 100% 65%;
+  --chart-1: 246 100% 65%;
+  --chart-2: 142 71% 45%;
+  --chart-3: 24 95% 53%;
   --chart-4: 280 70% 55%;
-  --chart-5: 0 84% 60%;
+  --chart-5: 217 91% 60%;
 
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: Georgia, serif;
@@ -279,23 +279,13 @@
 
   html {
     overflow-x: hidden;
-    background:
-      radial-gradient(circle at 8% 10%, rgba(0, 207, 255, 0.16), transparent 24%),
-      radial-gradient(circle at 82% 14%, rgba(255, 84, 214, 0.14), transparent 22%),
-      radial-gradient(circle at 50% 100%, rgba(91, 90, 255, 0.14), transparent 26%),
-      linear-gradient(180deg, rgba(8, 12, 30, 1), rgba(5, 8, 20, 1));
-    background-attachment: fixed;
+    background: #F5F7FB;
   }
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
     overflow-x: hidden;
-    background:
-      radial-gradient(circle at 8% 10%, rgba(0, 207, 255, 0.12), transparent 24%),
-      radial-gradient(circle at 80% 18%, rgba(184, 95, 255, 0.12), transparent 22%),
-      radial-gradient(circle at 60% 88%, rgba(255, 138, 76, 0.1), transparent 20%),
-      linear-gradient(180deg, rgba(8, 12, 30, 1), rgba(5, 8, 20, 1));
-    background-attachment: fixed;
+    background: #F5F7FB;
   }
 
   #root {

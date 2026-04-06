@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, classesTable, passwordResetRequestsTable, usersTable } from "@workspace/db";
+import { db, classesTable, examTemplatesTable, passwordResetRequestsTable, usersTable } from "@workspace/db";
 import { eq, or, desc } from "drizzle-orm";
 import { LoginBody, RegisterStudentBody } from "@workspace/api-zod";
 import { hashPassword, verifyPassword } from "../lib/auth";
@@ -91,24 +91,25 @@ router.post("/auth/forgot-password-request", async (req, res): Promise<void> => 
 });
 
 router.get("/auth/exams", async (_req, res): Promise<void> => {
-  const classes = await db
-    .select({ subject: classesTable.subject, status: classesTable.status })
-    .from(classesTable);
+  const templates = await db
+    .select({
+      key: examTemplatesTable.key,
+      name: examTemplatesTable.name,
+      description: examTemplatesTable.description,
+      durationMinutes: examTemplatesTable.durationMinutes,
+      showInRegistration: examTemplatesTable.showInRegistration,
+    })
+    .from(examTemplatesTable)
+    .orderBy(examTemplatesTable.name);
 
-  const examCounts = new Map<string, number>();
-
-  for (const cls of classes) {
-    const exam = cls.subject.trim();
-    if (!exam || cls.status === "completed" || cls.status === "cancelled") {
-      continue;
-    }
-    examCounts.set(exam, (examCounts.get(exam) ?? 0) + 1);
-  }
-
-  const exams = [...examCounts.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([exam, batchCount]) => ({ exam, batchCount }));
-
+  const exams = templates
+    .filter((template) => template.showInRegistration !== false)
+    .map((template) => ({
+      exam: template.key,
+      label: template.name,
+      description: template.description ?? null,
+      durationMinutes: template.durationMinutes ?? null,
+    }));
   res.json(exams);
 });
 

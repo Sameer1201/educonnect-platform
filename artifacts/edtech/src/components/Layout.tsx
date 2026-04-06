@@ -13,7 +13,7 @@ import {
   LogOut, Menu, X, UserCheck, TrendingUp, LifeBuoy, Star,
   MessageSquare, DollarSign, ClipboardList, CalendarDays, Activity,
   FileText, Trophy, BarChart2, ChevronLeft, ChevronRight, Zap,
-  Search, Sun, Moon, Bell, Medal, UserCircle, CreditCard,
+  Search, Bell, Medal, UserCircle, CreditCard,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -25,10 +25,20 @@ function getInitials(name: string) {
 }
 
 function getRoleConfig(role: string) {
-  if (role === "super_admin") return { label: "Super Admin", iconBg: "bg-gradient-to-br from-red-600 to-orange-500" };
-  if (role === "admin") return { label: "Teacher", iconBg: "bg-gradient-to-br from-blue-600 to-cyan-500" };
-  if (role === "planner") return { label: "Planner", iconBg: "bg-gradient-to-br from-emerald-600 to-teal-500" };
-  return { label: "Student", iconBg: "bg-gradient-to-br from-violet-600 to-purple-500" };
+  if (role === "super_admin") return { label: "Super Admin", iconBg: "bg-[#F97316]" };
+  if (role === "admin") return { label: "Teacher", iconBg: "bg-[#5B4DFF]" };
+  if (role === "planner") return { label: "Planner", iconBg: "bg-[#22C55E]" };
+  return { label: "Student", iconBg: "bg-[#3B82F6]" };
+}
+
+function getNavIconTone(label: string) {
+  const key = label.toLowerCase();
+  if (key.includes("dashboard")) return "bg-[#EEF2FF] text-[#5B4DFF]";
+  if (key.includes("student") || key.includes("user")) return "bg-[#ECFDF5] text-[#22C55E]";
+  if (key.includes("question") || key.includes("test")) return "bg-[#EFF6FF] text-[#3B82F6]";
+  if (key.includes("analytics") || key.includes("finance") || key.includes("payments")) return "bg-[#FFF7ED] text-[#F97316]";
+  if (key.includes("leaderboard") || key.includes("community") || key.includes("notification")) return "bg-[#F5F3FF] text-[#5B4DFF]";
+  return "bg-[#F3F4F6] text-[#6B7280]";
 }
 
 function getSuperAdminGroups(): NavGroup[] {
@@ -110,6 +120,7 @@ function getPlannerGroups(): NavGroup[] {
   return [
     { items: [{ label: "Dashboard", href: "/planner/dashboard", icon: <LayoutDashboard size={17} /> }] },
     { label: "Planning", items: [
+      { label: "Exam Templates", href: "/planner/exam-templates", icon: <ClipboardList size={17} /> },
       { label: "Courses", href: "/planner/courses", icon: <BookOpen size={17} /> },
       { label: "Lecture Plans", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
@@ -121,30 +132,28 @@ function getPlannerGroups(): NavGroup[] {
 }
 
 function NavLink({ item, isActive, collapsed, onClick }: { item: NavItem; isActive: boolean; collapsed: boolean; onClick: () => void }) {
+  const iconTone = getNavIconTone(item.label);
   return (
     <Link
       href={item.href}
       data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
       onClick={onClick}
-      className={`relative flex items-center gap-3 rounded-xl text-sm transition-all duration-300 group border border-transparent ${
-        collapsed ? "px-2.5 py-2.5 justify-center" : "px-3 py-2"
+      className={`relative flex items-center gap-3 rounded-[16px] text-sm transition-all duration-200 group border border-transparent ${
+        collapsed ? "px-2.5 py-2.5 justify-center" : "px-3 py-2.5"
       } ${
         isActive
-          ? "bg-[linear-gradient(135deg,rgba(0,212,255,0.18),rgba(110,86,255,0.12)_52%,rgba(255,84,214,0.16))] border-cyan-300/20 text-white font-medium shadow-[0_16px_30px_rgba(0,0,0,0.2),0_0_22px_rgba(34,211,238,0.12)] backdrop-blur-md -translate-y-0.5"
-          : "text-white/58 hover:bg-[linear-gradient(135deg,rgba(0,212,255,0.1),rgba(255,255,255,0.04)_48%,rgba(255,84,214,0.1))] hover:border-white/10 hover:text-white/90 hover:-translate-y-0.5 hover:shadow-[0_14px_26px_rgba(0,0,0,0.18),0_0_18px_rgba(255,84,214,0.08)]"
+          ? "bg-[#5B4DFF] text-white font-semibold shadow-[0_8px_18px_rgba(91,77,255,0.22)]"
+          : "text-[#1F2937] hover:bg-[#F3F5F9] hover:text-[#111827]"
       }`}
     >
-      {isActive && (
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full bg-gradient-to-b from-cyan-300 via-fuchsia-300 to-amber-300" />
-      )}
-      <span className={`icon-3d h-8 w-8 shrink-0 transition-colors ${isActive ? "text-white" : "text-white/70 group-hover:text-white/90"}`}>
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-all ${isActive ? "border-white/10 bg-white text-[#5B4DFF]" : `${iconTone} border-transparent group-hover:scale-105`}`}>
         {item.icon}
       </span>
       {!collapsed && <span className="truncate">{item.label}</span>}
       {collapsed && (
-        <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-gray-900/95 text-white text-xs rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-150 z-50 shadow-xl border border-white/10">
+        <div className="absolute left-full ml-3 whitespace-nowrap rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-xs text-[#111827] opacity-0 shadow-xl transition-all duration-150 pointer-events-none z-50 group-hover:opacity-100">
           {item.label}
-          <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-gray-900/95 rotate-45 border-l border-b border-white/10" />
+          <div className="absolute top-1/2 -left-1 h-2 w-2 -translate-y-1/2 rotate-45 border-b border-l border-[#E5E7EB] bg-white" />
         </div>
       )}
     </Link>
@@ -160,16 +169,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
-  const [dark, setDark] = useState(() => {
-    try {
-      const saved = localStorage.getItem("theme");
-      if (saved === "dark") return true;
-      if (saved === "light") return false;
-      return window.matchMedia("(prefers-color-scheme: dark)").matches;
-    } catch {
-      return true;
-    }
-  });
   const queryClient = useQueryClient();
   const logoutMutation = useLogout();
   const { data: platformSettings } = usePlatformSettings(!!user);
@@ -180,10 +179,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    if (dark) root.classList.add("dark");
-    else root.classList.remove("dark");
-    try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch {}
-  }, [dark]);
+    root.classList.remove("dark");
+    try { localStorage.setItem("theme", "light"); } catch {}
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -211,12 +209,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     user.role === "planner" ? getPlannerGroups() : getStudentGroups();
 
   const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
-  const navGroups = (user.role === "admin" || user.role === "student") && !learningAccessEnabled
+  const navGroups = (user.role === "admin" || user.role === "student" || user.role === "planner") && !learningAccessEnabled
     ? baseNavGroups.map((group) => ({
         ...group,
         items: group.items.filter((item) => ![
           "/admin/classes",
           "/admin/assignments",
+          "/planner/courses",
+          "/schedule",
           "/student/feedback",
           "/student/payments",
           "/student/classes",
@@ -237,16 +237,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className={`px-3 py-3 border-b border-white/8 ${collapsed ? "items-center" : ""}`}>
+      <div className={`border-b border-[#E5E7EB] px-4 py-4 ${collapsed ? "items-center" : ""}`}>
         <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"} gap-2`}>
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center shadow-md ${roleConfig.iconBg}`}>
+            <div className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center ${roleConfig.iconBg}`}>
               <GraduationCap size={15} className="text-white" />
             </div>
             {!collapsed && (
               <div className="min-w-0">
-                <p className="text-sm font-bold text-white leading-tight">EduConnect</p>
-                <p className="text-[10px] text-white/40">{roleConfig.label} Portal</p>
+                <p className="text-sm font-bold leading-tight text-[#111827]">EduConnect</p>
+                <p className="text-[10px] text-[#6B7280]">{roleConfig.label} Portal</p>
               </div>
             )}
           </div>
@@ -254,16 +254,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 px-2 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 space-y-0.5">
         {navGroups.map((group, gi) => (
           <div key={gi} className={gi > 0 ? "mt-3" : ""}>
             {!collapsed && group.label && (
-              <p className="text-[10px] font-bold uppercase tracking-widest text-white/22 px-3 mb-1">
+              <p className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9CA3AF]">
                 {group.label}
               </p>
             )}
             {collapsed && gi > 0 && group.label && (
-              <div className="my-2 mx-auto w-5 h-px bg-white/10" />
+              <div className="my-2 mx-auto h-px w-5 bg-[#E5E7EB]" />
             )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
@@ -277,26 +277,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         ))}
       </nav>
 
-      {/* Bottom: dark mode + user + collapse */}
-      <div className="border-t border-white/8 p-2 space-y-1">
-        {/* Dark mode toggle */}
-        <button
-          onClick={() => setDark((d) => !d)}
-          className={`w-full flex items-center gap-3 rounded-lg text-xs text-white/45 hover:text-white/80 hover:bg-white/7 transition-all px-3 py-2 ${collapsed ? "justify-center px-2.5" : ""}`}
-          title={dark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-        >
-          {dark ? <Sun size={15} className="shrink-0" /> : <Moon size={15} className="shrink-0" />}
-          {!collapsed && <span>{dark ? "Light Mode" : "Dark Mode"}</span>}
-        </button>
-
+      {/* Bottom: user + collapse */}
+      <div className="space-y-1 border-t border-[#E5E7EB] p-3">
         {/* User row */}
         {!collapsed ? (
-          <div className="flex items-center gap-2.5 px-2 py-1.5">
+          <div className="flex items-center gap-2.5 px-1 py-1.5">
             {(user as any).avatarUrl ? (
               <img
                 src={(user as any).avatarUrl}
                 alt={user.fullName}
-                className={`w-8 h-8 rounded-full object-cover shrink-0 border-2 border-white/20`}
+                className={`w-8 h-8 rounded-full object-cover shrink-0 border-2 border-[#E5E7EB]`}
               />
             ) : (
               <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white ${roleConfig.iconBg}`}>
@@ -304,12 +294,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate leading-tight">{user.fullName}</p>
-              <p className="text-[11px] text-white/38 truncate">@{user.username}</p>
+              <p className="truncate text-sm font-semibold leading-tight text-[#111827]">{user.fullName}</p>
+              <p className="truncate text-[11px] text-[#6B7280]">@{user.username}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="text-white/30 hover:text-white/70 transition-colors p-1 rounded shrink-0"
+              className="shrink-0 rounded p-1 text-[#6B7280] transition-colors hover:text-[#111827]"
               title="Logout"
             >
               <LogOut size={14} />
@@ -318,7 +308,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         ) : (
           <button
             onClick={handleLogout}
-            className="w-full flex justify-center py-2 text-white/30 hover:text-white/70 hover:bg-white/7 transition-colors rounded-lg"
+            className="w-full rounded-lg py-2 text-[#6B7280] transition-colors hover:bg-[#F3F5F9] hover:text-[#111827]"
             title="Logout"
           >
             <LogOut size={15} />
@@ -328,7 +318,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className={`w-full flex items-center justify-center gap-2 text-[11px] text-white/22 hover:text-white/50 transition-colors py-1.5 rounded-lg hover:bg-white/6`}
+          className={`w-full rounded-lg py-1.5 text-[11px] text-[#9CA3AF] transition-colors hover:text-[#6B7280] ${collapsed ? "flex items-center justify-center" : "flex items-center justify-center gap-2"}`}
         >
           {collapsed ? <ChevronRight size={13} /> : <><ChevronLeft size={13} /><span>Collapse sidebar</span></>}
         </button>
@@ -337,55 +327,47 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="platform-shell flex h-screen bg-background overflow-hidden">
-      <div className="platform-orb platform-orb-cyan" />
-      <div className="platform-orb platform-orb-fuchsia" />
-      <div className="platform-orb platform-orb-blue" />
-      <div className="floating-bubble floating-bubble-sm left-[9%] top-[16%]" />
-      <div className="floating-bubble floating-bubble-md right-[10%] top-[22%]" />
-      <div className="floating-bubble floating-bubble-lg left-[22%] bottom-[12%]" />
-      <div className="floating-bubble floating-bubble-sm right-[24%] bottom-[20%]" />
-      <div className="platform-grid" />
+    <div className="flex h-screen overflow-hidden bg-[#F5F7FB]">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 lg:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Desktop sidebar */}
-      <aside className={`relative z-10 hidden lg:flex flex-col shrink-0 ${collapsed ? "w-[68px]" : "w-60"} bg-sidebar/92 backdrop-blur-xl border-r border-white/8 transition-all duration-200 ${collapsed ? "overflow-visible" : "overflow-hidden"}`}>
+      <aside className={`relative z-10 hidden shrink-0 flex-col border-r border-[#E5E7EB] bg-white transition-all duration-200 lg:flex ${collapsed ? "w-[68px] overflow-visible" : "w-60 overflow-hidden"}`}>
         <SidebarContent />
       </aside>
 
       {/* Mobile sidebar */}
-      <aside className={`fixed lg:hidden inset-y-0 left-0 z-30 w-60 bg-sidebar/95 backdrop-blur-xl border-r border-white/8 flex flex-col transition-transform duration-200 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-30 flex w-60 flex-col border-r border-[#E5E7EB] bg-white transition-transform duration-200 lg:hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <SidebarContent />
       </aside>
 
       {/* Main content */}
       <div className="relative z-10 flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile topbar */}
-        <header className="lg:hidden flex items-center gap-3 px-3 py-3 bg-sidebar/95 border-b border-white/8 backdrop-blur-xl">
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="text-white/70 hover:text-white p-1" data-testid="button-menu">
+        <header className="flex items-center gap-3 border-b border-[#E5E7EB] bg-white px-3 py-3 lg:hidden">
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="p-1 text-[#6B7280] hover:text-[#111827]" data-testid="button-menu">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${roleConfig.iconBg}`}>
               <GraduationCap size={12} className="text-white" />
             </div>
-            <span className="font-semibold text-sm text-white truncate">EduConnect</span>
+            <span className="truncate text-sm font-semibold text-[#111827]">EduConnect</span>
           </div>
-          <button onClick={() => setCmdOpen(true)} className="text-white/60 hover:text-white p-1">
+          <button onClick={() => setCmdOpen(true)} className="p-1 text-[#6B7280] hover:text-[#111827]">
             <Search size={18} />
           </button>
           <NotificationBell />
         </header>
 
         {/* Desktop topbar */}
-        <header className="hidden lg:flex items-center justify-end gap-2 px-6 py-2.5 border-b border-white/8 bg-background/55 backdrop-blur-xl shrink-0">
-          <button onClick={() => setCmdOpen(true)} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground border border-white/10 rounded-xl px-3 py-1.5 hover:bg-white/6 transition-colors mr-2 backdrop-blur-md shadow-[0_10px_30px_rgba(15,23,42,0.12)]">
+        <header className="hidden shrink-0 items-center justify-end gap-2 border-b border-[#E5E7EB] bg-white px-6 py-2.5 lg:flex">
+          <button onClick={() => setCmdOpen(true)} className="mr-2 flex items-center gap-2 rounded-xl border border-[#E5E7EB] px-3 py-1.5 text-xs text-[#6B7280] transition-colors hover:bg-[#F5F7FB] hover:text-[#111827]">
             <Search size={13} />
             <span>Search</span>
-            <kbd className="text-[10px] bg-white/6 px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
+            <kbd className="rounded bg-[#F5F7FB] px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
           </button>
           <NotificationBell />
         </header>

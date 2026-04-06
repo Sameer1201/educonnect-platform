@@ -9,11 +9,12 @@ export const examTemplatesTable = pgTable("exam_templates", {
   examHeader: text("exam_header"),
   examSubheader: text("exam_subheader"),
   durationMinutes: integer("duration_minutes").notNull().default(180),
-  passingScore: integer("passing_score").notNull().default(60),
+  passingScore: integer("passing_score"),
   defaultPositiveMarks: real("default_positive_marks").notNull().default(1),
   defaultNegativeMarks: real("default_negative_marks").notNull().default(0),
   sections: text("sections").notNull(),
   isSystem: boolean("is_system").notNull().default(false),
+  showInRegistration: boolean("show_in_registration").notNull().default(true),
   createdBy: integer("created_by").references(() => usersTable.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

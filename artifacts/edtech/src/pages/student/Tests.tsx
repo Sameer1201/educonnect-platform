@@ -10,7 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ClipboardList, Clock, CheckCircle2, XCircle, AlertCircle, BookOpen, ChevronRight,
   BarChart3, ListChecks, Hash, CheckSquare, Flag, Timer, TrendingUp, Target, Brain,
-  Calculator, PanelRightClose, PanelRightOpen, Circle, Square
+  Calculator, PanelRightClose, PanelRightOpen, Circle, Square, Bookmark, RotateCcw
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -24,13 +24,13 @@ const TEST_DRAFT_PREFIX = "educonnect-test-draft";
 type QuestionType = "mcq" | "multi" | "integer";
 type ResultTab = "score" | "analysis";
 type AnalysisFilter = "all" | "correct" | "wrong" | "skipped" | "flagged";
-type AnswerValue = number | number[];
+type AnswerValue = number | number[] | string;
 type PaletteStatus = "not-visited" | "not-answered" | "answered" | "review" | "answered-review";
 
 interface TestItem {
   id: number; title: string; description: string | null; durationMinutes: number;
   examHeader?: string | null; examSubheader?: string | null;
-  passingScore: number; scheduledAt: string | null; className: string | null;
+  passingScore: number | null; scheduledAt: string | null; className: string | null;
   subjectName?: string | null; chapterName?: string | null; alreadySubmitted: boolean;
 }
 interface Question {
@@ -45,12 +45,34 @@ interface SubmissionData {
   answers: string;
   questionTimings?: Record<string, number> | null;
   flaggedQuestions?: number[] | null;
+  visitedQuestionIds?: number[] | null;
+  reviewQuestionIds?: number[] | null;
+  interactionLog?: InteractionLogEntry[] | null;
+}
+interface TestSectionItem {
+  id: number;
+  title: string;
+  subjectLabel?: string | null;
+  order: number;
+  questionCount?: number | null;
+  marksPerQuestion?: number | null;
+  negativeMarks?: number | null;
 }
 interface TestDetail {
   id: number; title: string; description: string | null; durationMinutes: number;
   examHeader?: string | null; examSubheader?: string | null;
-  passingScore: number; questions: Question[]; submission: SubmissionData | null;
+  passingScore: number | null; questions: Question[]; sections?: TestSectionItem[]; submission: SubmissionData | null;
   className?: string | null; subjectName?: string | null; chapterName?: string | null;
+}
+
+interface WrongBucketEntry {
+  testId: number;
+  testTitle: string;
+  questionId: number;
+  questionIndex: number;
+  question: Question;
+  yourAnswerLabel: string;
+  correctAnswerLabel: string;
 }
 
 interface SavedTestDraft {
@@ -61,7 +83,15 @@ interface SavedTestDraft {
   reviewQuestionIds: number[];
   flaggedQuestionIds: number[];
   questionTimings: Record<number, number>;
+  interactionLog: InteractionLogEntry[];
   showInstructions: boolean;
+}
+
+interface InteractionLogEntry {
+  at: number;
+  questionId: number;
+  sectionLabel: string;
+  action: "open" | "answer" | "clear" | "review" | "flag";
 }
 
 function isAnswerCorrect(q: Question, answer: AnswerValue | undefined): boolean {
@@ -88,8 +118,43 @@ function formatSeconds(secs: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+function getNumericAnswerValue(answer: AnswerValue | undefined): string {
+  if (answer === undefined || answer === null) return "";
+  return String(answer);
+}
+
+function hasMeaningfulNumericAnswer(answer: AnswerValue | undefined): boolean {
+  const value = getNumericAnswerValue(answer).trim();
+  return value !== "" && value !== "-" && value !== "." && value !== "-.";
+}
+
 function getNegativeMark(question: Question): string {
   return Number(question.negativeMarks ?? 0).toFixed(2).replace(/\.00$/, "");
+}
+
+function formatAnswerLabel(question: Question, answer: AnswerValue | undefined): string {
+  if (answer === undefined || answer === null || (Array.isArray(answer) && answer.length === 0)) return "—";
+  if (question.questionType === "multi") {
+    return Array.isArray(answer)
+      ? answer.map((value) => String.fromCharCode(65 + Number(value))).join(", ")
+      : "—";
+  }
+  if (question.questionType === "integer") {
+    return String(answer);
+  }
+  return String.fromCharCode(65 + Number(answer));
+}
+
+function formatCorrectAnswerLabel(question: Question): string {
+  if (question.questionType === "multi") {
+    return (question.correctAnswerMulti ?? []).map((value) => String.fromCharCode(65 + Number(value))).join(", ");
+  }
+  if (question.questionType === "integer") {
+    return question.correctAnswerMin !== null && question.correctAnswerMin !== undefined && question.correctAnswerMax !== null && question.correctAnswerMax !== undefined
+      ? `${question.correctAnswerMin} — ${question.correctAnswerMax}`
+      : String(question.correctAnswer ?? "—");
+  }
+  return String.fromCharCode(65 + Number(question.correctAnswer ?? 0));
 }
 
 const PIE_COLORS = ["#22c55e", "#ef4444", "#94a3b8"];
@@ -106,16 +171,20 @@ export default function StudentTests() {
   const [resultTest, setResultTest] = useState<TestDetail | null>(null);
   const [resultTab, setResultTab] = useState<ResultTab>("score");
   const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilter>("all");
+  const [wrongBucketOpen, setWrongBucketOpen] = useState(false);
+  const [reviewBucketOpen, setReviewBucketOpen] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [visitedSet, setVisitedSet] = useState<Set<number>>(new Set());
   const [reviewSet, setReviewSet] = useState<Set<number>>(new Set());
   const [showInstructions, setShowInstructions] = useState(false);
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const integerInputRef = useRef<HTMLInputElement | null>(null);
 
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
   const [flaggedSet, setFlaggedSet] = useState<Set<number>>(new Set());
+  const [interactionLog, setInteractionLog] = useState<InteractionLogEntry[]>([]);
 
   const getDraftKey = (testId: number) => `${TEST_DRAFT_PREFIX}-${testId}`;
   const clearDraft = (testId: number) => localStorage.removeItem(getDraftKey(testId));
@@ -130,9 +199,38 @@ export default function StudentTests() {
     reviewQuestionIds: Array.from(reviewSet),
     flaggedQuestionIds: Array.from(flaggedSet),
     questionTimings,
+    interactionLog,
     showInstructions,
     ...overrides,
   });
+
+  const getQuestionSectionLabel = (test: TestDetail, questionId: number) => {
+    const question = test.questions.find((entry) => entry.id === questionId);
+    const defaultLabel = test.subjectName ?? test.title ?? "Section";
+    if (!question) return test.subjectName ?? test.title ?? "Section";
+    if (question.sectionId != null) {
+      const section = test.sections?.find((entry) => entry.id === question.sectionId);
+      if (section) return section.subjectLabel?.trim() || section.title?.trim() || defaultLabel;
+    }
+    return test.sections?.[0]?.subjectLabel?.trim() || test.sections?.[0]?.title?.trim() || defaultLabel;
+  };
+
+  const getElapsedSeconds = () => {
+    if (!activeTest) return 0;
+    return Math.max(0, activeTest.durationMinutes * 60 - timeLeft);
+  };
+
+  const logInteraction = (questionId: number, action: InteractionLogEntry["action"], testOverride?: TestDetail) => {
+    const sourceTest = testOverride ?? activeTest;
+    if (!sourceTest) return;
+    const entry: InteractionLogEntry = {
+      at: testOverride ? 0 : getElapsedSeconds(),
+      questionId,
+      sectionLabel: getQuestionSectionLabel(sourceTest, questionId),
+      action,
+    };
+    setInteractionLog((prev) => [...prev, entry]);
+  };
 
   const { data: tests = [], isLoading } = useQuery<TestItem[]>({
     queryKey: ["student-tests"],
@@ -143,22 +241,73 @@ export default function StudentTests() {
     },
   });
 
-  const openTest = async (testId: number) => {
-    const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
-    if (!r.ok) return;
-    const data: TestDetail = await r.json();
-    if (data.submission) { setResultTest(data); setResultTab("score"); return; }
-    const rawDraft = localStorage.getItem(getDraftKey(testId));
-    const parsedDraft: SavedTestDraft | null = rawDraft ? JSON.parse(rawDraft) : null;
-    const shouldResume = parsedDraft ? window.confirm("A saved test attempt was found. Do you want to continue from where you left off?") : false;
-    const initialIndex = shouldResume ? Math.min(parsedDraft?.currentQuestionIndex ?? 0, Math.max(data.questions.length - 1, 0)) : 0;
-    const initialQuestion = data.questions[initialIndex];
+  const submittedTestIds = tests.filter((test) => test.alreadySubmitted).map((test) => test.id);
 
-    setActiveTest(data);
+  const { data: bucketQuestions = [], isLoading: wrongBucketLoading } = useQuery<WrongBucketEntry[]>({
+    queryKey: ["student-wrong-bucket", submittedTestIds],
+    enabled: reviewBucketOpen && submittedTestIds.length > 0,
+    queryFn: async () => {
+      const details = await Promise.all(
+        submittedTestIds.map(async (testId) => {
+          const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
+          if (!response.ok) throw new Error("Failed to load wrong question bucket");
+          return response.json() as Promise<TestDetail>;
+        }),
+      );
+
+      return details.flatMap((detail) => {
+        const submitted: Record<number, AnswerValue> = detail.submission?.answers ? JSON.parse(detail.submission.answers) : {};
+        return detail.questions
+          .map((question, index) => ({ question, index, answer: submitted[question.id] }))
+          .filter(({ question, answer }) => {
+            const skipped = answer === undefined || answer === null || (Array.isArray(answer) && answer.length === 0);
+            return !skipped && !isAnswerCorrect(question, answer);
+          })
+          .map(({ question, index, answer }) => ({
+            testId: detail.id,
+            testTitle: detail.title,
+            questionId: question.id,
+            questionIndex: index,
+            question,
+            yourAnswerLabel: formatAnswerLabel(question, answer),
+            correctAnswerLabel: formatCorrectAnswerLabel(question),
+          }));
+      });
+    },
+  });
+
+  const launchTestAttempt = (data: TestDetail, allowDraftResume = true) => {
+    const rawDraft = localStorage.getItem(getDraftKey(data.id));
+    const parsedDraft: SavedTestDraft | null = rawDraft ? JSON.parse(rawDraft) : null;
+    const shouldResume = allowDraftResume && parsedDraft
+      ? window.confirm("A saved test attempt was found. Do you want to continue from where you left off?")
+      : false;
+
+    if (!shouldResume) clearDraft(data.id);
+
+    const cleanTest: TestDetail = { ...data, submission: null };
+    const initialIndex = shouldResume
+      ? Math.min(parsedDraft?.currentQuestionIndex ?? 0, Math.max(cleanTest.questions.length - 1, 0))
+      : 0;
+    const initialQuestion = cleanTest.questions[initialIndex];
+
+    setWrongBucketOpen(false);
+    setResultTest(null);
+    setActiveTest(cleanTest);
     setAnswers(shouldResume ? parsedDraft?.answers ?? {} : {});
-    setTimeLeft(shouldResume ? Math.max(parsedDraft?.timeLeft ?? data.durationMinutes * 60, 0) : data.durationMinutes * 60);
+    setTimeLeft(shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60);
     setQuestionTimings(shouldResume ? parsedDraft?.questionTimings ?? {} : {});
     setFlaggedSet(new Set(shouldResume ? parsedDraft?.flaggedQuestionIds ?? [] : []));
+    setInteractionLog(
+      shouldResume
+        ? parsedDraft?.interactionLog ?? []
+        : (initialQuestion ? [{
+            at: 0,
+            questionId: initialQuestion.id,
+            sectionLabel: getQuestionSectionLabel(cleanTest, initialQuestion.id),
+            action: "open" as const,
+          }] : []),
+    );
     timingActiveRef.current = null;
     setCurrentQuestionIndex(initialIndex);
     setVisitedSet(new Set(
@@ -169,6 +318,29 @@ export default function StudentTests() {
     setReviewSet(new Set(shouldResume ? parsedDraft?.reviewQuestionIds ?? [] : []));
     setShowInstructions(shouldResume ? parsedDraft?.showInstructions ?? false : true);
     setPaletteCollapsed(false);
+  };
+
+  const openTest = async (testId: number) => {
+    const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
+    if (!r.ok) return;
+    const data: TestDetail = await r.json();
+    if (data.submission) {
+      setWrongBucketOpen(false);
+      setResultTest(data);
+      setResultTab("score");
+      return;
+    }
+    launchTestAttempt(data, true);
+  };
+
+  const reattemptTest = async (testId: number) => {
+    const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
+    if (!r.ok) {
+      toast({ title: "Could not open reattempt", variant: "destructive" });
+      return;
+    }
+    const data: TestDetail = await r.json();
+    launchTestAttempt({ ...data, submission: null }, false);
   };
 
   useEffect(() => {
@@ -182,7 +354,7 @@ export default function StudentTests() {
   useEffect(() => {
     if (!activeTest || activeTest.submission) return;
     saveDraft(activeTest, buildCurrentDraft(activeTest));
-  }, [activeTest, answers, timeLeft, currentQuestionIndex, visitedSet, reviewSet, flaggedSet, questionTimings, showInstructions]);
+  }, [activeTest, answers, timeLeft, currentQuestionIndex, visitedSet, reviewSet, flaggedSet, questionTimings, interactionLog, showInstructions]);
 
   const startInteraction = (qId: number) => {
     const now = Date.now();
@@ -208,11 +380,14 @@ export default function StudentTests() {
     return questionTimings;
   };
 
-  const toggleFlag = (qId: number) =>
+  const toggleFlag = (qId: number) => {
+    logInteraction(qId, "flag");
     setFlaggedSet(prev => { const n = new Set(prev); n.has(qId) ? n.delete(qId) : n.add(qId); return n; });
+  };
 
   const isAnswered = (question: Question, answer: AnswerValue | undefined) => {
     if (question.questionType === "multi") return Array.isArray(answer) && answer.length > 0;
+    if (question.questionType === "integer") return hasMeaningfulNumericAnswer(answer);
     return answer !== undefined && answer !== null && answer !== "";
   };
 
@@ -234,7 +409,14 @@ export default function StudentTests() {
       const r = await fetch(`${BASE}/api/tests/${activeTest.id}/submit`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers, questionTimings: finalTimings, flaggedQuestions: Array.from(flaggedSet) }),
+        body: JSON.stringify({
+          answers,
+          questionTimings: finalTimings,
+          flaggedQuestions: Array.from(flaggedSet),
+          visitedQuestionIds: Array.from(visitedSet),
+          reviewQuestionIds: Array.from(reviewSet),
+          interactionLog,
+        }),
       });
       if (!r.ok) throw new Error("Failed to submit");
       return r.json();
@@ -258,17 +440,49 @@ export default function StudentTests() {
     return isAnswered(q, a);
   }).length ?? 0;
   const totalQ = activeTest?.questions.length ?? 0;
+  const sectionGroups = activeTest
+    ? ((activeTest.sections?.length
+        ? activeTest.sections
+        : [{
+            id: -1,
+            title: activeTest.subjectName ?? activeTest.title ?? "Section",
+            subjectLabel: activeTest.subjectName ?? activeTest.title ?? "Section",
+            order: 0,
+          } as TestSectionItem])
+        .map((section, sectionIndex) => {
+          const questionEntries = activeTest.questions
+            .map((question, globalIndex) => ({ question, globalIndex }))
+            .filter(({ question }) => {
+              if (!activeTest.sections?.length) return true;
+              if (question.sectionId != null) return question.sectionId === section.id;
+              return sectionIndex === 0;
+            });
+          return {
+            id: section.id,
+            label: section.subjectLabel?.trim() || section.title?.trim() || `Section ${sectionIndex + 1}`,
+            questionEntries,
+          };
+        })
+        .filter((section) => section.questionEntries.length > 0))
+    : [];
 
-  const setMcqAnswer = (qId: number, idx: number) => { startInteraction(qId); setAnswers(p => ({ ...p, [qId]: idx })); };
+  const setMcqAnswer = (qId: number, idx: number) => { startInteraction(qId); logInteraction(qId, "answer"); setAnswers(p => ({ ...p, [qId]: idx })); };
   const toggleMultiAnswer = (qId: number, idx: number) => {
     startInteraction(qId);
+    logInteraction(qId, "answer");
     setAnswers(p => { const cur = (p[qId] as number[] | undefined) ?? []; return { ...p, [qId]: cur.includes(idx) ? cur.filter(x => x !== idx) : [...cur, idx] }; });
   };
   const setIntegerAnswer = (qId: number, val: string) => {
     startInteraction(qId);
-    if (val === "" || val === "-") { setAnswers(p => { const n = { ...p }; delete n[qId]; return n; }); return; }
-    const num = parseInt(val);
-    if (!isNaN(num)) setAnswers(p => ({ ...p, [qId]: num }));
+    const sanitized = val.replace(/\s+/g, "");
+    if (!/^-?(?:\d+)?(?:\.\d*)?$/.test(sanitized)) return;
+    if (sanitized === "") {
+      logInteraction(qId, "clear");
+      setAnswers(p => { const n = { ...p }; delete n[qId]; return n; });
+      return;
+    }
+    logInteraction(qId, "answer");
+    setAnswers(p => ({ ...p, [qId]: sanitized }));
   };
 
   const goToQuestion = (index: number) => {
@@ -277,10 +491,12 @@ export default function StudentTests() {
     const question = activeTest.questions[bounded];
     setCurrentQuestionIndex(bounded);
     setVisitedSet((prev) => new Set(prev).add(question.id));
+    logInteraction(question.id, "open");
     startInteraction(question.id);
   };
 
   const clearResponse = (question: Question) => {
+    logInteraction(question.id, "clear");
     setAnswers((prev) => {
       const next = { ...prev };
       delete next[question.id];
@@ -302,6 +518,7 @@ export default function StudentTests() {
   const markForReviewAndNext = () => {
     if (!activeTest) return;
     const current = activeTest.questions[currentQuestionIndex];
+    logInteraction(current.id, "review");
     setReviewSet((prev) => new Set(prev).add(current.id));
     if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1);
   };
@@ -311,10 +528,21 @@ export default function StudentTests() {
   };
 
   const currentQuestion = activeTest?.questions[currentQuestionIndex] ?? null;
-  const notVisitedCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "not-visited").length ?? 0;
-  const notAnsweredCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "not-answered").length ?? 0;
-  const answeredReviewCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "answered-review").length ?? 0;
-  const reviewCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "review").length ?? 0;
+  const integerDisplayValue = currentQuestion?.questionType === "integer"
+    ? getNumericAnswerValue(answers[currentQuestion.id])
+    : "";
+  const currentSection = currentQuestion
+    ? sectionGroups.find((section) => section.questionEntries.some((entry) => entry.question.id === currentQuestion.id)) ?? sectionGroups[0]
+    : sectionGroups[0];
+  const currentSectionQuestions = currentSection?.questionEntries ?? [];
+  const currentSectionQuestionNumber = currentQuestion
+    ? Math.max(1, currentSectionQuestions.findIndex((entry) => entry.question.id === currentQuestion.id) + 1)
+    : 1;
+  const currentSectionAnsweredCount = currentSectionQuestions.filter(({ question }) => isAnswered(question, answers[question.id])).length;
+  const currentSectionNotVisitedCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "not-visited").length;
+  const currentSectionNotAnsweredCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "not-answered").length;
+  const currentSectionAnsweredReviewCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "answered-review").length;
+  const currentSectionReviewCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "review").length;
 
   const paletteStyle: Record<PaletteStatus, string> = {
     "not-visited": "border-slate-400 bg-slate-100 text-slate-700",
@@ -372,8 +600,63 @@ export default function StudentTests() {
   const correctCount = resultTest?.questions.filter(q => isAnswerCorrect(q, submittedAnswers[q.id])).length ?? 0;
   const skippedCount = resultTest?.questions.filter(q => { const a = submittedAnswers[q.id]; return a === undefined || a === null || (Array.isArray(a) && a.length === 0); }).length ?? 0;
   const wrongCount = (resultTest?.questions.length ?? 0) - correctCount - skippedCount;
+  const wrongQuestions = resultTest?.questions.filter((q) => {
+    const answer = submittedAnswers[q.id];
+    const skipped = answer === undefined || answer === null || (Array.isArray(answer) && answer.length === 0);
+    return !skipped && !isAnswerCorrect(q, answer);
+  }) ?? [];
   const examHeading = activeTest?.examHeader?.trim() || activeTest?.description?.trim() || activeTest?.title || "Exam Interface";
   const examSubheading = activeTest?.examSubheader?.trim() || activeTest?.className || activeTest?.subjectName || activeTest?.chapterName || "Online Test";
+
+  const applyIntegerEdit = (transform: (value: string, start: number, end: number) => { value: string; caret: number }) => {
+    if (!currentQuestion || currentQuestion.questionType !== "integer") return;
+    const input = integerInputRef.current;
+    const currentValue = getNumericAnswerValue(answers[currentQuestion.id]);
+    const start = input?.selectionStart ?? currentValue.length;
+    const end = input?.selectionEnd ?? currentValue.length;
+    const next = transform(currentValue, start, end);
+    setIntegerAnswer(currentQuestion.id, next.value);
+    requestAnimationFrame(() => {
+      const target = integerInputRef.current;
+      if (!target) return;
+      target.focus();
+      target.setSelectionRange(next.caret, next.caret);
+    });
+  };
+
+  const insertIntegerChar = (char: string) => {
+    applyIntegerEdit((value, start, end) => ({
+      value: value.slice(0, start) + char + value.slice(end),
+      caret: start + char.length,
+    }));
+  };
+
+  const backspaceIntegerChar = () => {
+    applyIntegerEdit((value, start, end) => {
+      if (start !== end) return { value: value.slice(0, start) + value.slice(end), caret: start };
+      if (start === 0) return { value, caret: 0 };
+      return { value: value.slice(0, start - 1) + value.slice(end), caret: start - 1 };
+    });
+  };
+
+  const moveIntegerCaret = (direction: "left" | "right") => {
+    requestAnimationFrame(() => {
+      const input = integerInputRef.current;
+      if (!input) return;
+      const position = input.selectionStart ?? integerDisplayValue.length;
+      const nextPosition = direction === "left"
+        ? Math.max(0, position - 1)
+        : Math.min(integerDisplayValue.length, position + 1);
+      input.focus();
+      input.setSelectionRange(nextPosition, nextPosition);
+    });
+  };
+
+  const clearIntegerAnswer = () => {
+    if (!currentQuestion || currentQuestion.questionType !== "integer") return;
+    setIntegerAnswer(currentQuestion.id, "");
+    requestAnimationFrame(() => integerInputRef.current?.focus());
+  };
 
   const pieData = [
     { name: "Correct", value: correctCount },
@@ -399,9 +682,25 @@ export default function StudentTests() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><ClipboardList size={22} className="text-primary" />My Tests</h1>
-        <p className="text-muted-foreground text-sm mt-1">Take tests and review your performance with detailed analysis</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><ClipboardList size={22} className="text-primary" />My Tests</h1>
+          <p className="text-muted-foreground text-sm mt-1">Take tests and review your performance with detailed analysis</p>
+        </div>
+        <Button
+          variant="outline"
+          className="relative gap-2 border-[#E5E7EB] bg-white text-[#111827] hover:bg-[#F8FAFC]"
+          onClick={() => setReviewBucketOpen(true)}
+          data-testid="button-top-wrong-bucket"
+        >
+          <Bookmark size={16} className="text-[#5B4DFF]" />
+          Wrong Bucket
+          {bucketQuestions.length > 0 && (
+            <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EF4444] px-1 text-[10px] font-bold text-white">
+              {bucketQuestions.length}
+            </span>
+          )}
+        </Button>
       </div>
 
       {isLoading ? (
@@ -429,17 +728,31 @@ export default function StudentTests() {
                   <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
                     {test.className && <span className="flex items-center gap-1"><BookOpen size={11} />{test.className}</span>}
                     <span className="flex items-center gap-1"><Clock size={11} />{test.durationMinutes} min</span>
-                    <span>Pass: {test.passingScore}%</span>
+                    <span>{test.passingScore == null ? "No pass cutoff" : `Pass: ${test.passingScore}%`}</span>
                     {test.scheduledAt && <span>{format(new Date(test.scheduledAt), "MMM d, yyyy")}</span>}
                   </div>
                 </div>
                 {test.alreadySubmitted ? (
-                  <Button size="sm" variant="outline"
-                    className="shrink-0 border-indigo-300 text-indigo-700 hover:bg-indigo-50 gap-1.5 text-xs"
-                    onClick={(e) => { e.stopPropagation(); setLocation(`/student/tests/${test.id}/analysis`); }}
-                    data-testid={`btn-analysis-${test.id}`}>
-                    <Brain size={13} />Advanced Analysis
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        reattemptTest(test.id);
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                      Reattempt
+                    </Button>
+                    <Button size="sm" variant="outline"
+                      className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 gap-1.5 text-xs"
+                      onClick={(e) => { e.stopPropagation(); setLocation(`/student/tests/${test.id}/analysis`); }}
+                      data-testid={`btn-analysis-${test.id}`}>
+                      <Brain size={13} />Advanced Analysis
+                    </Button>
+                  </div>
                 ) : (
                   <ChevronRight size={16} className="text-muted-foreground shrink-0 cursor-pointer" onClick={() => openTest(test.id)} />
                 )}
@@ -448,6 +761,68 @@ export default function StudentTests() {
           ))}
         </div>
       )}
+
+      <Dialog open={reviewBucketOpen} onOpenChange={setReviewBucketOpen}>
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bookmark size={16} className="text-[#5B4DFF]" />
+              Wrong Question Bucket
+            </DialogTitle>
+          </DialogHeader>
+          {wrongBucketLoading ? (
+            <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+              Loading wrong questions...
+            </div>
+          ) : bucketQuestions.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+              Abhi wrong question bucket empty hai.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {bucketQuestions.map((entry, index) => (
+                <div key={`${entry.testId}-${entry.questionId}`} className="rounded-2xl border border-red-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-red-100 px-2 text-xs font-bold text-red-700">
+                      Q{index + 1}
+                    </span>
+                    <Badge variant="outline" className="text-xs">{entry.question.questionType.toUpperCase()}</Badge>
+                    <Badge variant="secondary" className="text-xs">{entry.testTitle}</Badge>
+                  </div>
+                  <p className="text-sm font-medium text-foreground">{entry.question.question}</p>
+                  {entry.question.imageData && (
+                    <img src={entry.question.imageData} alt="" className="mt-3 max-h-56 w-full rounded-xl border border-border bg-white object-contain" />
+                  )}
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-red-700">Your answer</p>
+                      <p className="mt-1 text-sm font-semibold text-red-900">{entry.yourAnswerLabel}</p>
+                    </div>
+                    <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-green-700">Correct answer</p>
+                      <p className="mt-1 text-sm font-semibold text-green-900">{entry.correctAnswerLabel}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setReviewBucketOpen(false);
+                        setLocation(`/student/tests/${entry.testId}/analysis`);
+                      }}
+                    >
+                      <Brain size={14} />
+                      Open Analysis
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Active Test Dialog ─── */}
       <Dialog open={activeTest !== null} onOpenChange={() => {}}>
@@ -539,16 +914,29 @@ export default function StudentTests() {
                 ) : currentQuestion ? (
                   <div className="flex min-h-0 flex-1 overflow-hidden">
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-slate-300 bg-white">
-                      <div className="border-b border-slate-300 bg-[#ececec] px-2 py-2">
-                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
-                          <button className="rounded-sm border border-[#7aa9d4] bg-[#7aa9d4] px-3 py-1 text-white shadow-sm">
-                            {activeTest.subjectName ?? "Question Paper"}
-                          </button>
-                          {activeTest.chapterName && (
-                            <button className="rounded-sm border border-slate-300 bg-white px-3 py-1 text-slate-700">
-                              {activeTest.chapterName}
-                            </button>
-                          )}
+                      <div className="border-b border-slate-300 bg-white px-2 py-2">
+                        <p className="px-1 text-sm font-bold text-[#5b5b5b]">Sections</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium">
+                          {sectionGroups.map((section) => {
+                            const isActiveSection = currentSection?.id === section.id;
+                            return (
+                              <button
+                                key={section.id}
+                                type="button"
+                                onClick={() => {
+                                  const firstQuestion = section.questionEntries[0];
+                                  if (firstQuestion) goToQuestion(firstQuestion.globalIndex);
+                                }}
+                                className={`rounded-sm border px-3 py-2 shadow-sm transition-colors ${
+                                  isActiveSection
+                                    ? "border-[#7aa9d4] bg-[#7aa9d4] text-white"
+                                    : "border-slate-300 bg-white text-[#4b6f96] hover:border-[#7aa9d4]"
+                                }`}
+                              >
+                                {section.label}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                       <div className="flex items-center justify-between border-b border-slate-300 bg-white px-2 py-2">
@@ -561,7 +949,7 @@ export default function StudentTests() {
                       </div>
 
                       <div className="border-b border-slate-300 px-2 py-2 text-[18px] font-bold text-black">
-                        Question No. {currentQuestionIndex + 1}
+                        Question No. {currentSectionQuestionNumber}
                       </div>
 
                       <div className="min-h-0 flex-1 overflow-y-auto bg-white p-4">
@@ -604,36 +992,68 @@ export default function StudentTests() {
                             )}
 
                             {currentQuestion.questionType === "integer" && (
-                              <div className="space-y-4">
+                              <div className="w-[182px] border border-[#ececec] bg-[#efefef] px-[10px] py-[8px]">
                                 <input
-                                  type="number"
-                                  value={answers[currentQuestion.id] !== undefined ? String(answers[currentQuestion.id]) : ""}
+                                  ref={integerInputRef}
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={integerDisplayValue}
                                   onChange={(e) => setIntegerAnswer(currentQuestion.id, e.target.value)}
-                                  placeholder="Enter numerical answer"
-                                  className="w-full max-w-xs rounded-sm border border-slate-300 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-blue-500"
+                                  placeholder=""
+                                  className="h-[40px] w-full rounded-[4px] border-2 border-[#7a7a7a] bg-white px-[8px] text-left text-[24px] font-semibold leading-none text-black outline-none focus:border-[#7a7a7a]"
                                   data-testid={`integer-input-${currentQuestion.id}`}
                                 />
-                                <div className="rounded-sm border border-slate-200 bg-slate-50 p-4">
-                                  <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                                    <Calculator size={16} />
-                                    Virtual Numeric Keypad
-                                  </div>
-                                  <div className="mt-3 grid max-w-xs grid-cols-3 gap-2">
-                                    {["7","8","9","4","5","6","1","2","3","0","-","."].map((key) => (
+                                <div className="mt-[18px] flex flex-col items-center gap-[8px]">
+                                  <button
+                                    type="button"
+                                    onClick={backspaceIntegerChar}
+                                    className="flex h-[62px] w-[152px] items-center justify-center rounded-[12px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[28px] font-bold tracking-[-0.02em] text-black hover:bg-[#e1ddee]"
+                                  >
+                                    Backspace
+                                  </button>
+
+                                  <div className="grid grid-cols-3 gap-[10px]">
+                                    {[
+                                      ["7", "8", "9"],
+                                      ["4", "5", "6"],
+                                      ["1", "2", "3"],
+                                      ["0", ".", "-"],
+                                    ].flat().map((key) => (
                                       <button
                                         key={key}
                                         type="button"
-                                        onClick={() => {
-                                          const current = answers[currentQuestion.id] !== undefined ? String(answers[currentQuestion.id]) : "";
-                                          setAnswers((prev) => ({ ...prev, [currentQuestion.id]: `${current}${key}` }));
-                                          startInteraction(currentQuestion.id);
-                                        }}
-                                        className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                        onClick={() => insertIntegerChar(key)}
+                                        className="flex h-[48px] w-[48px] items-center justify-center rounded-[10px] border-2 border-[#7a7a7a] bg-[#f8f8f8] text-[24px] font-bold leading-none text-black hover:bg-white"
                                       >
                                         {key}
                                       </button>
                                     ))}
                                   </div>
+
+                                  <div className="grid grid-cols-2 gap-[10px]">
+                                    <button
+                                      type="button"
+                                      onClick={() => moveIntegerCaret("left")}
+                                      className="flex h-[52px] w-[64px] items-center justify-center rounded-[10px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[28px] font-bold leading-none text-black hover:bg-[#e1ddee]"
+                                    >
+                                      ←
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => moveIntegerCaret("right")}
+                                      className="flex h-[52px] w-[64px] items-center justify-center rounded-[10px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[28px] font-bold leading-none text-black hover:bg-[#e1ddee]"
+                                    >
+                                      →
+                                    </button>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={clearIntegerAnswer}
+                                    className="flex h-[62px] w-[144px] items-center justify-center rounded-[12px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[28px] font-bold tracking-[-0.02em] text-black hover:bg-[#e1ddee]"
+                                  >
+                                    Clear All
+                                  </button>
                                 </div>
                               </div>
                             )}
@@ -691,7 +1111,7 @@ export default function StudentTests() {
                           <div className="flex items-center justify-between gap-2">
                             <div>
                               <p className="text-sm font-semibold text-slate-900">Question Palette</p>
-                              <p className="text-xs text-slate-500">{answeredCount}/{totalQ} answered</p>
+                              <p className="text-xs text-slate-500">{currentSectionAnsweredCount}/{currentSectionQuestions.length} answered</p>
                             </div>
                             <button type="button" onClick={() => setPaletteCollapsed(true)} className="rounded-none border border-slate-300 bg-black p-2 text-white hover:bg-slate-800">
                               <PanelRightClose size={16} />
@@ -702,28 +1122,28 @@ export default function StudentTests() {
                           <div className="overflow-y-auto space-y-0">
                           <div className="border-b border-[#c8c8c8] bg-white p-4">
                           <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-                            <div className="flex items-start gap-2">{renderPaletteBadge(answeredCount, "answered")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
-                            <div className="flex items-start gap-2">{renderPaletteBadge(notAnsweredCount, "not-answered")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
-                            <div className="flex items-start gap-2">{renderPaletteBadge(notVisitedCount, "not-visited")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
-                            <div className="flex items-start gap-2">{renderPaletteBadge(reviewCount, "review")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
-                            <div className="col-span-2 flex items-start gap-2">{renderPaletteBadge(answeredReviewCount, "answered-review")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review (will also be evaluated)</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionAnsweredCount, "answered")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionNotAnsweredCount, "not-answered")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionNotVisitedCount, "not-visited")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionReviewCount, "review")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
+                            <div className="col-span-2 flex items-start gap-2">{renderPaletteBadge(currentSectionAnsweredReviewCount, "answered-review")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review (will also be evaluated)</p></div></div>
                           </div>
                           </div>
 
                           <div className="bg-[#d9eaf5]">
-                            <p className="bg-[#2a85b8] px-3 py-2 text-sm font-bold text-white">{activeTest.subjectName ?? "Section"}</p>
+                            <p className="bg-[#2a85b8] px-3 py-2 text-sm font-bold text-white">{currentSection?.label ?? activeTest.subjectName ?? "Section"}</p>
                             <p className="px-4 py-3 text-[13px] font-semibold text-black">Choose a Question</p>
                           </div>
 
                           <div className="grid grid-cols-4 gap-2 px-4 pb-4">
-                            {activeTest.questions.map((question, index) => {
+                            {currentSectionQuestions.map(({ question, globalIndex }, index) => {
                               const status = getPaletteStatus(question);
                               const isCurrent = currentQuestion.id === question.id;
                               return (
                                 <button
                                   key={question.id}
                                   type="button"
-                                  onClick={() => goToQuestion(index)}
+                                  onClick={() => goToQuestion(globalIndex)}
                                   className={`flex h-11 items-center justify-center ${isCurrent ? "ring-2 ring-[#f28a27] ring-offset-1" : ""}`}
                                 >
                                   {renderPaletteBadge(index + 1, status)}
@@ -763,12 +1183,46 @@ export default function StudentTests() {
       </Dialog>
 
       {/* ─── Result + Analysis Dialog ─── */}
-      <Dialog open={resultTest !== null} onOpenChange={(o) => !o && setResultTest(null)}>
+      <Dialog open={resultTest !== null} onOpenChange={(o) => {
+        if (!o) {
+          setResultTest(null);
+          setWrongBucketOpen(false);
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto p-0">
           {resultTest?.submission && (
             <>
               <div className="sticky top-0 z-10 bg-background border-b border-border px-6 pt-4">
-                <DialogHeader><DialogTitle className="text-base">{resultTest.title}</DialogTitle></DialogHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <DialogHeader><DialogTitle className="text-base">{resultTest.title}</DialogTitle></DialogHeader>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="relative shrink-0"
+                      onClick={() => setWrongBucketOpen(true)}
+                      title="Wrong question bucket"
+                      data-testid="button-wrong-bucket"
+                    >
+                      <Bookmark size={16} />
+                      {wrongQuestions.length > 0 && (
+                        <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                          {wrongQuestions.length}
+                        </span>
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => reattemptTest(resultTest.id)}
+                      data-testid={`button-reattempt-${resultTest.id}`}
+                    >
+                      <RotateCcw size={14} />
+                      Reattempt
+                    </Button>
+                  </div>
+                </div>
                 <div className="flex gap-0 mt-3">
                   <button onClick={() => setResultTab("score")}
                     className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${resultTab === "score" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`} data-testid="tab-score">
@@ -798,7 +1252,7 @@ export default function StudentTests() {
                     <div className="grid grid-cols-3 gap-3 text-center">
                       <div className="bg-muted rounded-xl p-3"><p className="text-xl font-bold">{resultTest.submission.score}</p><p className="text-xs text-muted-foreground">Points earned</p></div>
                       <div className="bg-muted rounded-xl p-3"><p className="text-xl font-bold">{resultTest.submission.totalPoints}</p><p className="text-xs text-muted-foreground">Total points</p></div>
-                      <div className="bg-muted rounded-xl p-3"><p className="text-xl font-bold">{resultTest.passingScore}%</p><p className="text-xs text-muted-foreground">Passing mark</p></div>
+                      <div className="bg-muted rounded-xl p-3"><p className="text-xl font-bold">{resultTest.passingScore == null ? "No cutoff" : `${resultTest.passingScore}%`}</p><p className="text-xs text-muted-foreground">Passing mark</p></div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-3">
@@ -832,9 +1286,14 @@ export default function StudentTests() {
                     )}
 
                     <p className="text-xs text-center text-muted-foreground">Submitted {format(new Date(resultTest.submission.submittedAt), "MMMM d, yyyy h:mm a")}</p>
-                    <Button className="w-full" variant="outline" onClick={() => { setResultTab("analysis"); setAnalysisFilter("all"); }} data-testid="button-view-analysis">
-                      <ListChecks size={15} className="mr-2" />Open Deep Analysis
-                    </Button>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Button variant="outline" onClick={() => { setResultTab("analysis"); setAnalysisFilter("all"); }} data-testid="button-view-analysis">
+                        <ListChecks size={15} className="mr-2" />Open Deep Analysis
+                      </Button>
+                      <Button variant="outline" onClick={() => reattemptTest(resultTest.id)}>
+                        <RotateCcw size={15} className="mr-2" />Reattempt Test
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -1057,6 +1516,67 @@ export default function StudentTests() {
                 )}
               </div>
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={wrongBucketOpen} onOpenChange={setWrongBucketOpen}>
+        <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bookmark size={16} className="text-primary" />
+              Wrong Question Bucket
+            </DialogTitle>
+          </DialogHeader>
+          {!resultTest || wrongQuestions.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+              No wrong questions in this attempt.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {wrongQuestions.map((q, index) => {
+                const answer = submittedAnswers[q.id];
+                const yourLabels = Array.isArray(answer)
+                  ? answer.map((value) => String.fromCharCode(65 + Number(value))).join(", ")
+                  : q.questionType === "integer"
+                    ? String(answer)
+                    : answer !== undefined && answer !== null && answer !== ""
+                      ? String.fromCharCode(65 + Number(answer))
+                      : "—";
+                const correctLabels = q.questionType === "multi"
+                  ? (q.correctAnswerMulti ?? []).map((value) => String.fromCharCode(65 + Number(value))).join(", ")
+                  : q.questionType === "integer"
+                    ? q.correctAnswerMin !== null && q.correctAnswerMin !== undefined && q.correctAnswerMax !== null && q.correctAnswerMax !== undefined
+                      ? `${q.correctAnswerMin} — ${q.correctAnswerMax}`
+                      : String(q.correctAnswer ?? "—")
+                    : String.fromCharCode(65 + Number(q.correctAnswer ?? 0));
+
+                return (
+                  <div key={q.id} className="rounded-2xl border border-red-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-red-100 px-2 text-xs font-bold text-red-700">
+                        Q{index + 1}
+                      </span>
+                      <Badge variant="outline" className="text-xs">{q.questionType.toUpperCase()}</Badge>
+                    </div>
+                    <p className="text-sm font-medium text-foreground">{q.question}</p>
+                    {q.imageData && (
+                      <img src={q.imageData} alt="" className="mt-3 max-h-56 w-full rounded-xl border border-border bg-white object-contain" />
+                    )}
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-red-700">Your answer</p>
+                        <p className="mt-1 text-sm font-semibold text-red-900">{yourLabels}</p>
+                      </div>
+                      <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-green-700">Correct answer</p>
+                        <p className="mt-1 text-sm font-semibold text-green-900">{correctLabels}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </DialogContent>
       </Dialog>

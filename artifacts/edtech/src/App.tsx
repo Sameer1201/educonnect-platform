@@ -43,6 +43,7 @@ import AdminQuestionBank from "@/pages/admin/QuestionBank";
 import PlannerCourseDetail from "@/pages/planner/CourseDetail";
 import PlannerCourses from "@/pages/planner/Courses";
 import PlannerDashboard from "@/pages/planner/Dashboard";
+import PlannerExamTemplates from "@/pages/planner/ExamTemplates";
 import StudentDashboard from "@/pages/student/Dashboard";
 import StudentClasses from "@/pages/student/Classes";
 import StudentClassDetail from "@/pages/student/ClassDetail";
@@ -82,6 +83,8 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+export type ViewMode = "personal" | "comparative";
 
 function ProtectedRoute({ roles, children }: { roles: string[]; children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -293,6 +296,11 @@ function AppRouter() {
       <Route path="/planner/dashboard">
         <ProtectedRoute roles={["planner"]}>
           <Layout><PlannerDashboard /></Layout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/planner/exam-templates">
+        <ProtectedRoute roles={["planner"]}>
+          <Layout><PlannerExamTemplates /></Layout>
         </ProtectedRoute>
       </Route>
       <Route path="/planner/courses">

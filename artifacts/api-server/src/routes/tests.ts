@@ -13,7 +13,7 @@ import {
   subjectsTable,
 } from "@workspace/db";
 import { pushNotification, pushNotificationToMany } from "../lib/pushNotification";
-import { eq, and, inArray, isNull, or, asc } from "drizzle-orm";
+import { eq, and, inArray, isNull, or, asc, desc } from "drizzle-orm";
 
 const router = Router();
 
@@ -67,6 +67,31 @@ function hasAnsweredQuestion(q: any, answer: any): boolean {
   return answer !== undefined && answer !== null && answer !== "";
 }
 
+function normalizeExamKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+  const compact = raw.replace(/[^a-z0-9]+/g, " ").trim();
+  if (compact.includes("iit jam")) return "iit-jam";
+  if (compact.includes("jee main")) return "jee";
+  if (compact === "jee") return "jee";
+  if (compact.includes("gate")) return "gate";
+  if (compact.includes("cuet")) return "cuet";
+  if (compact.includes("neet")) return "neet";
+  if (compact.includes("cat")) return "cat";
+  return compact.replace(/\s+/g, "-");
+}
+
+function safeParseJson<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback;
+  if (typeof value !== "string") return value as T;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 // GET /api/tests — list tests
 router.get("/tests", requireAuth, async (req, res) => {
   try {
@@ -116,10 +141,14 @@ router.get("/tests", requireAuth, async (req, res) => {
     }
 
     // Student
-    const enrollments = await db.select({ classId: enrollmentsTable.classId })
-      .from(enrollmentsTable).where(eq(enrollmentsTable.studentId, userId));
-    const classIds = enrollments.map((e) => e.classId);
-    if (classIds.length === 0) return res.json([]);
+    const studentExamKeys = new Set<string>();
+    const primaryExamKey = normalizeExamKey(user.subject);
+    if (primaryExamKey) studentExamKeys.add(primaryExamKey);
+    for (const exam of user.additionalExams ?? []) {
+      const key = normalizeExamKey(exam);
+      if (key) studentExamKeys.add(key);
+    }
+    if (studentExamKeys.size === 0) return res.json([]);
 
     const tests = await db.select({
       id: testsTable.id, classId: testsTable.classId, title: testsTable.title,
@@ -135,15 +164,18 @@ router.get("/tests", requireAuth, async (req, res) => {
       .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
       .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
       .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
-      .where(and(
-        eq(testsTable.isPublished, true),
-        or(inArray(testsTable.classId, classIds), isNull(testsTable.classId))
-      )).orderBy(testsTable.scheduledAt);
+      .where(eq(testsTable.isPublished, true))
+      .orderBy(testsTable.scheduledAt);
+
+    const visibleTests = tests.filter((test) => {
+      const examKey = normalizeExamKey(test.examType);
+      return examKey ? studentExamKeys.has(examKey) : false;
+    });
 
     const submissions = await db.select({ testId: testSubmissionsTable.testId })
       .from(testSubmissionsTable).where(eq(testSubmissionsTable.studentId, userId));
     const submittedTestIds = new Set(submissions.map((s) => s.testId));
-    return res.json(tests.map((t) => ({ ...t, alreadySubmitted: submittedTestIds.has(t.id) })));
+    return res.json(visibleTests.map((t) => ({ ...t, alreadySubmitted: submittedTestIds.has(t.id) })));
   } catch { return res.status(500).json({ error: "Internal server error" }); }
 });
 
@@ -190,42 +222,50 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
       .where(eq(testSectionsTable.testId, testId)).orderBy(testSectionsTable.order);
     const sections = rawSections.map((section) => ({
       ...section,
-      meta: section.meta ? JSON.parse(section.meta) : null,
+      meta: safeParseJson(section.meta, null),
     }));
 
     const isAdmin = user.role === "admin" || user.role === "super_admin";
     let submission = null;
     if (user.role === "student") {
       const [sub] = await db.select().from(testSubmissionsTable)
-        .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)));
+        .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)))
+        .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id))
+        .limit(1);
       submission = sub ?? null;
     }
 
     const richSubmission = submission ? {
       ...submission,
-      questionTimings: submission.questionTimings ? JSON.parse(submission.questionTimings) : null,
-      flaggedQuestions: submission.flaggedQuestions ? JSON.parse(submission.flaggedQuestions) : null,
+      questionTimings: safeParseJson(submission.questionTimings, null),
+      flaggedQuestions: safeParseJson(submission.flaggedQuestions, null),
+      visitedQuestionIds: safeParseJson(submission.visitedQuestionIds, null),
+      reviewQuestionIds: safeParseJson(submission.reviewQuestionIds, null),
+      interactionLog: safeParseJson(submission.interactionLog, null),
     } : null;
 
     const showCorrect = isAdmin || submission !== null;
     const safeQuestions = questions.map((q) => ({
       id: q.id, sectionId: q.sectionId ?? null, questionCode: q.questionCode ?? null, sourceType: q.sourceType ?? "manual", subjectLabel: q.subjectLabel ?? null, question: q.question,
       questionType: q.questionType ?? "mcq",
-      options: q.options ? JSON.parse(q.options) : [],
-      optionImages: q.optionImages ? JSON.parse(q.optionImages) : null,
+      options: safeParseJson(q.options, []),
+      optionImages: safeParseJson(q.optionImages, null),
       points: q.points, negativeMarks: q.negativeMarks ?? 0, order: q.order,
-      meta: q.meta ? JSON.parse(q.meta) : null,
+      meta: safeParseJson(q.meta, null),
       imageData: q.imageData ?? null,
       ...(showCorrect ? {
         correctAnswer: q.correctAnswer,
-        correctAnswerMulti: q.correctAnswerMulti ? JSON.parse(q.correctAnswerMulti) : null,
+        correctAnswerMulti: safeParseJson(q.correctAnswerMulti, null),
         correctAnswerMin: q.correctAnswerMin ?? null,
         correctAnswerMax: q.correctAnswerMax ?? null,
       } : {}),
     }));
 
     return res.json({ ...test, sections, questions: safeQuestions, submission: richSubmission });
-  } catch { return res.status(500).json({ error: "Internal server error" }); }
+  } catch (error) {
+    console.error("GET /api/tests/:id failed", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // POST /api/tests — create test
@@ -235,22 +275,12 @@ router.post("/tests", requireAuth, async (req, res) => {
     const user = await getUser(userId);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
 
-    const { classId, chapterId, title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt, sections } = req.body;
+    const { title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt, sections } = req.body;
     if (!title) return res.status(400).json({ error: "title required" });
-    if (!chapterId) return res.status(400).json({ error: "chapterId required" });
-
-    const context = await getChapterContext(Number(chapterId));
-    if (!context) return res.status(404).json({ error: "Chapter not found" });
-    if (context.cls.adminId !== userId) {
-      return res.status(403).json({ error: "You can only create tests for your assigned classes" });
-    }
-    if (classId && Number(classId) !== context.cls.id) {
-      return res.status(400).json({ error: "Selected chapter does not belong to the selected class" });
-    }
 
     const [test] = await db.insert(testsTable).values({
-      classId: context.cls.id,
-      chapterId: context.chapter.id,
+      classId: null,
+      chapterId: null,
       title: String(title), description: description ? String(description) : null,
       examType: examType ? String(examType) : "custom",
       examHeader: examHeader ? String(examHeader) : null,
@@ -258,7 +288,7 @@ router.post("/tests", requireAuth, async (req, res) => {
       instructions: instructions ? String(instructions) : null,
       examConfig: examConfig ? JSON.stringify(examConfig) : null,
       durationMinutes: durationMinutes ? Number(durationMinutes) : 30,
-      passingScore: passingScore ? Number(passingScore) : 60,
+      passingScore: passingScore === undefined || passingScore === null || String(passingScore).trim() === "" ? null : Number(passingScore),
       defaultPositiveMarks: defaultPositiveMarks !== undefined ? Number(defaultPositiveMarks) : 1,
       defaultNegativeMarks: defaultNegativeMarks !== undefined ? Number(defaultNegativeMarks) : 0,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
@@ -302,7 +332,9 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     if (instructions !== undefined) updates.instructions = instructions ? String(instructions) : null;
     if (examConfig !== undefined) updates.examConfig = examConfig ? JSON.stringify(examConfig) : null;
     if (durationMinutes) updates.durationMinutes = Number(durationMinutes);
-    if (passingScore) updates.passingScore = Number(passingScore);
+    if (passingScore !== undefined) {
+      updates.passingScore = passingScore === null || String(passingScore).trim() === "" ? null : Number(passingScore);
+    }
     if (defaultPositiveMarks !== undefined) updates.defaultPositiveMarks = Number(defaultPositiveMarks);
     if (defaultNegativeMarks !== undefined) updates.defaultNegativeMarks = Number(defaultNegativeMarks);
     if (scheduledAt !== undefined) updates.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
@@ -314,26 +346,25 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     // Notify enrolled students when a test is first published
     if (updates.isPublished === true && !beforeTest?.isPublished) {
       let studentIds: number[] = [];
-      if (test.classId) {
-        const enrollments = await db
-          .select({ studentId: enrollmentsTable.studentId })
-          .from(enrollmentsTable)
-          .where(eq(enrollmentsTable.classId, test.classId));
-        studentIds = enrollments.map((e) => e.studentId);
-      } else {
-        // No class assigned — notify all students in any class taught by this teacher
-        const teacherClasses = await db
-          .select({ id: classesTable.id })
-          .from(classesTable)
-          .where(eq(classesTable.adminId, userId));
-        const teacherClassIds = teacherClasses.map((c) => c.id);
-        if (teacherClassIds.length > 0) {
-          const enrollments = await db
-            .select({ studentId: enrollmentsTable.studentId })
-            .from(enrollmentsTable)
-            .where(inArray(enrollmentsTable.classId, teacherClassIds));
-          studentIds = [...new Set(enrollments.map((e) => e.studentId))];
-        }
+      const examKey = normalizeExamKey(test.examType);
+      if (examKey) {
+        const students = await db.select({
+          id: usersTable.id,
+          subject: usersTable.subject,
+          additionalExams: usersTable.additionalExams,
+        }).from(usersTable).where(eq(usersTable.role, "student"));
+        studentIds = students
+          .filter((student) => {
+            const keys = new Set<string>();
+            const primary = normalizeExamKey(student.subject);
+            if (primary) keys.add(primary);
+            for (const exam of student.additionalExams ?? []) {
+              const normalized = normalizeExamKey(exam);
+              if (normalized) keys.add(normalized);
+            }
+            return keys.has(examKey);
+          })
+          .map((student) => student.id);
       }
       if (studentIds.length > 0) {
         await pushNotificationToMany(studentIds, {
@@ -371,7 +402,7 @@ router.post("/tests/:id/questions", requireAuth, async (req, res) => {
     if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
 
     const { question, questionType = "mcq", sectionId, questionCode, sourceType, subjectLabel, options = [], optionImages, correctAnswer, correctAnswerMulti, correctAnswerMin, correctAnswerMax, points, negativeMarks, imageData, meta } = req.body;
-    if (!question) return res.status(400).json({ error: "question required" });
+    if (!question && !imageData) return res.status(400).json({ error: "question text or image required" });
 
     // Validate per type
     if (questionType === "multi" && (!correctAnswerMulti || !Array.isArray(correctAnswerMulti))) {
@@ -395,7 +426,7 @@ router.post("/tests/:id/questions", requireAuth, async (req, res) => {
       questionCode: questionCode ? String(questionCode) : null,
       sourceType: sourceType ? String(sourceType) : "manual",
       subjectLabel: subjectLabel ? String(subjectLabel) : null,
-      question: String(question),
+      question: question ? String(question) : "",
       questionType: String(questionType),
       options: JSON.stringify(options),
       optionImages: optionImages ? JSON.stringify(optionImages) : null,
@@ -411,6 +442,71 @@ router.post("/tests/:id/questions", requireAuth, async (req, res) => {
     }).returning();
 
     return res.status(201).json({
+      ...q,
+      sectionId: q.sectionId ?? null,
+      questionCode: q.questionCode ?? null,
+      sourceType: q.sourceType ?? "manual",
+      subjectLabel: q.subjectLabel ?? null,
+      questionType: q.questionType,
+      options: JSON.parse(q.options),
+      optionImages: q.optionImages ? JSON.parse(q.optionImages) : null,
+      correctAnswerMulti: q.correctAnswerMulti ? JSON.parse(q.correctAnswerMulti) : null,
+      correctAnswerMin: q.correctAnswerMin ?? null,
+      correctAnswerMax: q.correctAnswerMax ?? null,
+      negativeMarks: q.negativeMarks ?? 0,
+      meta: q.meta ? JSON.parse(q.meta) : null,
+      imageData: q.imageData ?? null,
+    });
+  } catch { return res.status(500).json({ error: "Internal server error" }); }
+});
+
+// PATCH /api/tests/:id/questions/:qid — update question
+router.patch("/tests/:id/questions/:qid", requireAuth, async (req, res) => {
+  try {
+    const testId = parseInt(req.params.id, 10);
+    const questionId = parseInt(req.params.qid, 10);
+    const userId = parseInt(req.cookies.userId, 10);
+    const user = await getUser(userId);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+
+    const { question, questionType = "mcq", sectionId, questionCode, sourceType, subjectLabel, options = [], optionImages, correctAnswer, correctAnswerMulti, correctAnswerMin, correctAnswerMax, points, negativeMarks, imageData, meta } = req.body;
+    if (!question && !imageData) return res.status(400).json({ error: "question text or image required" });
+
+    if (questionType === "multi" && (!correctAnswerMulti || !Array.isArray(correctAnswerMulti))) {
+      return res.status(400).json({ error: "correctAnswerMulti (array) required for multi type" });
+    }
+    if (questionType === "integer" && correctAnswer === undefined && (correctAnswerMin === undefined || correctAnswerMax === undefined)) {
+      return res.status(400).json({ error: "correctAnswer or correctAnswerMin+correctAnswerMax required for integer type" });
+    }
+    if (questionType !== "multi" && questionType !== "integer" && correctAnswer === undefined) {
+      return res.status(400).json({ error: "correctAnswer required" });
+    }
+
+    const isRange = questionType === "integer" && correctAnswerMin !== undefined && correctAnswerMax !== undefined;
+
+    const [q] = await db.update(testQuestionsTable).set({
+      testId,
+      sectionId: sectionId ? Number(sectionId) : null,
+      questionCode: questionCode ? String(questionCode) : null,
+      sourceType: sourceType ? String(sourceType) : "manual",
+      subjectLabel: subjectLabel ? String(subjectLabel) : null,
+      question: question ? String(question) : "",
+      questionType: String(questionType),
+      options: JSON.stringify(options),
+      optionImages: optionImages ? JSON.stringify(optionImages) : null,
+      correctAnswer: questionType === "multi" ? 0 : (isRange ? 0 : Number(correctAnswer ?? 0)),
+      correctAnswerMulti: questionType === "multi" ? JSON.stringify(correctAnswerMulti) : null,
+      correctAnswerMin: isRange ? Number(correctAnswerMin) : null,
+      correctAnswerMax: isRange ? Number(correctAnswerMax) : null,
+      points: points ? Number(points) : 1,
+      negativeMarks: negativeMarks !== undefined ? Number(negativeMarks) : 0,
+      meta: meta ? JSON.stringify(meta) : null,
+      imageData: imageData ? String(imageData) : null,
+    }).where(and(eq(testQuestionsTable.id, questionId), eq(testQuestionsTable.testId, testId))).returning();
+
+    if (!q) return res.status(404).json({ error: "Question not found" });
+
+    return res.json({
       ...q,
       sectionId: q.sectionId ?? null,
       questionCode: q.questionCode ?? null,
@@ -525,11 +621,14 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
     const user = await getUser(userId);
     if (!user || user.role !== "student") return res.status(403).json({ error: "Students only" });
 
-    const [existing] = await db.select().from(testSubmissionsTable)
-      .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)));
-    if (existing) return res.status(409).json({ error: "Already submitted" });
-
-    const { answers, questionTimings, flaggedQuestions } = req.body;
+    const {
+      answers,
+      questionTimings,
+      flaggedQuestions,
+      visitedQuestionIds,
+      reviewQuestionIds,
+      interactionLog,
+    } = req.body;
     const questions = await db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId));
 
     let score = 0, totalPoints = 0;
@@ -546,13 +645,16 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
     const [test] = await db.select().from(testsTable).where(eq(testsTable.id, testId));
     const normalizedScore = Number(score.toFixed(2));
     const percentage = totalPoints > 0 ? Number(((normalizedScore / totalPoints) * 100).toFixed(2)) : 0;
-    const passed = percentage >= (test?.passingScore ?? 60);
+    const passed = test?.passingScore == null ? true : percentage >= test.passingScore;
 
     const [submission] = await db.insert(testSubmissionsTable).values({
       testId, studentId: userId,
       answers: JSON.stringify(answers ?? {}),
       questionTimings: questionTimings ? JSON.stringify(questionTimings) : null,
       flaggedQuestions: flaggedQuestions ? JSON.stringify(flaggedQuestions) : null,
+      visitedQuestionIds: visitedQuestionIds ? JSON.stringify(visitedQuestionIds) : null,
+      reviewQuestionIds: reviewQuestionIds ? JSON.stringify(reviewQuestionIds) : null,
+      interactionLog: interactionLog ? JSON.stringify(interactionLog) : null,
       score: normalizedScore, totalPoints, percentage, passed,
     }).returning();
     return res.status(201).json(submission);
@@ -570,26 +672,55 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
     const [test] = await db.select({
       id: testsTable.id, title: testsTable.title, description: testsTable.description,
       durationMinutes: testsTable.durationMinutes, passingScore: testsTable.passingScore,
+      examType: testsTable.examType,
+      examHeader: testsTable.examHeader,
+      examSubheader: testsTable.examSubheader,
       classId: testsTable.classId, className: classesTable.title,
     }).from(testsTable).leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
       .where(eq(testsTable.id, testId));
     if (!test) return res.status(404).json({ error: "Not found" });
 
     // Student's own submission
-    const [submission] = await db.select().from(testSubmissionsTable)
-      .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)));
+    const [submission] = await db.select({
+      id: testSubmissionsTable.id,
+      answers: testSubmissionsTable.answers,
+      questionTimings: testSubmissionsTable.questionTimings,
+      flaggedQuestions: testSubmissionsTable.flaggedQuestions,
+      visitedQuestionIds: testSubmissionsTable.visitedQuestionIds,
+      reviewQuestionIds: testSubmissionsTable.reviewQuestionIds,
+      interactionLog: testSubmissionsTable.interactionLog,
+      score: testSubmissionsTable.score,
+      totalPoints: testSubmissionsTable.totalPoints,
+      percentage: testSubmissionsTable.percentage,
+      passed: testSubmissionsTable.passed,
+      submittedAt: testSubmissionsTable.submittedAt,
+    }).from(testSubmissionsTable)
+      .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)))
+      .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id))
+      .limit(1);
     if (!submission) return res.status(403).json({ error: "You have not submitted this test" });
 
     const questions = await db.select().from(testQuestionsTable)
       .where(eq(testQuestionsTable.testId, testId)).orderBy(testQuestionsTable.order);
+    const sections = await db.select().from(testSectionsTable)
+      .where(eq(testSectionsTable.testId, testId)).orderBy(testSectionsTable.order);
 
     // All class submissions for aggregate stats
-    const allSubs = await db.select({
+    const allSubRows = await db.select({
       id: testSubmissionsTable.id, percentage: testSubmissionsTable.percentage,
       passed: testSubmissionsTable.passed, answers: testSubmissionsTable.answers,
       questionTimings: testSubmissionsTable.questionTimings,
       studentId: testSubmissionsTable.studentId,
-    }).from(testSubmissionsTable).where(eq(testSubmissionsTable.testId, testId));
+      submittedAt: testSubmissionsTable.submittedAt,
+    }).from(testSubmissionsTable)
+      .where(eq(testSubmissionsTable.testId, testId))
+      .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id));
+
+    const latestByStudent = new Map<number, typeof allSubRows[number]>();
+    for (const row of allSubRows) {
+      if (!latestByStudent.has(row.studentId)) latestByStudent.set(row.studentId, row);
+    }
+    const allSubs = Array.from(latestByStudent.values());
 
     const totalSubs = allSubs.length;
     const classAvg = totalSubs > 0 ? Math.round(allSubs.reduce((a, s) => a + s.percentage, 0) / totalSubs) : 0;
@@ -604,6 +735,9 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
     const myAnswers: Record<string, any> = JSON.parse(submission.answers ?? "{}");
     const myTimings: Record<string, number> = submission.questionTimings ? JSON.parse(submission.questionTimings) : {};
     const myFlagged: number[] = submission.flaggedQuestions ? JSON.parse(submission.flaggedQuestions) : [];
+    const myVisited: number[] = submission.visitedQuestionIds ? JSON.parse(submission.visitedQuestionIds) : [];
+    const myReview: number[] = submission.reviewQuestionIds ? JSON.parse(submission.reviewQuestionIds) : [];
+    const myInteractionLog = submission.interactionLog ? JSON.parse(submission.interactionLog) : [];
 
     // Per-question analysis
     const perQuestion = questions.map((q, idx) => {
@@ -633,6 +767,9 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
         options: q.options ? JSON.parse(q.options) : [],
         optionImages: q.optionImages ? JSON.parse(q.optionImages) : null,
         imageData: q.imageData ?? null,
+        sectionId: q.sectionId ?? null,
+        subjectLabel: q.subjectLabel ?? null,
+        meta: q.meta ? JSON.parse(q.meta) : null,
         points: q.points,
         negativeMarks: q.negativeMarks ?? 0,
         correctAnswer: q.correctAnswer,
@@ -670,7 +807,16 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
         percentage: submission.percentage, passed: submission.passed, submittedAt: submission.submittedAt,
         totalTime, correctCount, wrongCount, skippedCount,
         flaggedCount: myFlagged.length,
+        questionTimings: myTimings,
+        flaggedQuestions: myFlagged,
+        visitedQuestionIds: myVisited,
+        reviewQuestionIds: myReview,
+        interactionLog: myInteractionLog,
       },
+      sections: sections.map((section) => ({
+        ...section,
+        meta: section.meta ? JSON.parse(section.meta) : null,
+      })),
       classStats: { totalSubs, classAvg, classPassRate, rank, percentile },
       perQuestion,
       insights: { weakQuestions, hardQuestions, timeHogs, fasterThanClass, slowerThanClass },
