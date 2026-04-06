@@ -15,10 +15,10 @@ const buttonVariants = cva(
         destructive:
           "bg-[linear-gradient(180deg,rgba(239,68,68,0.98),rgba(220,38,38,0.9))] text-destructive-foreground shadow-[0_10px_24px_rgba(220,38,38,0.24),inset_0_1px_0_rgba(255,255,255,0.14)] border-destructive-border",
         outline:
-          "border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.025))] shadow-[0_10px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-md active:shadow-none",
+          "border border-slate-300/80 bg-white/90 text-slate-700 shadow-[0_10px_28px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-md active:shadow-none dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.025))] dark:text-white dark:shadow-[0_10px_28px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.08)]",
         secondary:
-          "border bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] text-secondary-foreground border border-secondary-border shadow-[0_10px_24px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.12)]",
-        ghost: "border border-transparent bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/10",
+          "border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(241,245,249,0.92))] text-slate-800 shadow-[0_10px_24px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.7)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:text-secondary-foreground dark:border-secondary-border dark:shadow-[0_10px_24px_rgba(15,23,42,0.14),inset_0_1px_0_rgba(255,255,255,0.12)]",
+        ghost: "border border-transparent bg-slate-100/70 text-slate-700 hover:bg-slate-200/80 dark:bg-white/[0.03] dark:text-white/80 dark:hover:bg-white/[0.07] dark:hover:border-white/10",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

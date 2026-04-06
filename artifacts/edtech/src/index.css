@@ -278,6 +278,7 @@
   }
 
   html {
+    overflow-x: hidden;
     background:
       radial-gradient(circle at 8% 10%, rgba(0, 207, 255, 0.16), transparent 24%),
       radial-gradient(circle at 82% 14%, rgba(255, 84, 214, 0.14), transparent 22%),
@@ -288,12 +289,25 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    overflow-x: hidden;
     background:
       radial-gradient(circle at 8% 10%, rgba(0, 207, 255, 0.12), transparent 24%),
       radial-gradient(circle at 80% 18%, rgba(184, 95, 255, 0.12), transparent 22%),
       radial-gradient(circle at 60% 88%, rgba(255, 138, 76, 0.1), transparent 20%),
       linear-gradient(180deg, rgba(8, 12, 30, 1), rgba(5, 8, 20, 1));
     background-attachment: fixed;
+  }
+
+  #root {
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  img,
+  svg,
+  canvas,
+  video {
+    max-width: 100%;
   }
 }
 
@@ -561,5 +575,47 @@
     width: 120px;
     height: 120px;
     animation-delay: 2s;
+  }
+
+  @media (max-width: 1024px) {
+    .platform-grid {
+      background-size: 34px 34px;
+      opacity: 0.16;
+    }
+
+    .platform-orb {
+      filter: blur(70px);
+      opacity: 0.16;
+    }
+
+    .platform-orb-cyan,
+    .platform-orb-fuchsia,
+    .platform-orb-blue {
+      width: 11rem;
+      height: 11rem;
+    }
+
+    .floating-bubble-lg {
+      width: 72px;
+      height: 72px;
+    }
+
+    .floating-bubble-md {
+      width: 54px;
+      height: 54px;
+    }
+
+    .floating-bubble-sm {
+      width: 32px;
+      height: 32px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .platform-orb-fuchsia,
+    .floating-bubble-lg,
+    .floating-bubble-md {
+      display: none;
+    }
   }
 }

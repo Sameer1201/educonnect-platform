@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useGetSuperAdminDashboard, useApproveStudent, getListUsersQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCountUp } from "@/hooks/useCountUp";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -129,12 +131,40 @@ function TeacherRow({ teacher, rank }: {
 /* ─── Main Dashboard ─── */
 export default function SuperAdminDashboard() {
   const { data, isLoading, isError, error, refetch } = useGetSuperAdminDashboard();
+  const { data: platformSettings } = usePlatformSettings();
   const approveStudent = useApproveStudent();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [greeting] = useState(getGreeting());
   const [time, setTime] = useState(new Date());
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const updatePlatformSettings = useMutation({
+    mutationFn: async (learningAccessEnabled: boolean) => {
+      const response = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/platform-settings`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ learningAccessEnabled }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to update platform settings");
+      }
+      return response.json();
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["platform-settings"], updated);
+      toast({
+        title: updated.learningAccessEnabled ? "Learning access enabled" : "Focus mode enabled",
+        description: updated.learningAccessEnabled
+          ? "Classes and assignments are visible again for teachers and students."
+          : "Teachers and students will now focus on community, question bank, and tests.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not update access", description: err.message, variant: "destructive" });
+    },
+  });
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 60000);
@@ -239,21 +269,21 @@ export default function SuperAdminDashboard() {
     <div className="space-y-6">
 
       {/* ── Hero banner ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-red-950/60 to-orange-900 p-6 text-white shadow-xl">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-red-950/60 to-orange-900 p-4 sm:p-6 text-white shadow-xl">
         {/* Decorative blobs */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 rounded-full -translate-y-24 translate-x-24 blur-2xl" />
         <div className="absolute bottom-0 left-20 w-48 h-48 bg-red-500/10 rounded-full translate-y-16 blur-2xl" />
 
         <div className="relative z-10 flex items-start justify-between gap-4 flex-wrap">
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-xs text-white/50 font-medium">Platform Live</span>
-              <span className="text-xs text-white/30 ml-4">
+              <span className="text-xs text-white/30 ml-2 sm:ml-4">
                 {time.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               {greeting}, <span className="text-orange-300">Sameer</span> 👋
             </h1>
             <p className="text-white/50 text-sm mt-1">
@@ -314,8 +344,34 @@ export default function SuperAdminDashboard() {
         </div>
       </div>
 
+      <TiltCard>
+      <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-semibold">Teacher + Student Learning Access</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Turn off classes and assignments for teachers and students so current focus stays on community, question bank, and tests.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Mode</p>
+              <p className="text-sm font-semibold">
+                {platformSettings?.learningAccessEnabled ?? true ? "Learning Access On" : "Focus Mode On"}
+              </p>
+            </div>
+            <Switch
+              checked={platformSettings?.learningAccessEnabled ?? true}
+              onCheckedChange={(checked) => updatePlatformSettings.mutate(checked)}
+              disabled={updatePlatformSettings.isPending}
+            />
+          </div>
+        </CardContent>
+      </Card>
+      </TiltCard>
+
       {/* ── KPI tiles ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <KpiTile
           title="Total Teachers"
           value={d.totalAdmins}
@@ -375,7 +431,7 @@ export default function SuperAdminDashboard() {
       </div>
 
       {/* ── Quick actions ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <QuickAction
           href="/super-admin/admins"
           icon={<Plus size={16} className="text-blue-600" />}

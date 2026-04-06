@@ -54,10 +54,12 @@ import StudentAssignments from "@/pages/student/Assignments";
 import StudentProgress from "@/pages/student/Progress";
 import StudentTestAnalysis from "@/pages/student/TestAnalysis";
 import StudentQuestionBank from "@/pages/student/QuestionBank";
+import StudentProfile from "@/pages/student/Profile";
 
 // Tests pages
 import SuperAdminTests from "@/pages/super-admin/Tests";
 import AdminTests from "@/pages/admin/Tests";
+import AdminTestBuilder from "@/pages/admin/TestBuilder";
 import TestAnalytics from "@/pages/admin/TestAnalytics";
 import StudentTests from "@/pages/student/Tests";
 
@@ -70,6 +72,7 @@ import AdminPayments from "@/pages/admin/Payments";
 import StudentPayments from "@/pages/student/Payments";
 import Leaderboard from "@/pages/Leaderboard";
 import ActivityFeed from "@/pages/ActivityFeed";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -107,7 +110,20 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: React.
 
 function AppRouter() {
   const { user, isLoading } = useAuth();
+  const { data: platformSettings } = usePlatformSettings(!!user);
   useActivityTracker(!!user);
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
+
+  const renderFeaturePaused = () => (
+    <Layout>
+      <div className="rounded-2xl border border-border bg-card p-8 text-center">
+        <h1 className="text-2xl font-bold">This module is paused</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Super admin has currently turned off class and assignment access so everyone can focus on community, question bank, and tests.
+        </p>
+      </div>
+    </Layout>
+  );
 
   return (
     <Switch>
@@ -205,12 +221,12 @@ function AppRouter() {
       </Route>
       <Route path="/admin/classes">
         <ProtectedRoute roles={["admin"]}>
-          <Layout><AdminClasses /></Layout>
+          {learningAccessEnabled ? <Layout><AdminClasses /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/admin/class/:id">
         <ProtectedRoute roles={["admin"]}>
-          <Layout><AdminClassDetail /></Layout>
+          {learningAccessEnabled ? <Layout><AdminClassDetail /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/admin/students">
@@ -220,12 +236,12 @@ function AppRouter() {
       </Route>
       <Route path="/admin/whiteboard/:classId">
         <ProtectedRoute roles={["admin"]}>
-          <AdminWhiteboard />
+          {learningAccessEnabled ? <AdminWhiteboard /> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/admin/live-class/:id">
         <ProtectedRoute roles={["admin"]}>
-          <Layout><AdminLiveClass /></Layout>
+          {learningAccessEnabled ? <Layout><AdminLiveClass /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/admin/support">
@@ -236,6 +252,11 @@ function AppRouter() {
       <Route path="/admin/tests">
         <ProtectedRoute roles={["admin"]}>
           <Layout><AdminTests /></Layout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/tests/:id/builder">
+        <ProtectedRoute roles={["admin"]}>
+          <AdminTestBuilder />
         </ProtectedRoute>
       </Route>
       <Route path="/admin/question-bank">
@@ -250,12 +271,12 @@ function AppRouter() {
       </Route>
       <Route path="/admin/assignments">
         <ProtectedRoute roles={["admin"]}>
-          <Layout><AdminAssignments /></Layout>
+          {learningAccessEnabled ? <Layout><AdminAssignments /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/admin/attendance">
         <ProtectedRoute roles={["admin"]}>
-          <Layout><AdminAttendance /></Layout>
+          {learningAccessEnabled ? <Layout><AdminAttendance /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/admin/analytics">
@@ -293,27 +314,27 @@ function AppRouter() {
       </Route>
       <Route path="/student/classes">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentClasses /></Layout>
+          {learningAccessEnabled ? <Layout><StudentClasses /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/student/class/:id">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentClassDetail /></Layout>
+          {learningAccessEnabled ? <Layout><StudentClassDetail /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/student/whiteboard/:classId">
         <ProtectedRoute roles={["student"]}>
-          <StudentWhiteboard />
+          {learningAccessEnabled ? <StudentWhiteboard /> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/student/live-class/:id">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentLiveClass /></Layout>
+          {learningAccessEnabled ? <Layout><StudentLiveClass /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/student/feedback">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentFeedback /></Layout>
+          {learningAccessEnabled ? <Layout><StudentFeedback /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/student/support">
@@ -333,12 +354,12 @@ function AppRouter() {
       </Route>
       <Route path="/student/tests/:id/analysis">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentTestAnalysis /></Layout>
+          <StudentTestAnalysis />
         </ProtectedRoute>
       </Route>
       <Route path="/student/assignments">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentAssignments /></Layout>
+          {learningAccessEnabled ? <Layout><StudentAssignments /></Layout> : renderFeaturePaused()}
         </ProtectedRoute>
       </Route>
       <Route path="/student/progress">
@@ -348,7 +369,12 @@ function AppRouter() {
       </Route>
       <Route path="/student/payments">
         <ProtectedRoute roles={["student"]}>
-          <Layout><StudentPayments /></Layout>
+          {learningAccessEnabled ? <Layout><StudentPayments /></Layout> : renderFeaturePaused()}
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/profile">
+        <ProtectedRoute roles={["student"]}>
+          <Layout><StudentProfile /></Layout>
         </ProtectedRoute>
       </Route>
 

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -101,6 +102,7 @@ function isCorrect(question: QuestionItem, answer: number | number[] | string | 
 export default function StudentQuestionBank() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { data: classes = [] } = useListClasses();
   const [selectedClassId, setSelectedClassId] = useState<string>("");
   const [expandedSubjects, setExpandedSubjects] = useState<Set<number>>(new Set());
@@ -116,6 +118,16 @@ export default function StudentQuestionBank() {
   const bucketRef = useRef<HTMLDivElement | null>(null);
 
   const classOptions = useMemo(() => classes.filter((cls: any) => cls.isEnrolled), [classes]);
+
+  useEffect(() => {
+    if (selectedClassId || classOptions.length === 0) return;
+    const preferredExams = [
+      user?.subject,
+      ...(Array.isArray((user as any)?.additionalExams) ? (user as any).additionalExams : []),
+    ].filter(Boolean);
+    const preferred = classOptions.find((cls: any) => preferredExams.includes(cls.subject)) ?? classOptions[0];
+    if (preferred) setSelectedClassId(String(preferred.id));
+  }, [classOptions, selectedClassId, user]);
 
   const { data, isLoading } = useQuery<QuestionBankResponse>({
     queryKey: ["student-question-bank", selectedClassId],
@@ -413,14 +425,19 @@ export default function StudentQuestionBank() {
       </div>
 
       <Card>
-        <CardContent className="p-4">
-          <Label className="text-xs">Select Enrolled Batch</Label>
-          <select value={selectedClassId} onChange={(e) => setSelectedClassId(e.target.value)} className="mt-1 w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
-            <option value="">Select batch</option>
-            {classOptions.map((cls: any) => (
-              <option key={cls.id} value={cls.id}>{cls.title}</option>
-            ))}
-          </select>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Active Batch</p>
+            <p className="mt-1 text-sm font-semibold">
+              {selectedClassId
+                ? classOptions.find((cls: any) => String(cls.id) === selectedClassId)?.title ?? "Assigned batch"
+                : "Assigning your batch..."}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-muted-foreground">Primary exam</p>
+            <p className="text-sm font-medium">{user?.subject ?? "—"}</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -443,7 +460,7 @@ export default function StudentQuestionBank() {
       </div>
 
       {!selectedClassId ? (
-        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Select your batch to open its question bank.</CardContent></Card>
+        <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">We are loading your assigned batch question bank.</CardContent></Card>
       ) : isLoading ? (
         <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}</div>
       ) : !data || data.subjects.length === 0 ? (

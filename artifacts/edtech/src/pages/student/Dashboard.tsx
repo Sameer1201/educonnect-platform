@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 function greeting() {
   const h = new Date().getHours();
@@ -52,6 +53,7 @@ function StatTile({ label, value, icon, gradient, pulse }: {
 export default function StudentDashboard() {
   const { user } = useAuth();
   const { data, isLoading } = useGetStudentDashboard();
+  const { data: platformSettings } = usePlatformSettings();
 
   if (isLoading) {
     return (
@@ -72,6 +74,7 @@ export default function StudentDashboard() {
   const pendingTests = (data as any).pendingTests ?? [];
   const liveClasses = data.liveClasses ?? 0;
   const firstName = user?.fullName?.split(" ")[0] ?? "there";
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
   return (
     <DashboardScene accent="from-violet-500/20 via-fuchsia-500/10 to-blue-500/16">
@@ -82,14 +85,23 @@ export default function StudentDashboard() {
           <p className="text-sm font-medium text-white/65">{greeting()},</p>
           <h1 className="text-2xl sm:text-3xl font-bold mt-0.5">{firstName} 👋</h1>
           <p className="text-white/60 text-sm mt-2 max-w-md">
-            {data.enrolledClasses > 0
+            {!learningAccessEnabled
+              ? <>Classes and assignments are paused right now. Focus on <span className="text-white font-semibold">question bank</span>, <span className="text-white font-semibold">tests</span>, and <span className="text-white font-semibold">community</span>.</>
+              : data.enrolledClasses > 0
               ? <>Enrolled in <span className="text-white font-semibold">{data.enrolledClasses}</span> {data.enrolledClasses === 1 ? "class" : "classes"}{pendingTests.length > 0 && <> · <span className="text-yellow-300 font-semibold">{pendingTests.length} test{pendingTests.length > 1 ? "s" : ""} pending</span></>}</>
               : "Browse classes and start your learning journey!"}
           </p>
           <div className="flex flex-wrap gap-2 mt-4">
-            <Link href="/student/progress">
+            {learningAccessEnabled && (
+              <Link href="/student/progress">
+                <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
+                  <BarChart2 size={13} /> My Progress
+                </Button>
+              </Link>
+            )}
+            <Link href="/student/question-bank">
               <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                <BarChart2 size={13} /> My Progress
+                <BookOpen size={13} /> Question Bank
               </Button>
             </Link>
             <Link href="/leaderboard">
@@ -111,31 +123,49 @@ export default function StudentDashboard() {
 
       {/* ── Stat tiles ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile
-          label="Enrolled Classes" value={data.enrolledClasses}
-          icon={<BookOpen size={18} className="text-white" />}
-          gradient="bg-gradient-to-br from-blue-500 to-blue-700"
-        />
-        <StatTile
-          label="Live Now" value={liveClasses}
-          icon={<Zap size={18} className="text-white" />}
-          gradient={liveClasses > 0 ? "bg-gradient-to-br from-red-500 to-rose-700" : "bg-gradient-to-br from-slate-400 to-slate-600"}
-          pulse={liveClasses > 0}
-        />
+        {learningAccessEnabled ? (
+          <>
+            <StatTile
+              label="Enrolled Classes" value={data.enrolledClasses}
+              icon={<BookOpen size={18} className="text-white" />}
+              gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+            />
+            <StatTile
+              label="Live Now" value={liveClasses}
+              icon={<Zap size={18} className="text-white" />}
+              gradient={liveClasses > 0 ? "bg-gradient-to-br from-red-500 to-rose-700" : "bg-gradient-to-br from-slate-400 to-slate-600"}
+              pulse={liveClasses > 0}
+            />
+          </>
+        ) : (
+          <>
+            <StatTile
+              label="Community Focus" value={1}
+              icon={<MessageSquare size={18} className="text-white" />}
+              gradient="bg-gradient-to-br from-blue-500 to-indigo-700"
+            />
+            <StatTile
+              label="Question Practice" value={1}
+              icon={<BookOpen size={18} className="text-white" />}
+              gradient="bg-gradient-to-br from-fuchsia-500 to-violet-700"
+            />
+          </>
+        )}
         <StatTile
           label="Pending Tests" value={pendingTests.length}
           icon={<ClipboardList size={18} className="text-white" />}
           gradient={pendingTests.length > 0 ? "bg-gradient-to-br from-amber-500 to-orange-600" : "bg-gradient-to-br from-emerald-500 to-teal-600"}
         />
         <StatTile
-          label="My Assignments" value={data.availableClasses?.length ?? 0}
-          icon={<FileText size={18} className="text-white" />}
+          label={learningAccessEnabled ? "My Assignments" : "Active Modules"}
+          value={learningAccessEnabled ? (data.availableClasses?.length ?? 0) : 3}
+          icon={learningAccessEnabled ? <FileText size={18} className="text-white" /> : <BarChart2 size={18} className="text-white" />}
           gradient="bg-gradient-to-br from-violet-500 to-purple-700"
         />
       </div>
 
       {/* ── Live class urgent CTA ── */}
-      {liveClasses > 0 && (
+      {learningAccessEnabled && liveClasses > 0 && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-red-500 to-rose-600 p-4 text-white shadow-md">
           <div className="flex items-center justify-between gap-4 relative z-10">
             <div className="flex items-center gap-3">
@@ -219,6 +249,7 @@ export default function StudentDashboard() {
       )}
 
       {/* ── Class grids ── */}
+      {learningAccessEnabled && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <TiltCard>
         <Card className="overflow-hidden border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl transition-shadow duration-200">
@@ -308,6 +339,7 @@ export default function StudentDashboard() {
         </Card>
         </TiltCard>
       </div>
+      )}
     </div>
     </DashboardScene>
   );

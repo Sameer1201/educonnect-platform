@@ -11,6 +11,7 @@ const selectFields = {
   fromRole: usersTable.role,
   subject: supportTicketsTable.subject,
   message: supportTicketsTable.message,
+  imageData: supportTicketsTable.imageData,
   status: supportTicketsTable.status,
   adminResponse: supportTicketsTable.adminResponse,
   respondedBy: supportTicketsTable.respondedBy,
@@ -107,7 +108,7 @@ router.post("/", async (req, res) => {
   const userId = req.cookies?.userId;
   if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-  const { subject, message } = req.body;
+  const { subject, message, imageData } = req.body;
   if (!subject || !message) return res.status(400).json({ error: "Subject and message are required" });
 
   const submitter = await getUser(userId);
@@ -115,7 +116,7 @@ router.post("/", async (req, res) => {
 
   const [ticket] = await db
     .insert(supportTicketsTable)
-    .values({ studentId: parseInt(userId), subject, message })
+    .values({ studentId: parseInt(userId), subject, message, imageData: typeof imageData === "string" ? imageData : null })
     .returning();
 
   // Automatically seed the initial message into the thread

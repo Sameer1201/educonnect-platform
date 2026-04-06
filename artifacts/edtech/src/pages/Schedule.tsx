@@ -16,6 +16,7 @@ import {
 } from "date-fns";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -77,6 +78,7 @@ export default function Schedule() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { data: platformSettings } = usePlatformSettings(!!user);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -92,8 +94,9 @@ export default function Schedule() {
   });
 
   const isPlanner = user?.role === "planner";
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
-  const { data: events = [], isLoading } = useQuery<CalEvent[]>({
+  const { data: rawEvents = [], isLoading } = useQuery<CalEvent[]>({
     queryKey: ["calendar"],
     queryFn: async () => {
       const r = await fetch(`${BASE}/api/calendar`, { credentials: "include" });
@@ -102,6 +105,10 @@ export default function Schedule() {
     },
     refetchInterval: 60000,
   });
+
+  const events = (user?.role === "student" || user?.role === "admin") && !learningAccessEnabled
+    ? rawEvents.filter((event) => event.type !== "class")
+    : rawEvents;
 
   const { data: teachers = [] } = useQuery<TeacherUser[]>({
     queryKey: ["planner-teachers"],
@@ -255,6 +262,8 @@ export default function Schedule() {
   };
 
   const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const showClassItems = learningAccessEnabled || (user?.role !== "student" && user?.role !== "admin");
+
   const upcomingEvents = events
     .filter((event) => !event.isScheduled || new Date(event.date) >= new Date())
     .sort((a, b) => {
@@ -275,7 +284,9 @@ export default function Schedule() {
           <p className="text-muted-foreground text-sm mt-1">
             {isPlanner
               ? "Schedule class sessions for your assigned courses and create private management meetings for teachers."
-              : "View your upcoming classes, tests, and lecture plans prepared by the planner."}
+              : showClassItems
+                ? "View your upcoming classes, tests, and lecture plans prepared by the planner."
+                : "View tests and planner updates. Class schedule is currently paused by super admin."}
           </p>
         </div>
 
@@ -452,9 +463,11 @@ export default function Schedule() {
               </div>
 
               <div className="flex items-center gap-4 mt-3 flex-wrap">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200" />Class
-                </div>
+                {showClassItems && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <div className="w-3 h-3 rounded bg-blue-100 border border-blue-200" />Class
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <div className="w-3 h-3 rounded bg-orange-100 border border-orange-200" />Test
                 </div>
@@ -484,7 +497,9 @@ export default function Schedule() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="text-sm font-medium truncate">{event.title}</p>
-                              <Badge variant="outline" className="capitalize">{event.type.replace("_", " ")}</Badge>
+                              <Badge variant="outline" className="capitalize">
+                                {event.type === "lecture_plan" && !showClassItems ? "planner update" : event.type.replace("_", " ")}
+                              </Badge>
                             </div>
                             {event.subject && <p className="text-xs text-muted-foreground mt-0.5">{event.subject}</p>}
                             {event.status && <p className="text-xs text-muted-foreground mt-0.5 capitalize">Status: {event.status}</p>}
@@ -521,7 +536,7 @@ export default function Schedule() {
 
           <Card>
             <CardContent className="p-4">
-              <p className="text-sm font-semibold mb-3">Upcoming Events</p>
+              <p className="text-sm font-semibold mb-3">{showClassItems ? "Upcoming Events" : "Upcoming Tests & Planner Updates"}</p>
               {isLoading ? (
                 <div className="space-y-2">
                   {[...Array(3)].map((_, index) => <div key={index} className="h-12 bg-muted rounded animate-pulse" />)}

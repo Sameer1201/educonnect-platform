@@ -1,4 +1,5 @@
 import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,7 +13,9 @@ export const usersTable = pgTable("users", {
   status: text("status", { enum: ["pending", "approved", "rejected", "active"] }).notNull().default("pending"),
   phone: text("phone"),
   subject: text("subject"),
+  additionalExams: text("additional_exams").array().notNull().default([]),
   avatarUrl: text("avatar_url"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   approvedById: integer("approved_by_id"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

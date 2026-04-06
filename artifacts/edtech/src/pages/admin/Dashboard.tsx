@@ -11,6 +11,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountUp } from "@/hooks/useCountUp";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 function greeting() {
   const h = new Date().getHours();
@@ -53,6 +54,7 @@ function StatTile({ label, value, icon, gradient, sub, pulse }: {
 export default function AdminDashboard() {
   const { user } = useAuth();
   const { data, isLoading } = useGetAdminDashboard();
+  const { data: platformSettings } = usePlatformSettings();
 
   if (isLoading) {
     return (
@@ -71,6 +73,7 @@ export default function AdminDashboard() {
   if (!data) return null;
 
   const firstName = user?.fullName?.split(" ")[0] ?? "there";
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
   return (
     <DashboardScene accent="from-cyan-500/16 via-blue-500/10 to-emerald-500/14">
@@ -81,13 +84,28 @@ export default function AdminDashboard() {
           <p className="text-sm font-medium text-white/65">{greeting()},</p>
           <h1 className="text-2xl sm:text-3xl font-bold mt-0.5">{firstName} 👋</h1>
           <p className="text-white/60 text-sm mt-2 max-w-md">
-            Managing <span className="text-white font-semibold">{data.totalClasses}</span> {data.totalClasses === 1 ? "class" : "classes"} with <span className="text-white font-semibold">{data.totalStudents}</span> {data.totalStudents === 1 ? "student" : "students"}
-            {data.pendingStudents > 0 && <> · <span className="text-yellow-300 font-semibold">{data.pendingStudents} pending approval</span></>}.
+            {learningAccessEnabled ? (
+              <>
+                Managing <span className="text-white font-semibold">{data.totalClasses}</span> {data.totalClasses === 1 ? "class" : "classes"} with <span className="text-white font-semibold">{data.totalStudents}</span> {data.totalStudents === 1 ? "student" : "students"}
+                {data.pendingStudents > 0 && <> · <span className="text-yellow-300 font-semibold">{data.pendingStudents} pending approval</span></>}.
+              </>
+            ) : (
+              <>
+                Learning modules are paused by super admin right now. Focus on <span className="text-white font-semibold">question bank</span>, <span className="text-white font-semibold">tests</span>, and <span className="text-white font-semibold">community</span>.
+              </>
+            )}
           </p>
           <div className="flex flex-wrap gap-2 mt-4">
-            <Link href="/admin/classes">
+            {learningAccessEnabled && (
+              <Link href="/admin/classes">
+                <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
+                  <Plus size={13} /> New Class
+                </Button>
+              </Link>
+            )}
+            <Link href="/admin/question-bank">
               <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                <Plus size={13} /> New Class
+                <BookOpen size={13} /> Question Bank
               </Button>
             </Link>
             <Link href="/admin/tests">
@@ -95,9 +113,9 @@ export default function AdminDashboard() {
                 <ClipboardList size={13} /> Tests
               </Button>
             </Link>
-            <Link href="/admin/assignments">
+            <Link href="/community">
               <Button size="sm" className="bg-white/18 hover:bg-white/28 text-white border-0 gap-1.5 text-xs backdrop-blur-sm h-8 shadow-sm">
-                <FileText size={13} /> Assignments
+                <FileText size={13} /> Community
               </Button>
             </Link>
           </div>
@@ -109,17 +127,34 @@ export default function AdminDashboard() {
 
       {/* ── Stat tiles ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatTile
-          label="My Classes" value={data.totalClasses}
-          icon={<BookOpen size={18} className="text-white" />}
-          gradient="bg-gradient-to-br from-blue-500 to-blue-700"
-        />
-        <StatTile
-          label="Live Now" value={data.liveClasses}
-          icon={<Zap size={18} className="text-white" />}
-          gradient={data.liveClasses > 0 ? "bg-gradient-to-br from-red-500 to-rose-700" : "bg-gradient-to-br from-slate-400 to-slate-600"}
-          pulse={data.liveClasses > 0}
-        />
+        {learningAccessEnabled ? (
+          <>
+            <StatTile
+              label="My Classes" value={data.totalClasses}
+              icon={<BookOpen size={18} className="text-white" />}
+              gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+            />
+            <StatTile
+              label="Live Now" value={data.liveClasses}
+              icon={<Zap size={18} className="text-white" />}
+              gradient={data.liveClasses > 0 ? "bg-gradient-to-br from-red-500 to-rose-700" : "bg-gradient-to-br from-slate-400 to-slate-600"}
+              pulse={data.liveClasses > 0}
+            />
+          </>
+        ) : (
+          <>
+            <StatTile
+              label="Question Bank" value={1}
+              icon={<BookOpen size={18} className="text-white" />}
+              gradient="bg-gradient-to-br from-blue-500 to-blue-700"
+            />
+            <StatTile
+              label="Tests Focus" value={1}
+              icon={<ClipboardList size={18} className="text-white" />}
+              gradient="bg-gradient-to-br from-red-500 to-rose-700"
+            />
+          </>
+        )}
         <StatTile
           label="My Students" value={data.totalStudents}
           icon={<Users size={18} className="text-white" />}
@@ -134,7 +169,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* ── Live CTA ── */}
-      {data.liveClasses > 0 && (
+      {learningAccessEnabled && data.liveClasses > 0 && (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-red-500 to-rose-600 p-4 text-white shadow-md">
           <div className="flex items-center justify-between gap-4 relative z-10">
             <div className="flex items-center gap-3">
@@ -160,6 +195,7 @@ export default function AdminDashboard() {
       )}
 
       {/* ── Upcoming + Students ── */}
+      {learningAccessEnabled && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <TiltCard>
         <Card className="overflow-hidden border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl transition-shadow duration-200">
@@ -264,6 +300,7 @@ export default function AdminDashboard() {
         </Card>
         </TiltCard>
       </div>
+      )}
     </div>
     </DashboardScene>
   );

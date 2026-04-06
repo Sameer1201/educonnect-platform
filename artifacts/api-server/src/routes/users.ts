@@ -18,12 +18,13 @@ import {
   communityPostsTable,
   questionBankSavedQuestionsTable,
   questionBankReportsTable,
+  passwordResetRequestsTable,
   notificationsTable,
   notificationPreferencesTable,
   userActivityLogs,
   userSessions,
 } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
+import { desc, eq, or } from "drizzle-orm";
 import {
   ListUsersQueryParams,
   CreateAdminBody,
@@ -194,6 +195,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
   const newPassword = (req.body as any).newPassword;
   if (typeof newPassword === "string" && newPassword.trim().length >= 6) {
     updateData.passwordHash = hashPassword(newPassword.trim());
+    updateData.mustChangePassword = !!(req.body as any).forcePasswordChange;
   }
 
   const [updated] = await db
@@ -208,6 +210,45 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
   }
 
   res.json(serializeUser(updated));
+});
+
+router.get("/password-reset-requests", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["super_admin", "admin"]);
+  if (!callerRole) return;
+
+  const requests = await db.select().from(passwordResetRequestsTable).orderBy(desc(passwordResetRequestsTable.createdAt));
+  res.json(requests);
+});
+
+router.patch("/password-reset-requests/:id/resolve", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["super_admin", "admin"]);
+  if (!callerRole) return;
+  const resolverId = requireAuth(req, res);
+  if (!resolverId) return;
+
+  const requestId = parseInt(req.params.id, 10);
+  const temporaryPassword = typeof req.body?.temporaryPassword === "string" ? req.body.temporaryPassword.trim() : "";
+  if (isNaN(requestId) || temporaryPassword.length < 6) {
+    res.status(400).json({ error: "A temporary password of at least 6 characters is required" });
+    return;
+  }
+
+  const [requestRow] = await db.select().from(passwordResetRequestsTable).where(eq(passwordResetRequestsTable.id, requestId));
+  if (!requestRow) {
+    res.status(404).json({ error: "Reset request not found" });
+    return;
+  }
+
+  await db.update(usersTable)
+    .set({ passwordHash: hashPassword(temporaryPassword), mustChangePassword: true })
+    .where(eq(usersTable.id, requestRow.userId));
+
+  const [updatedRequest] = await db.update(passwordResetRequestsTable)
+    .set({ status: "resolved", resolvedBy: resolverId, resolutionNote: "Temporary password issued" })
+    .where(eq(passwordResetRequestsTable.id, requestId))
+    .returning();
+
+  res.json(updatedRequest);
 });
 
 router.delete("/users/:id", async (req, res): Promise<void> => {

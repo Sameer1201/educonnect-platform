@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useListUsers, useCreateAdmin, useDeleteUser, getListUsersQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +15,7 @@ import {
   GraduationCap, Users, CalendarDays,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { format } from "date-fns";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -27,6 +29,8 @@ interface StaffUser {
   phone?: string | null;
   status: string;
   createdAt?: string;
+  avatarUrl?: string | null;
+  mustChangePassword?: boolean;
 }
 
 interface EditForm {
@@ -56,6 +60,215 @@ function roleLabel(role: StaffUser["role"]) {
 
 function roleBadgeClass(role: StaffUser["role"]) {
   return role === "planner" ? "bg-emerald-100 text-emerald-700" : "";
+}
+
+interface ActivityLog {
+  id: number;
+  action: string;
+  page: string | null;
+  detail: string | null;
+  createdAt: string;
+}
+
+interface StaffActivityDetail {
+  user: { id: number; username: string; fullName: string; role: string };
+  totalSeconds: number;
+  sessions: Array<{ startedAt: string; totalSeconds: number; isActive: boolean }>;
+  activities: ActivityLog[];
+  stats: {
+    testsCreated: number;
+    testQuestionsCreated: number;
+    questionBankQuestionsCreated: number;
+    reportedQuestionsReceived: number;
+    openReportedQuestions: number;
+  };
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
+}
+
+function StaffProfileDialog({ staff }: { staff: StaffUser }) {
+  const [open, setOpen] = useState(false);
+
+  const { data: userDetail, isLoading: userLoading } = useQuery<StaffUser>({
+    queryKey: ["staff-profile", staff.id],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/users/${staff.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load profile");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const { data: activityDetail, isLoading: activityLoading } = useQuery<StaffActivityDetail>({
+    queryKey: ["staff-profile-activity", staff.id],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/activity/user/${staff.id}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load activity");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const profile = userDetail ?? staff;
+  const stats = activityDetail?.stats ?? {
+    testsCreated: 0,
+    testQuestionsCreated: 0,
+    questionBankQuestionsCreated: 0,
+    reportedQuestionsReceived: 0,
+    openReportedQuestions: 0,
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0 rounded-full transition-transform hover:scale-[1.04] focus:outline-none focus:ring-2 focus:ring-primary/50"
+          aria-label={`Open profile for ${staff.fullName}`}
+        >
+          {staff.avatarUrl ? (
+            <img src={staff.avatarUrl} alt={staff.fullName} className="h-10 w-10 rounded-full object-cover border border-border" />
+          ) : (
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold ${staff.role === "planner" ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-blue-500 to-cyan-600"}`}>
+              {getInitials(staff.fullName)}
+            </div>
+          )}
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Staff Profile</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
+          <Card className="border-border/70">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center gap-4">
+                {profile.avatarUrl ? (
+                  <img src={profile.avatarUrl} alt={profile.fullName} className="h-16 w-16 rounded-2xl object-cover border border-border" />
+                ) : (
+                  <div className={`h-16 w-16 rounded-2xl flex items-center justify-center text-white text-lg font-bold ${profile.role === "planner" ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-blue-500 to-cyan-600"}`}>
+                    {getInitials(profile.fullName)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-lg font-semibold leading-tight">{profile.fullName}</p>
+                  <p className="text-sm text-muted-foreground">@{profile.username}</p>
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <Badge variant="secondary" className={roleBadgeClass(profile.role)}>{roleLabel(profile.role)}</Badge>
+                    <Badge variant="outline">{profile.status}</Badge>
+                    <Badge variant="outline">Managed by Super Admin</Badge>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex items-start gap-2"><Mail size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.email || "No email added"}</span></div>
+                <div className="flex items-start gap-2"><Phone size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.phone || "No phone added"}</span></div>
+                <div className="flex items-start gap-2"><BookOpen size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.subject || (profile.role === "planner" ? "Planning / Coordination" : "No subject assigned")}</span></div>
+                <div className="flex items-start gap-2"><CalendarDays size={14} className="mt-0.5 text-muted-foreground" /><span>Joined {profile.createdAt ? format(new Date(profile.createdAt), "MMM d, yyyy") : "Unknown"}</span></div>
+                <div className="flex items-start gap-2"><KeyRound size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.mustChangePassword ? "Password reset pending" : "Password active"}</span></div>
+              </div>
+
+              <Link href={`/super-admin/activity`}>
+                <Button variant="outline" className="w-full gap-1.5">
+                  <CalendarDays size={14} /> Open Full Activity Monitor
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Activity Snapshot</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {activityLoading ? (
+                  <div className="h-20 rounded-xl bg-muted animate-pulse" />
+                ) : activityDetail ? (
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Time Spent</p>
+                      <p className="text-lg font-bold mt-1">{formatDuration(activityDetail.totalSeconds)}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Sessions</p>
+                      <p className="text-lg font-bold mt-1">{activityDetail.sessions.length}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Recent Actions</p>
+                      <p className="text-lg font-bold mt-1">{activityDetail.activities.length}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Tests Created</p>
+                      <p className="text-lg font-bold mt-1">{stats.testsCreated}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Test Questions</p>
+                      <p className="text-lg font-bold mt-1">{stats.testQuestionsCreated}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">QB Questions Added</p>
+                      <p className="text-lg font-bold mt-1">{stats.questionBankQuestionsCreated}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Reported Questions</p>
+                      <p className="text-lg font-bold mt-1">{stats.reportedQuestionsReceived}</p>
+                    </div>
+                    <div className="rounded-xl border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Open Reports</p>
+                      <p className="text-lg font-bold mt-1">{stats.openReportedQuestions}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No activity found.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Recent Activity Log</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {userLoading || activityLoading ? (
+                  <div className="space-y-2">
+                    {[...Array(4)].map((_, index) => <div key={index} className="h-12 rounded-xl bg-muted animate-pulse" />)}
+                  </div>
+                ) : activityDetail?.activities.length ? (
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {activityDetail.activities.slice(0, 12).map((activity) => (
+                      <div key={activity.id} className="rounded-xl border border-border/60 bg-muted/20 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium capitalize">{activity.action.replace(/_/g, " ")}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {activity.detail || activity.page || "Platform interaction"}
+                            </p>
+                          </div>
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                            {format(new Date(activity.createdAt), "MMM d, h:mm a")}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function EditStaffDialog({ staff, onUpdated }: { staff: StaffUser; onUpdated: () => void }) {
@@ -250,6 +463,8 @@ export default function SuperAdminAdmins() {
     user.subject?.toLowerCase().includes(search.toLowerCase()) ||
     roleLabel(user.role).toLowerCase().includes(search.toLowerCase())
   );
+  const filteredTeachers = filtered.filter((user) => user.role === "admin");
+  const filteredPlanners = filtered.filter((user) => user.role === "planner");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -450,62 +665,78 @@ export default function SuperAdminAdmins() {
         </Dialog>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3 border-b bg-muted/30">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <UserCheck size={15} className="text-blue-500" />
-            Staff Accounts
-            <span className="text-muted-foreground font-normal">({filtered.length})</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-4">
-          {isLoading ? (
-            <div className="space-y-3">
-              {[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center py-10 text-muted-foreground">
-              <UserCheck size={32} className="opacity-20 mb-2" />
-              <p className="text-sm">{search ? "No staff accounts match your search." : "No teacher or planner accounts created yet."}</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filtered.map((staff) => (
-                <div
-                  key={staff.id}
-                  className="flex items-center gap-4 p-3.5 rounded-xl border border-border/60 bg-card hover:border-border hover:shadow-sm transition-all duration-150"
-                >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${staff.role === "planner" ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-blue-500 to-cyan-600"}`}>
-                    {getInitials(staff.fullName)}
+      {isLoading ? (
+        <Card>
+          <CardContent className="pt-4 space-y-3">
+            {[...Array(4)].map((_, i) => <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />)}
+          </CardContent>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center py-10 text-muted-foreground">
+            <UserCheck size={32} className="opacity-20 mb-2" />
+            <p className="text-sm">{search ? "No staff accounts match your search." : "No teacher or planner accounts created yet."}</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-2">
+          {[
+            { title: "Teachers", count: filteredTeachers.length, icon: <GraduationCap size={15} className="text-blue-500" />, items: filteredTeachers },
+            { title: "Planners", count: filteredPlanners.length, icon: <CalendarDays size={15} className="text-emerald-500" />, items: filteredPlanners },
+          ].map((section) => (
+            <Card key={section.title}>
+              <CardHeader className="pb-3 border-b bg-muted/30">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  {section.icon}
+                  {section.title}
+                  <span className="text-muted-foreground font-normal">({section.count})</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4">
+                {section.items.length === 0 ? (
+                  <div className="flex flex-col items-center py-10 text-muted-foreground">
+                    <UserCheck size={28} className="opacity-20 mb-2" />
+                    <p className="text-sm">No {section.title.toLowerCase()} found.</p>
                   </div>
+                ) : (
+                  <div className="space-y-2">
+                    {section.items.map((staff) => (
+                      <div
+                        key={staff.id}
+                        className="flex items-center gap-4 p-3.5 rounded-xl border border-border/60 bg-card hover:border-border hover:shadow-sm transition-all duration-150"
+                      >
+                        <StaffProfileDialog staff={staff} />
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold">{staff.fullName}</p>
-                      <Badge variant="secondary" className={`text-[10px] shrink-0 ${roleBadgeClass(staff.role)}`}>
-                        {roleLabel(staff.role)}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                      <span className="text-xs text-muted-foreground">@{staff.username}</span>
-                      {staff.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail size={10} />{staff.email}</span>}
-                      {staff.subject && <span className="text-xs text-muted-foreground flex items-center gap-1"><BookOpen size={10} />{staff.subject}</span>}
-                      {staff.phone && <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone size={10} />{staff.phone}</span>}
-                    </div>
-                  </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold">{staff.fullName}</p>
+                            <Badge variant="secondary" className={`text-[10px] shrink-0 ${roleBadgeClass(staff.role)}`}>
+                              {roleLabel(staff.role)}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                            <span className="text-xs text-muted-foreground">@{staff.username}</span>
+                            {staff.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail size={10} />{staff.email}</span>}
+                            {staff.subject && <span className="text-xs text-muted-foreground flex items-center gap-1"><BookOpen size={10} />{staff.subject}</span>}
+                            {staff.phone && <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone size={10} />{staff.phone}</span>}
+                          </div>
+                        </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    <EditStaffDialog staff={staff} onUpdated={refresh} />
-                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive gap-1.5" onClick={() => handleDelete(staff)}>
-                      <Trash2 size={14} /> Delete
-                    </Button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <EditStaffDialog staff={staff} onUpdated={refresh} />
+                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive gap-1.5" onClick={() => handleDelete(staff)}>
+                            <Trash2 size={14} /> Delete
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

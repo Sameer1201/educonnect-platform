@@ -2,9 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Users, Clock, CheckCircle, XCircle, ShieldCheck, ShieldOff, RotateCcw, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -17,6 +20,8 @@ interface User {
 export default function SuperAdminStudents() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [resetDialog, setResetDialog] = useState<{ id: number; studentName: string } | null>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   const { data: students = [], isLoading } = useQuery<User[]>({
     queryKey: ["sa-students-with-approvers"],
     queryFn: async () => {
@@ -32,6 +37,14 @@ export default function SuperAdminStudents() {
         ...s,
         approverName: s.approvedById ? (adminMap[s.approvedById] ?? `Admin #${s.approvedById}`) : undefined,
       }));
+    },
+  });
+  const { data: resetRequests = [] } = useQuery<any[]>({
+    queryKey: ["sa-password-reset-requests"],
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/password-reset-requests`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load reset requests");
+      return r.json();
     },
   });
 
@@ -82,6 +95,27 @@ export default function SuperAdminStudents() {
       toast({ title: "Student deleted", description: "Student account and all related data were permanently removed." });
     },
     onError: (err: Error) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
+  });
+  const resolveResetMutation = useMutation({
+    mutationFn: async ({ id, temporaryPassword }: { id: number; temporaryPassword: string }) => {
+      const r = await fetch(`${BASE}/api/password-reset-requests/${id}/resolve`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ temporaryPassword }),
+      });
+      if (!r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to set temporary password");
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sa-password-reset-requests"] });
+      toast({ title: "Temporary password set", description: "Student must change password after login." });
+      setResetDialog(null);
+      setTemporaryPassword("");
+    },
   });
 
   const pending = students.filter((s) => s.status === "pending");
@@ -146,6 +180,31 @@ export default function SuperAdminStudents() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Forgot Password Requests ({resetRequests.filter((r) => r.status === "open").length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {resetRequests.filter((r) => r.status === "open").length === 0 ? (
+            <p className="text-sm text-muted-foreground">No open reset requests.</p>
+          ) : (
+            <div className="space-y-2">
+              {resetRequests.filter((r) => r.status === "open").map((request) => (
+                <div key={request.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div>
+                    <p className="text-sm font-medium">{request.requestedUsername}</p>
+                    <p className="text-xs text-muted-foreground">{request.requestedEmail}</p>
+                  </div>
+                  <Button size="sm" onClick={() => setResetDialog({ id: request.id, studentName: request.requestedUsername })}>
+                    Set Temporary Password
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -237,6 +296,23 @@ export default function SuperAdminStudents() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!resetDialog} onOpenChange={(open) => !open && setResetDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set Temporary Password</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Temporary password for <span className="font-medium text-foreground">{resetDialog?.studentName}</span>. Student will be forced to change it after login.
+            </p>
+            <Input type="password" value={temporaryPassword} onChange={(e) => setTemporaryPassword(e.target.value)} placeholder="Minimum 6 characters" />
+            <Button className="w-full" disabled={temporaryPassword.length < 6 || resolveResetMutation.isPending} onClick={() => resetDialog && resolveResetMutation.mutate({ id: resetDialog.id, temporaryPassword })}>
+              Set Temporary Password
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

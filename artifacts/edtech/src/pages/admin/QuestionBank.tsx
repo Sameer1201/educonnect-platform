@@ -758,43 +758,43 @@ export default function AdminQuestionBank() {
       <DashboardScene accent="from-cyan-500/20 via-blue-500/10 to-pink-500/20">
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_380px]">
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-100/90">
+            <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-700 dark:text-cyan-100/90">
               <BookOpen size={12} />
               Question Bank Control
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-white">Question Bank</h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-300">
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground dark:text-white">Question Bank</h1>
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground dark:text-slate-300">
                 Test-format questions, student reports, and instant subject-teacher updates from one teacher command surface.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <TiltCard className="rounded-3xl" glare={false}>
                 <div className="surface-3d rounded-3xl p-4">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Subjects</p>
-                  <p className="mt-2 text-3xl font-bold text-white">{dashboardStats.subjects}</p>
-                  <p className="mt-1 text-xs text-white/55">Teacher-owned question tracks</p>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50">Subjects</p>
+                  <p className="mt-2 text-3xl font-bold text-foreground dark:text-white">{dashboardStats.subjects}</p>
+                  <p className="mt-1 text-xs text-muted-foreground dark:text-white/55">Teacher-owned question tracks</p>
                 </div>
               </TiltCard>
               <TiltCard className="rounded-3xl" glare={false}>
                 <div className="surface-3d rounded-3xl p-4">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Chapters</p>
-                  <p className="mt-2 text-3xl font-bold text-white">{dashboardStats.chapters}</p>
-                  <p className="mt-1 text-xs text-white/55">Structured content blocks</p>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50">Chapters</p>
+                  <p className="mt-2 text-3xl font-bold text-foreground dark:text-white">{dashboardStats.chapters}</p>
+                  <p className="mt-1 text-xs text-muted-foreground dark:text-white/55">Structured content blocks</p>
                 </div>
               </TiltCard>
               <TiltCard className="rounded-3xl" glare={false}>
                 <div className="surface-3d rounded-3xl p-4">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Questions</p>
-                  <p className="mt-2 text-3xl font-bold text-white">{dashboardStats.questions}</p>
-                  <p className="mt-1 text-xs text-white/55">Live items across this bank</p>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50">Questions</p>
+                  <p className="mt-2 text-3xl font-bold text-foreground dark:text-white">{dashboardStats.questions}</p>
+                  <p className="mt-1 text-xs text-muted-foreground dark:text-white/55">Live items across this bank</p>
                 </div>
               </TiltCard>
               <TiltCard className="rounded-3xl" glare={false}>
                 <div className="surface-3d rounded-3xl p-4">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Open Reports</p>
-                  <p className="mt-2 text-3xl font-bold text-white">{dashboardStats.openReports}</p>
-                  <p className="mt-1 text-xs text-white/55">Student issues waiting for action</p>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50">Open Reports</p>
+                  <p className="mt-2 text-3xl font-bold text-foreground dark:text-white">{dashboardStats.openReports}</p>
+                  <p className="mt-1 text-xs text-muted-foreground dark:text-white/55">Student issues waiting for action</p>
                 </div>
               </TiltCard>
             </div>
@@ -803,23 +803,23 @@ export default function AdminQuestionBank() {
           <TiltCard className="rounded-3xl">
             <HoloGrid title="Difficulty Mix" subtitle="Keep coverage balanced while expanding chapters and AI imports.">
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-100/70">Easy</p>
-                    <p className="mt-2 text-2xl font-bold text-white">{dashboardStats.easy}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-100/70">Easy</p>
+                    <p className="mt-2 text-2xl font-bold text-foreground dark:text-white">{dashboardStats.easy}</p>
                   </div>
                   <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-100/70">Medium</p>
-                    <p className="mt-2 text-2xl font-bold text-white">{dashboardStats.medium}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-amber-700 dark:text-amber-100/70">Medium</p>
+                    <p className="mt-2 text-2xl font-bold text-foreground dark:text-white">{dashboardStats.medium}</p>
                   </div>
                   <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-rose-100/70">Hard</p>
-                    <p className="mt-2 text-2xl font-bold text-white">{dashboardStats.hard}</p>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-rose-700 dark:text-rose-100/70">Hard</p>
+                    <p className="mt-2 text-2xl font-bold text-foreground dark:text-white">{dashboardStats.hard}</p>
                   </div>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-                  <p className="text-sm font-medium text-white">Analysis focus</p>
-                  <p className="mt-1 text-xs leading-5 text-white/60">
+                <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 dark:border-white/10 dark:bg-white/[0.04]">
+                  <p className="text-sm font-medium text-foreground dark:text-white">Analysis focus</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground dark:text-white/60">
                     Watch report pressure and difficulty mix together. This helps keep question quality stable before students enter practice mode or timed chapter tests.
                   </p>
                 </div>
@@ -834,7 +834,7 @@ export default function AdminQuestionBank() {
           <CardHeader><CardTitle className="text-base flex items-center gap-2"><AlertTriangle size={16} className="text-amber-500" />Report Queue</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {reports.map((report) => (
-              <div key={report.id} className="rounded-xl border border-border p-3 flex items-start justify-between gap-3">
+              <div key={report.id} className="rounded-xl border border-border p-3 flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant={report.status === "open" ? "destructive" : "secondary"}>{report.status}</Badge>

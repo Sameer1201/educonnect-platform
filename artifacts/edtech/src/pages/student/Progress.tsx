@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRef } from "react";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 
 /* ── helpers ── */
 const gradeColor: Record<string, string> = { A: "#22c55e", B: "#3b82f6", C: "#f59e0b", D: "#f97316", F: "#ef4444" };
@@ -114,6 +115,7 @@ function printReport(ref: React.RefObject<HTMLDivElement | null>) {
 export default function StudentProgress() {
   const { user } = useAuth();
   const reportRef = useRef<HTMLDivElement>(null);
+  const { data: platformSettings } = usePlatformSettings(!!user);
 
   const { data, isLoading } = useQuery({
     queryKey: ["progress", user?.id],
@@ -136,6 +138,7 @@ export default function StudentProgress() {
     summary, gradeDistribution, weeklyTrend, monthlyAttendance,
     subjectBreakdown, recommendations, tests, assignments, attendance,
   } = data;
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
   /* ── derived chart data ── */
   const testLineData = tests.slice(-20).map((t: any) => ({
@@ -177,6 +180,147 @@ export default function StudentProgress() {
     ...tests.slice(-5).map((t: any) => ({ type: "test", title: t.testTitle ?? "Test", score: `${t.percentage}%`, date: t.submittedAt })),
     ...assignments.slice(-5).filter((a: any) => a.grade !== null).map((a: any) => ({ type: "assignment", title: a.title ?? "Assignment", score: `${a.grade}/${a.maxMarks}`, date: a.submittedAt })),
   ].sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime()).slice(0, 8);
+
+  if (!learningAccessEnabled) {
+    const testRecommendations = recommendations.filter((item: any) => {
+      const text = String(item?.text ?? "").toLowerCase();
+      return !text.includes("class") && !text.includes("assignment") && !text.includes("attendance");
+    });
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">My Progress</h1>
+            <p className="text-sm text-muted-foreground">Focus mode is active. Only test and practice performance is shown.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <TrendBadge trend={summary.trend} />
+            {summary.streak.current > 0 && (
+              <Badge className="gap-1 bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200">
+                <Flame size={13} /> {summary.streak.current}-day streak
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-5">
+          <Card className="flex flex-col items-center justify-center p-5 min-w-[180px]">
+            <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Overall Grade</p>
+            <GradeRing score={summary.compositeScore} letter={summary.gradeLetter} />
+            <p className="text-xs text-muted-foreground mt-2 text-center">Based on test performance and practice consistency</p>
+          </Card>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <StatCard icon={<ClipboardList size={17} />} label="Tests Done" value={`${summary.testsCompleted}`} color="bg-purple-50 text-purple-600" />
+            <StatCard icon={<TrendingUp size={17} />} label="Avg Test Score" value={`${summary.avgTestScore}%`} color="bg-orange-50 text-orange-600" />
+            <StatCard icon={<Award size={17} />} label="Composite" value={`${summary.compositeScore}%`} color="bg-green-50 text-green-600" />
+            <StatCard icon={<Flame size={17} />} label="Current Streak" value={`${summary.streak.current}`} color="bg-amber-50 text-amber-600" />
+            <StatCard icon={<Star size={17} />} label="Best Streak" value={`${summary.streak.longest}`} color="bg-blue-50 text-blue-600" />
+            <StatCard icon={<Target size={17} />} label="Trend" value={summary.trend} color="bg-rose-50 text-rose-600" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+          <Card className="xl:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Test Performance Trend</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {testLineData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={testLineData}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="score" stroke="#7c3aed" strokeWidth={3} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="py-16 text-center text-sm text-muted-foreground">No test submissions yet.</div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Recommendations</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {testRecommendations.length > 0 ? (
+                testRecommendations.slice(0, 4).map((item: any, index: number) => (
+                  <RecCard key={index} type={item.type} text={item.text} />
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">Keep practicing questions and attempting tests to unlock recommendations.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Subject Performance Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs text-muted-foreground uppercase">
+                      <th className="pb-2 pr-4">Subject</th>
+                      <th className="pb-2 pr-3 text-center">Grade</th>
+                      <th className="pb-2 pr-3 text-center">Tests</th>
+                      <th className="pb-2 text-center">Composite</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subjectBreakdown.map((s: any) => (
+                      <tr key={s.classId} className="border-b last:border-0">
+                        <td className="py-2 pr-4 font-medium">{s.className}</td>
+                        <td className="py-2 pr-3 text-center">
+                          <Badge style={{ background: gradeColor[s.gradeLetter] + "20", color: gradeColor[s.gradeLetter] }} className="border-0 font-bold w-7 justify-center">{s.gradeLetter}</Badge>
+                        </td>
+                        <td className="py-2 pr-3 text-center" style={{ color: pctColor(s.avgTestScore ?? 0) }}>
+                          {s.avgTestScore !== null ? `${s.avgTestScore}%` : "–"}
+                        </td>
+                        <td className="py-2 text-center">{s.composite ?? 0}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Test History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {tests.length > 0 ? (
+                <div className="space-y-2">
+                  {tests.slice().reverse().slice(0, 8).map((t: any) => (
+                    <div key={t.id} className="flex items-center justify-between rounded-lg bg-muted/40 p-3">
+                      <div>
+                        <p className="text-sm font-medium">{t.testTitle ?? "Test"}</p>
+                        <p className="text-xs text-muted-foreground">{t.submittedAt ? format(new Date(t.submittedAt), "MMM d, yyyy") : "–"}</p>
+                      </div>
+                      <Badge className={`${t.percentage >= 80 ? "bg-green-500 hover:bg-green-500" : t.percentage >= 60 ? "bg-blue-500 hover:bg-blue-500" : t.percentage >= 40 ? "bg-yellow-500 hover:bg-yellow-500" : "bg-red-500 hover:bg-red-500"}`}>
+                        {t.score}/{t.totalMarks} · {t.percentage}%
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No test history yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

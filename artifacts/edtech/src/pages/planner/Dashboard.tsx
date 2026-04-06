@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   addDays,
@@ -14,13 +15,13 @@ import {
 import {
   AlertTriangle,
   ArrowRight,
-  BellRing,
   BookOpen,
   CalendarClock,
   CalendarDays,
   CheckCircle2,
   Clock3,
   Layers3,
+  MessageSquare,
   Sparkles,
   Target,
   Users,
@@ -38,6 +39,11 @@ import { useCountUp } from "@/hooks/useCountUp";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -133,6 +139,53 @@ interface PlannerInsights {
   plannerApprovalQueue: Array<{ type: string; priority: string; title: string; detail: string }>;
 }
 
+type QuestionType = "mcq" | "multi" | "integer";
+interface ExamTemplateSectionDraft {
+  id: string;
+  title: string;
+  subjectLabel: string;
+  description: string;
+  questionCount: string;
+  marksPerQuestion: string;
+  negativeMarks: string;
+  preferredQuestionType: QuestionType;
+}
+interface ExamTemplate {
+  id: number;
+  key: string;
+  name: string;
+  description?: string | null;
+  examHeader?: string | null;
+  examSubheader?: string | null;
+  durationMinutes: number;
+  passingScore: number;
+  defaultPositiveMarks: number;
+  defaultNegativeMarks: number;
+  sections: Array<{
+    title: string;
+    subjectLabel?: string | null;
+    description?: string | null;
+    questionCount?: number | null;
+    marksPerQuestion?: number | null;
+    negativeMarks?: number | null;
+    preferredQuestionType?: QuestionType;
+  }>;
+  isSystem: boolean;
+}
+
+function makeTemplateSection(input?: Partial<ExamTemplateSectionDraft>): ExamTemplateSectionDraft {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: input?.title ?? "",
+    subjectLabel: input?.subjectLabel ?? "",
+    description: input?.description ?? "",
+    questionCount: input?.questionCount ?? "",
+    marksPerQuestion: input?.marksPerQuestion ?? "",
+    negativeMarks: input?.negativeMarks ?? "",
+    preferredQuestionType: input?.preferredQuestionType ?? "mcq",
+  };
+}
+
 function greeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -187,6 +240,19 @@ function MetricTile({
 
 export default function PlannerDashboard() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
+  const [templateKey, setTemplateKey] = useState("");
+  const [templateName, setTemplateName] = useState("");
+  const [templateDescription, setTemplateDescription] = useState("");
+  const [templateHeader, setTemplateHeader] = useState("");
+  const [templateSubheader, setTemplateSubheader] = useState("");
+  const [templateDuration, setTemplateDuration] = useState("180");
+  const [templatePassing, setTemplatePassing] = useState("60");
+  const [templatePositive, setTemplatePositive] = useState("1");
+  const [templateNegative, setTemplateNegative] = useState("0");
+  const [templateSections, setTemplateSections] = useState<ExamTemplateSectionDraft[]>([makeTemplateSection()]);
 
   const { data: lecturePlans = [], isLoading: plansLoading } = useQuery<LecturePlan[]>({
     queryKey: ["planner-dashboard", "lecture-plans"],
@@ -217,6 +283,98 @@ export default function PlannerDashboard() {
     },
     staleTime: 30000,
     refetchInterval: 60000,
+  });
+
+  const { data: examTemplates = [] } = useQuery<ExamTemplate[]>({
+    queryKey: ["planner-dashboard", "exam-templates"],
+    queryFn: async () => {
+      const response = await fetch(`${BASE}/api/planner/exam-templates`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load exam templates");
+      return response.json();
+    },
+    staleTime: 30000,
+  });
+
+  const resetTemplateForm = () => {
+    setEditingTemplateId(null);
+    setTemplateKey("");
+    setTemplateName("");
+    setTemplateDescription("");
+    setTemplateHeader("");
+    setTemplateSubheader("");
+    setTemplateDuration("180");
+    setTemplatePassing("60");
+    setTemplatePositive("1");
+    setTemplateNegative("0");
+    setTemplateSections([makeTemplateSection()]);
+  };
+
+  const openTemplateEditor = (template?: ExamTemplate) => {
+    if (!template) {
+      resetTemplateForm();
+      setTemplateOpen(true);
+      return;
+    }
+    setEditingTemplateId(template.id);
+    setTemplateKey(template.key);
+    setTemplateName(template.name);
+    setTemplateDescription(template.description ?? "");
+    setTemplateHeader(template.examHeader ?? "");
+    setTemplateSubheader(template.examSubheader ?? "");
+    setTemplateDuration(String(template.durationMinutes));
+    setTemplatePassing(String(template.passingScore));
+    setTemplatePositive(String(template.defaultPositiveMarks));
+    setTemplateNegative(String(template.defaultNegativeMarks));
+    setTemplateSections(template.sections.map((section) => makeTemplateSection({
+      title: section.title,
+      subjectLabel: section.subjectLabel ?? "",
+      description: section.description ?? "",
+      questionCount: section.questionCount != null ? String(section.questionCount) : "",
+      marksPerQuestion: section.marksPerQuestion != null ? String(section.marksPerQuestion) : "",
+      negativeMarks: section.negativeMarks != null ? String(section.negativeMarks) : "",
+      preferredQuestionType: section.preferredQuestionType ?? "mcq",
+    })));
+    setTemplateOpen(true);
+  };
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        key: templateKey.trim() || templateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        name: templateName.trim(),
+        description: templateDescription.trim() || null,
+        examHeader: templateHeader.trim() || null,
+        examSubheader: templateSubheader.trim() || null,
+        durationMinutes: Number(templateDuration) || 180,
+        passingScore: Number(templatePassing) || 60,
+        defaultPositiveMarks: Number(templatePositive) || 1,
+        defaultNegativeMarks: Number(templateNegative) || 0,
+        sections: templateSections.filter((section) => section.title.trim()).map((section) => ({
+          title: section.title.trim(),
+          subjectLabel: section.subjectLabel.trim() || null,
+          description: section.description.trim() || null,
+          questionCount: section.questionCount ? Number(section.questionCount) : null,
+          marksPerQuestion: section.marksPerQuestion ? Number(section.marksPerQuestion) : null,
+          negativeMarks: section.negativeMarks ? Number(section.negativeMarks) : null,
+          preferredQuestionType: section.preferredQuestionType,
+        })),
+      };
+      const url = editingTemplateId ? `${BASE}/api/planner/exam-templates/${editingTemplateId}` : `${BASE}/api/planner/exam-templates`;
+      const method = editingTemplateId ? "PATCH" : "POST";
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Failed to save exam template");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["planner-dashboard", "exam-templates"] });
+      setTemplateOpen(false);
+      resetTemplateForm();
+    },
   });
 
   const isLoading = plansLoading || teachersLoading;
@@ -337,9 +495,9 @@ export default function PlannerDashboard() {
   return (
     <DashboardScene accent="from-fuchsia-500/18 via-cyan-500/10 to-blue-500/18">
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.24),_transparent_35%),linear-gradient(135deg,_#0f766e,_#115e59_48%,_#1d4ed8)] p-6 text-white shadow-xl">
+      <div className="relative overflow-hidden rounded-[28px] bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.24),_transparent_35%),linear-gradient(135deg,_#0f766e,_#115e59_48%,_#1d4ed8)] p-4 sm:p-6 text-white shadow-xl">
         <div className="relative z-10 flex items-start justify-between gap-6 flex-wrap">
-          <div className="max-w-2xl">
+          <div className="max-w-2xl min-w-0">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-100/80">
               <Sparkles size={14} />
               Planner Command Center
@@ -357,13 +515,15 @@ export default function PlannerDashboard() {
                   <CalendarDays size={14} /> Open Planner Schedule
                 </Button>
               </Link>
-              <Button size="sm" className="bg-white/14 hover:bg-white/20 border-0 text-white gap-1.5" disabled>
-                <BellRing size={14} /> Notifications Always On
-              </Button>
+              <Link href="/community">
+                <Button size="sm" className="bg-white/14 hover:bg-white/20 border-0 text-white gap-1.5">
+                  <MessageSquare size={14} /> Open Community
+                </Button>
+              </Link>
             </div>
           </div>
 
-          <div className="min-w-[280px] max-w-sm w-full rounded-3xl border border-white/15 bg-white/10 backdrop-blur-sm p-5 shadow-lg">
+          <div className="w-full max-w-sm rounded-3xl border border-white/15 bg-white/10 backdrop-blur-sm p-4 sm:p-5 shadow-lg">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/55">Coverage</p>
@@ -393,7 +553,7 @@ export default function PlannerDashboard() {
         <div className="absolute bottom-0 left-1/3 w-44 h-44 rounded-full bg-cyan-300/10 blur-2xl" />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricTile
           label="Total Plans"
           value={lecturePlans.length}
@@ -800,10 +960,116 @@ export default function PlannerDashboard() {
                 ))}
               </CardContent>
             </Card>
+
+            <Card className="overflow-hidden">
+              <CardHeader className="border-b bg-muted/20">
+                <CardTitle className="text-base flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2">
+                    <Layers3 size={16} className="text-indigo-600" />
+                    Exam Template Library
+                  </span>
+                  <Button size="sm" onClick={() => openTemplateEditor()}>
+                    Add Exam
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-5 space-y-3">
+                {examTemplates.map((template) => (
+                  <div key={template.id} className="rounded-2xl border p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">{template.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{template.description || "Planner managed exam structure"}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {template.isSystem && <Badge variant="outline">System</Badge>}
+                        <Button size="sm" variant="outline" onClick={() => openTemplateEditor(template)}>Edit</Button>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                      <span>{template.durationMinutes} min</span>
+                      <span>Pass {template.passingScore}%</span>
+                      <span>+{template.defaultPositiveMarks}</span>
+                      <span>-{template.defaultNegativeMarks}</span>
+                      <span>{template.sections.length} sections</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {template.sections.map((section) => (
+                        <Badge key={`${template.id}-${section.title}`} variant="secondary">
+                          {section.title}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
           </div>
         </>
       )}
     </div>
+
+    <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{editingTemplateId ? "Edit Exam Template" : "Add Exam Template"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div><Label>Name</Label><Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} className="mt-1" placeholder="e.g. GATE DA" /></div>
+            <div><Label>Key</Label><Input value={templateKey} onChange={(e) => setTemplateKey(e.target.value)} className="mt-1" placeholder="e.g. gate-da" /></div>
+          </div>
+          <div><Label>Description</Label><Textarea value={templateDescription} onChange={(e) => setTemplateDescription(e.target.value)} className="mt-1 resize-none" rows={2} placeholder="What structure this exam follows" /></div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div><Label>Exam Header</Label><Input value={templateHeader} onChange={(e) => setTemplateHeader(e.target.value)} className="mt-1" placeholder="e.g. GRADUATE APTITUDE TEST IN ENGINEERING" /></div>
+            <div><Label>Exam Subheader</Label><Input value={templateSubheader} onChange={(e) => setTemplateSubheader(e.target.value)} className="mt-1" placeholder="e.g. GATE Mock Assessment" /></div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div><Label>Duration</Label><Input type="number" value={templateDuration} onChange={(e) => setTemplateDuration(e.target.value)} className="mt-1" /></div>
+            <div><Label>Passing %</Label><Input type="number" value={templatePassing} onChange={(e) => setTemplatePassing(e.target.value)} className="mt-1" /></div>
+            <div><Label>Default +ve</Label><Input type="number" step="0.01" value={templatePositive} onChange={(e) => setTemplatePositive(e.target.value)} className="mt-1" /></div>
+            <div><Label>Default -ve</Label><Input type="number" step="0.01" value={templateNegative} onChange={(e) => setTemplateNegative(e.target.value)} className="mt-1" /></div>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Sections</p>
+              <Button size="sm" variant="outline" onClick={() => setTemplateSections((prev) => [...prev, makeTemplateSection()])}>Add Section</Button>
+            </div>
+            {templateSections.map((section) => (
+              <div key={section.id} className="rounded-2xl border p-4 space-y-3">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div><Label className="text-xs">Title</Label><Input value={section.title} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, title: e.target.value } : item))} className="mt-1" /></div>
+                  <div><Label className="text-xs">Subject Label</Label><Input value={section.subjectLabel} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, subjectLabel: e.target.value } : item))} className="mt-1" /></div>
+                  <div><Label className="text-xs">Question Count</Label><Input type="number" value={section.questionCount} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, questionCount: e.target.value } : item))} className="mt-1" /></div>
+                  <div><Label className="text-xs">Preferred Type</Label>
+                    <Select value={section.preferredQuestionType} onValueChange={(value) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, preferredQuestionType: value as QuestionType } : item))}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="mcq">MCQ</SelectItem>
+                        <SelectItem value="multi">Multi-select</SelectItem>
+                        <SelectItem value="integer">Integer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div><Label className="text-xs">Marks / Q</Label><Input type="number" step="0.01" value={section.marksPerQuestion} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, marksPerQuestion: e.target.value } : item))} className="mt-1" /></div>
+                  <div><Label className="text-xs">-ve Marks</Label><Input type="number" step="0.01" value={section.negativeMarks} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, negativeMarks: e.target.value } : item))} className="mt-1" /></div>
+                  <div className="flex items-end justify-end"><Button variant="ghost" className="text-destructive" onClick={() => setTemplateSections((prev) => prev.length > 1 ? prev.filter((item) => item.id !== section.id) : prev)}>Remove</Button></div>
+                </div>
+                <div><Label className="text-xs">Description</Label><Textarea value={section.description} onChange={(e) => setTemplateSections((prev) => prev.map((item) => item.id === section.id ? { ...item, description: e.target.value } : item))} className="mt-1 resize-none" rows={2} /></div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => { setTemplateOpen(false); resetTemplateForm(); }}>Cancel</Button>
+            <Button disabled={!templateName.trim() || templateSections.every((section) => !section.title.trim()) || saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate()}>
+              {saveTemplateMutation.isPending ? "Saving..." : editingTemplateId ? "Update Template" : "Create Template"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
     </DashboardScene>
   );
 }

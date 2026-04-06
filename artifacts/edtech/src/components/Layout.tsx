@@ -7,6 +7,7 @@ import NotificationBell from "@/components/NotificationBell";
 import CommandPalette from "@/components/CommandPalette";
 import DeadlineAlertPopup from "@/components/DeadlineAlertPopup";
 import { useDeadlineAlerts } from "@/hooks/useDeadlineAlerts";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import {
   LayoutDashboard, Users, BookOpen, GraduationCap,
   LogOut, Menu, X, UserCheck, TrendingUp, LifeBuoy, Star,
@@ -100,6 +101,7 @@ function getStudentGroups(): NavGroup[] {
       { label: "My Payments", href: "/student/payments", icon: <CreditCard size={17} /> },
       { label: "Feedback", href: "/student/feedback", icon: <Star size={17} /> },
       { label: "Support", href: "/student/support", icon: <LifeBuoy size={17} /> },
+      { label: "My Profile", href: "/student/profile", icon: <UserCircle size={17} /> },
     ]},
   ];
 }
@@ -110,6 +112,10 @@ function getPlannerGroups(): NavGroup[] {
     { label: "Planning", items: [
       { label: "Courses", href: "/planner/courses", icon: <BookOpen size={17} /> },
       { label: "Lecture Plans", href: "/schedule", icon: <CalendarDays size={17} /> },
+    ]},
+    { label: "Community", items: [
+      { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
+      { label: "Leaderboard", href: "/leaderboard", icon: <Trophy size={17} /> },
     ]},
   ];
 }
@@ -155,10 +161,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
   const [dark, setDark] = useState(() => {
-    try { return localStorage.getItem("theme") === "dark"; } catch { return false; }
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "dark") return true;
+      if (saved === "light") return false;
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    } catch {
+      return true;
+    }
   });
   const queryClient = useQueryClient();
   const logoutMutation = useLogout();
+  const { data: platformSettings } = usePlatformSettings(!!user);
 
   useEffect(() => {
     try { localStorage.setItem("sidebar-collapsed", String(collapsed)); } catch {}
@@ -191,10 +205,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   if (!user) return <>{children}</>;
 
-  const navGroups =
+  const baseNavGroups =
     user.role === "super_admin" ? getSuperAdminGroups() :
     user.role === "admin" ? getAdminGroups() :
     user.role === "planner" ? getPlannerGroups() : getStudentGroups();
+
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
+  const navGroups = (user.role === "admin" || user.role === "student") && !learningAccessEnabled
+    ? baseNavGroups.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => ![
+          "/admin/classes",
+          "/admin/assignments",
+          "/student/feedback",
+          "/student/payments",
+          "/student/classes",
+          "/student/assignments",
+        ].includes(item.href)),
+      })).filter((group) => group.items.length > 0)
+    : baseNavGroups;
 
   const roleConfig = getRoleConfig(user.role);
   const initials = getInitials(user.fullName ?? user.username ?? "?");
@@ -335,15 +364,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Main content */}
       <div className="relative z-10 flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile topbar */}
-        <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-sidebar border-b border-white/8">
+        <header className="lg:hidden flex items-center gap-3 px-3 py-3 bg-sidebar/95 border-b border-white/8 backdrop-blur-xl">
           <button onClick={() => setMobileOpen(!mobileOpen)} className="text-white/70 hover:text-white p-1" data-testid="button-menu">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <div className="flex items-center gap-2 flex-1">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${roleConfig.iconBg}`}>
               <GraduationCap size={12} className="text-white" />
             </div>
-            <span className="font-semibold text-sm text-white">EduConnect</span>
+            <span className="font-semibold text-sm text-white truncate">EduConnect</span>
           </div>
           <button onClick={() => setCmdOpen(true)} className="text-white/60 hover:text-white p-1">
             <Search size={18} />
@@ -361,7 +390,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <NotificationBell />
         </header>
 
-        <main className="flex-1 overflow-y-auto p-5 lg:p-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6">
           {children}
         </main>
       </div>

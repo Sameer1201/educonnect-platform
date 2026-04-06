@@ -26,18 +26,73 @@ import { DashboardScene, HoloGrid, TiltCard } from "@/components/dashboard-3d";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type QuestionType = "mcq" | "multi" | "integer";
+type ExamType = "custom" | "jee" | "gate" | "iit-jam" | "cuet" | "neet" | "cat";
+
+interface SectionDraft {
+  id: string;
+  title: string;
+  description: string;
+  subjectLabel: string;
+  questionCount: string;
+  marksPerQuestion: string;
+  negativeMarks: string;
+  preferredQuestionType: QuestionType;
+}
 
 interface Test {
   id: number; classId: number | null; title: string; description: string | null;
+  examType?: ExamType | string | null;
+  examHeader?: string | null; examSubheader?: string | null;
+  instructions?: string | null;
+  examConfig?: Record<string, unknown> | null;
+  defaultPositiveMarks?: number | null;
+  defaultNegativeMarks?: number | null;
   chapterId: number | null; durationMinutes: number; passingScore: number; isPublished: boolean;
   scheduledAt: string | null; className: string | null; chapterName?: string | null; subjectName?: string | null;
 }
 interface Question {
   id: number; question: string; questionType: QuestionType; options: string[];
+  sectionId?: number | null;
+  questionCode?: string | null;
+  sourceType?: string | null;
+  subjectLabel?: string | null;
   optionImages?: (string | null)[] | null;
   correctAnswer: number; correctAnswerMulti: number[] | null;
   correctAnswerMin?: number | null; correctAnswerMax?: number | null;
-  points: number; order: number; imageData?: string | null;
+  points: number; negativeMarks?: number | null; order: number; imageData?: string | null; meta?: Record<string, unknown> | null;
+}
+interface TestSection {
+  id: number;
+  testId: number;
+  title: string;
+  description: string | null;
+  subjectLabel: string | null;
+  questionCount?: number | null;
+  marksPerQuestion?: number | null;
+  negativeMarks?: number | null;
+  meta?: Record<string, unknown> | null;
+  order: number;
+}
+interface ExamTemplate {
+  id: number;
+  key: string;
+  name: string;
+  description?: string | null;
+  examHeader?: string | null;
+  examSubheader?: string | null;
+  durationMinutes: number;
+  passingScore: number;
+  defaultPositiveMarks: number;
+  defaultNegativeMarks: number;
+  sections: Array<{
+    title: string;
+    description?: string | null;
+    subjectLabel?: string | null;
+    questionCount?: number | null;
+    marksPerQuestion?: number | null;
+    negativeMarks?: number | null;
+    preferredQuestionType?: QuestionType;
+  }>;
 }
 interface Analytics {
   test: { id: number; title: string; passingScore: number };
@@ -49,7 +104,7 @@ interface Analytics {
     options: string[]; optionImages: (string | null)[] | null;
     correctAnswer: number; correctAnswerMulti: number[] | null;
     correctAnswerMin: number | null; correctAnswerMax: number | null;
-    points: number; correctCount: number; wrongCount: number; successRate: number;
+    points: number; negativeMarks?: number | null; correctCount: number; wrongCount: number; successRate: number;
     optionCounts: number[]; imageData: string | null;
   }[];
   submissions: {
@@ -86,6 +141,108 @@ const qTypeIcon: Record<QuestionType, React.ReactNode> = {
   integer: <Hash size={13} />,
 };
 
+const EXAM_PRESETS: Record<Exclude<ExamType, "custom">, { label: string; duration: string; passing: string; positive: string; negative: string; sections: Omit<SectionDraft, "id">[] }> = {
+  jee: {
+    label: "JEE Pattern",
+    duration: "180",
+    passing: "60",
+    positive: "4",
+    negative: "1",
+    sections: [
+      { title: "Physics", description: "Physics section", subjectLabel: "Physics", questionCount: "25", marksPerQuestion: "4", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "Chemistry", description: "Chemistry section", subjectLabel: "Chemistry", questionCount: "25", marksPerQuestion: "4", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "Mathematics", description: "Mathematics section", subjectLabel: "Mathematics", questionCount: "25", marksPerQuestion: "4", negativeMarks: "1", preferredQuestionType: "mcq" },
+    ],
+  },
+  gate: {
+    label: "GATE Pattern",
+    duration: "180",
+    passing: "60",
+    positive: "2",
+    negative: "0.66",
+    sections: [
+      { title: "General Aptitude", description: "10 questions. Mixed +1 and +2. MCQ can carry -1/3 or -2/3. NAT/MSQ no negative.", subjectLabel: "General Aptitude", questionCount: "10", marksPerQuestion: "1", negativeMarks: "0.33", preferredQuestionType: "mcq" },
+      { title: "Engineering Mathematics", description: "Around 10-12 questions. Mixed MCQ, MSQ, NAT allowed.", subjectLabel: "Engineering Maths", questionCount: "10", marksPerQuestion: "1", negativeMarks: "0.33", preferredQuestionType: "mcq" },
+      { title: "Core Subject", description: "Around 40-45 questions. Core paper with MCQ, MSQ, NAT.", subjectLabel: "Core Subject", questionCount: "45", marksPerQuestion: "2", negativeMarks: "0.66", preferredQuestionType: "mcq" },
+    ],
+  },
+  "iit-jam": {
+    label: "IIT JAM Pattern",
+    duration: "180",
+    passing: "60",
+    positive: "2",
+    negative: "0.33",
+    sections: [
+      { title: "Section A", description: "30 MCQs with negative marking.", subjectLabel: "Section A", questionCount: "30", marksPerQuestion: "1", negativeMarks: "0.33", preferredQuestionType: "mcq" },
+      { title: "Section B", description: "10 MSQs with no negative marking.", subjectLabel: "Section B", questionCount: "10", marksPerQuestion: "2", negativeMarks: "0", preferredQuestionType: "multi" },
+      { title: "Section C", description: "20 NAT questions with no negative marking.", subjectLabel: "Section C", questionCount: "20", marksPerQuestion: "2", negativeMarks: "0", preferredQuestionType: "integer" },
+    ],
+  },
+  cuet: {
+    label: "CUET Pattern",
+    duration: "60",
+    passing: "60",
+    positive: "5",
+    negative: "1",
+    sections: [
+      { title: "Language", description: "50 questions, attempt around 40. MCQ only.", subjectLabel: "Language", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "Domain Subjects", description: "Subject-specific MCQ section. Multiple subjects can be cloned later by planner.", subjectLabel: "Domain Subjects", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "General Test", description: "General aptitude and reasoning. MCQ only.", subjectLabel: "General Test", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
+    ],
+  },
+  neet: {
+    label: "NEET Pattern",
+    duration: "200",
+    passing: "60",
+    positive: "4",
+    negative: "1",
+    sections: [
+      { title: "Physics", description: "45 MCQs. NEET-style section with optional choice rules configurable later.", subjectLabel: "Physics", questionCount: "45", marksPerQuestion: "4", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "Chemistry", description: "45 MCQs. NEET-style section with optional choice rules configurable later.", subjectLabel: "Chemistry", questionCount: "45", marksPerQuestion: "4", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "Biology", description: "90 MCQs. Includes Botany/Zoology coverage as needed.", subjectLabel: "Biology", questionCount: "90", marksPerQuestion: "4", negativeMarks: "1", preferredQuestionType: "mcq" },
+    ],
+  },
+  cat: {
+    label: "CAT Pattern",
+    duration: "120",
+    passing: "60",
+    positive: "3",
+    negative: "1",
+    sections: [
+      { title: "VARC", description: "Verbal Ability and Reading Comprehension", subjectLabel: "VARC", questionCount: "24", marksPerQuestion: "3", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "DILR", description: "Data Interpretation and Logical Reasoning", subjectLabel: "DILR", questionCount: "20", marksPerQuestion: "3", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "QA", description: "Quantitative Aptitude", subjectLabel: "QA", questionCount: "22", marksPerQuestion: "3", negativeMarks: "1", preferredQuestionType: "mcq" },
+    ],
+  },
+};
+
+const FALLBACK_TEMPLATES: ExamTemplate[] = Object.entries(EXAM_PRESETS).map(([key, preset], index) => ({
+  id: index + 1,
+  key,
+  name: preset.label,
+  description: null,
+  examHeader: preset.label.toUpperCase(),
+  examSubheader: `${preset.label} Mock Assessment`,
+  durationMinutes: Number(preset.duration),
+  passingScore: Number(preset.passing),
+  defaultPositiveMarks: Number(preset.positive),
+  defaultNegativeMarks: Number(preset.negative),
+  sections: preset.sections,
+}));
+
+function makeSectionDraft(input?: Partial<SectionDraft>): SectionDraft {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: input?.title ?? "",
+    description: input?.description ?? "",
+    subjectLabel: input?.subjectLabel ?? "",
+    questionCount: input?.questionCount ?? "",
+    marksPerQuestion: input?.marksPerQuestion ?? "",
+    negativeMarks: input?.negativeMarks ?? "",
+    preferredQuestionType: input?.preferredQuestionType ?? "mcq",
+  };
+}
+
 export default function AdminTests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -93,20 +250,35 @@ export default function AdminTests() {
   const { data: classes = [] } = useListClasses();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [newExamType, setNewExamType] = useState<ExamType>("custom");
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  const [newExamHeader, setNewExamHeader] = useState("");
+  const [newExamSubheader, setNewExamSubheader] = useState("");
+  const [newInstructions, setNewInstructions] = useState("");
   const [newClassId, setNewClassId] = useState<string>("");
   const [newChapterId, setNewChapterId] = useState<string>("");
   const [newDuration, setNewDuration] = useState("30");
   const [newPassing, setNewPassing] = useState("60");
+  const [newDefaultPositiveMarks, setNewDefaultPositiveMarks] = useState("1");
+  const [newDefaultNegativeMarks, setNewDefaultNegativeMarks] = useState("0");
   const [newScheduled, setNewScheduled] = useState("");
+  const [sectionDrafts, setSectionDrafts] = useState<SectionDraft[]>([makeSectionDraft()]);
 
   const [expandedTest, setExpandedTest] = useState<number | null>(null);
   const [questionsMap, setQuestionsMap] = useState<Record<number, Question[]>>({});
+  const [sectionsMap, setSectionsMap] = useState<Record<number, TestSection[]>>({});
   const [analyticsTest, setAnalyticsTest] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const [addQOpen, setAddQOpen] = useState<number | null>(null);
+  const [qSectionId, setQSectionId] = useState<string>("");
+  const [qSubjectLabel, setQSubjectLabel] = useState("");
+  const [qCode, setQCode] = useState("");
+  const [qSourceType, setQSourceType] = useState("manual");
+  const [qDifficulty, setQDifficulty] = useState("medium");
+  const [qTopicTag, setQTopicTag] = useState("");
+  const [qEstimatedTime, setQEstimatedTime] = useState("90");
   const [qType, setQType] = useState<QuestionType>("mcq");
   const [qText, setQText] = useState("");
   const [qOptions, setQOptions] = useState(["", "", "", ""]);
@@ -117,6 +289,7 @@ export default function AdminTests() {
   const [qCorrectIntMin, setQCorrectIntMin] = useState("");
   const [qCorrectIntMax, setQCorrectIntMax] = useState("");
   const [qPoints, setQPoints] = useState("1");
+  const [qNegativeMarks, setQNegativeMarks] = useState("0");
   const [qImageData, setQImageData] = useState<string | null>(null);
   const [qOptionImages, setQOptionImages] = useState<(string | null)[]>([null, null, null, null]);
   const activeOptIdxRef = useRef<number>(-1);
@@ -142,6 +315,15 @@ export default function AdminTests() {
     enabled: !!newClassId,
   });
 
+  const { data: examTemplates = FALLBACK_TEMPLATES } = useQuery<ExamTemplate[]>({
+    queryKey: ["exam-templates"],
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/planner/exam-templates`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed");
+      return r.json();
+    },
+  });
+
   useEffect(() => {
     setNewChapterId("");
   }, [newClassId]);
@@ -155,6 +337,82 @@ export default function AdminTests() {
     })),
   );
 
+  const applyPreset = (preset: ExamType) => {
+    setNewExamType(preset);
+    if (preset === "custom") return;
+    const template = examTemplates.find((item) => item.key === preset) ?? FALLBACK_TEMPLATES.find((item) => item.key === preset);
+    if (!template) return;
+    setNewExamHeader(template.examHeader ?? template.name);
+    setNewExamSubheader(template.examSubheader ?? `${template.name} Mock Assessment`);
+    setNewDuration(String(template.durationMinutes));
+    setNewPassing(String(template.passingScore));
+    setNewDefaultPositiveMarks(String(template.defaultPositiveMarks));
+    setNewDefaultNegativeMarks(String(template.defaultNegativeMarks));
+    setSectionDrafts(template.sections.map((section) => makeSectionDraft({
+      title: section.title,
+      description: section.description ?? "",
+      subjectLabel: section.subjectLabel ?? "",
+      questionCount: section.questionCount != null ? String(section.questionCount) : "",
+      marksPerQuestion: section.marksPerQuestion != null ? String(section.marksPerQuestion) : "",
+      negativeMarks: section.negativeMarks != null ? String(section.negativeMarks) : "",
+      preferredQuestionType: section.preferredQuestionType ?? "mcq",
+    })));
+  };
+
+  const updateSectionDraft = (id: string, patch: Partial<SectionDraft>) => {
+    setSectionDrafts((prev) => prev.map((section) => (section.id === id ? { ...section, ...patch } : section)));
+  };
+
+  const getNextSectionForTest = (testId: number) => {
+    const sections = sectionsMap[testId] ?? [];
+    const questions = questionsMap[testId] ?? [];
+    if (sections.length === 0) return null;
+    const sectionCounts = new Map<number, number>();
+    questions.forEach((question) => {
+      if (question.sectionId) {
+        sectionCounts.set(question.sectionId, (sectionCounts.get(question.sectionId) ?? 0) + 1);
+      }
+    });
+    return sections.find((section) => {
+      if (!section.questionCount || section.questionCount <= 0) return false;
+      return (sectionCounts.get(section.id) ?? 0) < section.questionCount;
+    }) ?? sections[0];
+  };
+
+  const generateQuestionCode = (selected: TestSection | null | undefined, testId: number) => {
+    if (!selected) return "";
+    const sectionQuestions = (questionsMap[testId] ?? []).filter((question) => question.sectionId === selected.id);
+    const base =
+      (selected.subjectLabel ?? selected.title)
+        .replace(/[^a-zA-Z0-9]+/g, " ")
+        .trim()
+        .split(/\s+/)
+        .slice(0, 3)
+        .map((part) => part[0]?.toUpperCase() ?? "")
+        .join("") || "Q";
+    return `${base}-${String(sectionQuestions.length + 1).padStart(2, "0")}`;
+  };
+
+  const applySectionDefaults = (selected: TestSection | null | undefined, test: Test) => {
+    setQSectionId(selected ? String(selected.id) : "");
+    setQSubjectLabel(selected?.subjectLabel ?? "");
+    setQCode(generateQuestionCode(selected, test.id));
+    setQPoints(String(selected?.marksPerQuestion ?? test.defaultPositiveMarks ?? 1));
+    setQNegativeMarks(String(selected?.negativeMarks ?? test.defaultNegativeMarks ?? 0));
+    const preferredType = (selected?.meta as Record<string, unknown> | null)?.preferredQuestionType;
+    if (preferredType === "mcq" || preferredType === "multi" || preferredType === "integer") {
+      setQType(preferredType);
+      setQCorrect(0);
+      setQCorrectMulti([]);
+    }
+  };
+
+  const totalTests = tests.length;
+  const publishedTests = tests.filter((test) => test.isPublished).length;
+  const draftTests = totalTests - publishedTests;
+  const chapterLinkedTests = tests.filter((test) => test.chapterId !== null).length;
+  const totalQuestions = Object.values(questionsMap).reduce((sum, items) => sum + items.length, 0);
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const r = await fetch(`${BASE}/api/tests`, {
@@ -165,9 +423,31 @@ export default function AdminTests() {
           chapterId: newChapterId || null,
           title: newTitle.trim(),
           description: newDesc.trim() || null,
+          examType: newExamType,
+          examHeader: newExamHeader.trim() || null,
+          examSubheader: newExamSubheader.trim() || null,
+          instructions: newInstructions.trim() || null,
           durationMinutes: parseInt(newDuration) || 30,
           passingScore: parseInt(newPassing) || 60,
+          defaultPositiveMarks: parseFloat(newDefaultPositiveMarks) || 1,
+          defaultNegativeMarks: parseFloat(newDefaultNegativeMarks) || 0,
+          examConfig: {
+            bulkSupported: true,
+            sectionCount: sectionDrafts.filter((section) => section.title.trim()).length,
+            sourceModes: ["manual", "bulk", "ai"],
+          },
           scheduledAt: newScheduled || null,
+              sections: sectionDrafts
+            .filter((section) => section.title.trim())
+            .map((section) => ({
+              title: section.title.trim(),
+              description: section.description.trim() || null,
+              subjectLabel: section.subjectLabel.trim() || null,
+              questionCount: section.questionCount.trim() ? parseInt(section.questionCount) : null,
+              marksPerQuestion: section.marksPerQuestion.trim() ? parseFloat(section.marksPerQuestion) : null,
+              negativeMarks: section.negativeMarks.trim() ? parseFloat(section.negativeMarks) : null,
+              meta: { structureSource: newExamType, preferredQuestionType: section.preferredQuestionType },
+            })),
         }),
       });
       if (!r.ok) throw new Error("Failed");
@@ -175,7 +455,7 @@ export default function AdminTests() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
-      setCreateOpen(false); setNewTitle(""); setNewDesc(""); setNewClassId(""); setNewChapterId(""); setNewDuration("30"); setNewPassing("60"); setNewScheduled("");
+      setCreateOpen(false); setNewExamType("custom"); setNewTitle(""); setNewDesc(""); setNewExamHeader(""); setNewExamSubheader(""); setNewInstructions(""); setNewClassId(""); setNewChapterId(""); setNewDuration("30"); setNewPassing("60"); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setSectionDrafts([makeSectionDraft()]);
       toast({ title: "Test created" });
     },
     onError: () => toast({ title: "Failed to create test", variant: "destructive" }),
@@ -197,7 +477,24 @@ export default function AdminTests() {
 
   const addQuestionMutation = useMutation({
     mutationFn: async (testId: number) => {
-      const body: any = { question: qText.trim(), questionType: qType, points: parseInt(qPoints) || 1, imageData: qImageData || null };
+      const body: any = {
+        question: qText.trim(),
+        questionType: qType,
+        sectionId: qSectionId ? parseInt(qSectionId) : null,
+        questionCode: qCode.trim() || null,
+        sourceType: qSourceType,
+        subjectLabel: qSubjectLabel.trim() || null,
+        points: parseInt(qPoints) || 1,
+        negativeMarks: parseFloat(qNegativeMarks) || 0,
+        imageData: qImageData || null,
+        meta: {
+          examType: tests.find((item) => item.id === testId)?.examType ?? "custom",
+          chapterLinked: true,
+          difficulty: qDifficulty,
+          topicTag: qTopicTag.trim() || null,
+          estimatedTimeSeconds: parseInt(qEstimatedTime) || 0,
+        },
+      };
       if (qType === "mcq") {
         body.options = qOptions;
         body.correctAnswer = qCorrect;
@@ -236,17 +533,19 @@ export default function AdminTests() {
 
   const resetQuestionForm = () => {
     setAddQOpen(null); setQType("mcq"); setQText(""); setQOptions(["", "", "", ""]);
-    setQCorrect(0); setQCorrectMulti([]); setQCorrectInt("");
+    setQSectionId(""); setQSubjectLabel(""); setQCode(""); setQSourceType("manual"); setQCorrect(0); setQCorrectMulti([]); setQCorrectInt("");
+    setQDifficulty("medium"); setQTopicTag(""); setQEstimatedTime("90");
     setQIntegerMode("exact"); setQCorrectIntMin(""); setQCorrectIntMax("");
-    setQPoints("1"); setQImageData(null); setQOptionImages([null, null, null, null]);
+    setQPoints("1"); setQNegativeMarks("0"); setQImageData(null); setQOptionImages([null, null, null, null]);
   };
 
   const loadQuestions = async (testId: number) => {
-    if (questionsMap[testId]) return;
+    if (questionsMap[testId] && sectionsMap[testId]) return;
     const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
     if (!r.ok) return;
     const data = await r.json();
     setQuestionsMap((prev) => ({ ...prev, [testId]: data.questions ?? [] }));
+    setSectionsMap((prev) => ({ ...prev, [testId]: data.sections ?? [] }));
   };
 
   const openAnalytics = async (test: Test) => {
@@ -321,6 +620,32 @@ export default function AdminTests() {
                 Build chapter-based assessments, mix question types, and inspect student performance through a high-visibility analytics layer.
               </p>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <TiltCard className="rounded-2xl">
+                <div className="rounded-2xl border border-cyan-400/20 bg-slate-950/40 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Total Tests</p>
+                  <p className="mt-2 text-3xl font-semibold text-white">{totalTests}</p>
+                </div>
+              </TiltCard>
+              <TiltCard className="rounded-2xl">
+                <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/40 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Published</p>
+                  <p className="mt-2 text-3xl font-semibold text-emerald-300">{publishedTests}</p>
+                </div>
+              </TiltCard>
+              <TiltCard className="rounded-2xl">
+                <div className="rounded-2xl border border-amber-400/20 bg-slate-950/40 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Drafts</p>
+                  <p className="mt-2 text-3xl font-semibold text-amber-300">{draftTests}</p>
+                </div>
+              </TiltCard>
+              <TiltCard className="rounded-2xl">
+                <div className="rounded-2xl border border-fuchsia-400/20 bg-slate-950/40 p-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Loaded Questions</p>
+                  <p className="mt-2 text-3xl font-semibold text-fuchsia-300">{totalQuestions}</p>
+                </div>
+              </TiltCard>
+            </div>
           </div>
           <TiltCard className="rounded-3xl">
             <HoloGrid title="Quick Launch" subtitle="Spin up a new test flow without leaving the dashboard rhythm.">
@@ -342,6 +667,7 @@ export default function AdminTests() {
           {tests.map((test) => {
             const isOpen = expandedTest === test.id;
             const qs = questionsMap[test.id] ?? [];
+            const sections = sectionsMap[test.id] ?? [];
             return (
               <TiltCard key={test.id} className="rounded-3xl">
                 <Card className={test.isPublished ? "border-primary/20" : ""} data-testid={`test-card-${test.id}`}>
@@ -386,12 +712,275 @@ export default function AdminTests() {
 
                   {isOpen && (
                     <div className="border-t border-border bg-muted/20 p-4 space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-xl border border-border bg-background px-3 py-2 text-xs">
+                          <p className="text-muted-foreground">Exam Link</p>
+                          <p className="mt-1 font-semibold">{test.className ? "Class Attached" : "Missing Class"}</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-background px-3 py-2 text-xs">
+                          <p className="text-muted-foreground">Chapter Scope</p>
+                          <p className="mt-1 font-semibold">{test.chapterName ?? "Missing Chapter"}</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-background px-3 py-2 text-xs">
+                          <p className="text-muted-foreground">Exam Mode</p>
+                          <p className="mt-1 font-semibold">{String(test.examType ?? "custom").toUpperCase()} Builder</p>
+                        </div>
+                        <div className="rounded-xl border border-border bg-background px-3 py-2 text-xs">
+                          <p className="text-muted-foreground">Paper Status</p>
+                          <p className="mt-1 font-semibold">{test.isPublished ? "Live" : "Draft"}</p>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+                          Template: <strong>{String(test.examType ?? "custom").toUpperCase()}</strong>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                          Sections: <strong>{sections.length}</strong>
+                        </div>
+                        <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                          Default +ve: <strong>{Number(test.defaultPositiveMarks ?? 1).toFixed(2)}</strong>
+                        </div>
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                          Default -ve: <strong>{Number(test.defaultNegativeMarks ?? 0).toFixed(2)}</strong>
+                        </div>
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          Instructions: <strong>{test.instructions ? "Set" : "Pending"}</strong>
+                        </div>
+                      </div>
+                      {sections.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Exam Structure</p>
+                          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                      {sections.map((section, index) => (
+                              <div key={section.id} className="rounded-xl border border-border bg-background px-3 py-3 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="font-semibold text-sm">{index + 1}. {section.title}</p>
+                                  <Badge variant="secondary">{section.subjectLabel ?? "General"}</Badge>
+                                </div>
+                                {section.description && <p className="mt-1 text-muted-foreground">{section.description}</p>}
+                                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                  <span>Qs: {section.questionCount ?? "—"}</span>
+                                  <span>+ve: {section.marksPerQuestion ?? test.defaultPositiveMarks ?? 1}</span>
+                                  <span>-ve: {section.negativeMarks ?? test.defaultNegativeMarks ?? 0}</span>
+                                  <span>Type: {String((section.meta as Record<string, unknown> | null)?.preferredQuestionType ?? "mcq").toUpperCase()}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">Questions ({qs.length})</p>
-                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAddQOpen(test.id)} data-testid={`button-add-question-${test.id}`}>
-                          <Plus size={12} className="mr-1" />Add Question
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => {
+                          setAddQOpen((prev) => {
+                            const next = prev === test.id ? null : test.id;
+                            if (next === null) {
+                              resetQuestionForm();
+                              return null;
+                            }
+                            const selectedSection = getNextSectionForTest(test.id);
+                            applySectionDefaults(selectedSection, test);
+                            return test.id;
+                          });
+                        }} data-testid={`button-add-question-${test.id}`}>
+                          <Plus size={12} className="mr-1" />{addQOpen === test.id ? "Hide Builder" : "Add Question"}
                         </Button>
                       </div>
+                      {addQOpen === test.id && (
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.06)]">
+                          <div className="mb-5">
+                            <h3 className="text-2xl font-semibold text-slate-900">Add Question</h3>
+                            <p className="mt-1 text-sm text-slate-500">Same page builder. Scroll down, add one question at a time, and keep reviewing the full paper below.</p>
+                          </div>
+                          <div className="space-y-6">
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                              <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-600">Auto Assigned Section</p>
+                                <p className="mt-2 text-sm font-semibold text-slate-900">
+                                  {(sectionsMap[test.id] ?? []).find((section) => String(section.id) === qSectionId)?.title ?? "No section configured"}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-600">Planner blueprint ke hisaab se next open slot auto-pick hoga.</p>
+                              </div>
+                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Auto Subject Label</p>
+                                <p className="mt-2 text-sm font-semibold text-slate-900">{qSubjectLabel || "Auto from section"}</p>
+                                <p className="mt-1 text-xs text-slate-500">Student analysis aur report breakdown isi label ko use karega.</p>
+                              </div>
+                              <div>
+                                <Label className="text-xs">Source Mode</Label>
+                                <Select value={qSourceType} onValueChange={setQSourceType}>
+                                  <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="manual">Manual</SelectItem>
+                                    <SelectItem value="bulk">Bulk Import</SelectItem>
+                                    <SelectItem value="ai">AI Extracted</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div><Label className="text-xs">Question Code</Label><Input value={qCode} onChange={(e) => setQCode(e.target.value)} className="mt-1 bg-white" placeholder="e.g. GA-01" /></div>
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                              <div>
+                                <Label className="text-xs">Difficulty</Label>
+                                <Select value={qDifficulty} onValueChange={setQDifficulty}>
+                                  <SelectTrigger className="mt-1 bg-white"><SelectValue /></SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="easy">Easy</SelectItem>
+                                    <SelectItem value="medium">Medium</SelectItem>
+                                    <SelectItem value="hard">Hard</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div><Label className="text-xs">Topic / Concept Tag</Label><Input value={qTopicTag} onChange={(e) => setQTopicTag(e.target.value)} className="mt-1 bg-white" placeholder="e.g. Rotational Motion" /></div>
+                              <div><Label className="text-xs">Expected Solve Time (sec)</Label><Input type="number" min={0} value={qEstimatedTime} onChange={(e) => setQEstimatedTime(e.target.value)} className="mt-1 bg-white" /></div>
+                              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-600">Question Meta</p>
+                                <p className="mt-2 text-xs text-emerald-800">Teacher sirf format aur metadata dega. Section structure planner ke pattern se aayega.</p>
+                              </div>
+                            </div>
+
+                            <div>
+                              <Label className="text-xs">Question Type</Label>
+                              <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                                {(["mcq", "multi", "integer"] as QuestionType[]).map((t) => (
+                                  <button key={t} type="button" onClick={() => { setQType(t); setQCorrect(0); setQCorrectMulti([]); }}
+                                    className={`flex flex-col items-center gap-1 rounded-2xl border px-4 py-4 text-xs font-medium transition-all ${qType === t ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+                                    <span className="text-base">{t === "mcq" ? "🔵" : t === "multi" ? "☑️" : "🔢"}</span>
+                                    {qTypeLabel[t]}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <Label className="text-xs">Question</Label>
+                              <Textarea value={qText} onChange={(e) => setQText(e.target.value)} rows={3} className="mt-1 resize-none bg-white" placeholder="Type your question here..." />
+                            </div>
+
+                            <div>
+                              <Label className="text-xs">Question Image (optional)</Label>
+                              <div className="mt-2">
+                                {qImageData ? (
+                                  <div className="relative inline-block">
+                                    <img src={qImageData} alt="Preview" className="max-h-40 rounded-lg border border-border object-contain" />
+                                    <button onClick={() => setQImageData(null)} className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-white hover:bg-destructive/80"><X size={11} /></button>
+                                  </div>
+                                ) : (
+                                  <button type="button" onClick={() => imgInputRef.current?.click()}
+                                    className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5">
+                                    <ImagePlus size={15} />Upload image
+                                  </button>
+                                )}
+                              </div>
+                              <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                              <input ref={optionImgInputRef} type="file" accept="image/*" className="hidden" onChange={handleOptionImageUpload} />
+                            </div>
+
+                            {(qType === "mcq" || qType === "multi") && (
+                              <div className="space-y-2">
+                                <Label className="text-xs">{qType === "mcq" ? "Options" : "Options (select all correct answers)"}</Label>
+                                {qOptions.map((opt, i) => {
+                                  const isSelected = qType === "mcq" ? qCorrect === i : qCorrectMulti.includes(i);
+                                  return (
+                                    <div key={i} className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <button type="button" onClick={() => qType === "mcq" ? setQCorrect(i) : toggleMultiOption(i)}
+                                          className={`flex h-6 w-6 shrink-0 items-center justify-center transition-colors ${qType === "mcq" ? "rounded-full border-2" : "rounded border-2"} ${isSelected ? "border-primary bg-primary" : "border-border"}`}>
+                                          {isSelected && (qType === "mcq" ? <div className="h-2 w-2 rounded-full bg-white" /> : <CheckCircle2 size={12} className="text-white" />)}
+                                        </button>
+                                        <span className="w-5 shrink-0 text-xs font-semibold">{String.fromCharCode(65 + i)}.</span>
+                                        <Input value={opt} onChange={(e) => { const n = [...qOptions]; n[i] = e.target.value; setQOptions(n); }} placeholder={`Option ${String.fromCharCode(65 + i)}`} className="h-9 flex-1 bg-white" />
+                                        {qOptionImages[i] ? (
+                                          <div className="relative shrink-0">
+                                            <img src={qOptionImages[i]!} alt="" className="h-8 w-8 rounded border border-border object-cover" />
+                                            <button type="button" onClick={() => setQOptionImages((prev) => { const n = [...prev]; n[i] = null; return n; })}
+                                              className="absolute -top-1 -right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-white hover:bg-destructive/80">
+                                              <X size={8} />
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button type="button" onClick={() => { activeOptIdxRef.current = i; optionImgInputRef.current?.click(); }}
+                                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-dashed border-border text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+                                            <ImagePlus size={13} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {qType === "integer" && (
+                              <div className="space-y-3">
+                                <div>
+                                  <Label className="mb-1 block text-xs">Answer Type</Label>
+                                  <div className="flex gap-2">
+                                    <button type="button" onClick={() => setQIntegerMode("exact")}
+                                      className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium transition-all ${qIntegerMode === "exact" ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/30"}`}>
+                                      Exact Answer
+                                    </button>
+                                    <button type="button" onClick={() => setQIntegerMode("range")}
+                                      className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium transition-all ${qIntegerMode === "range" ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/30"}`}>
+                                      Answer Range
+                                    </button>
+                                  </div>
+                                </div>
+                                {qIntegerMode === "exact" ? (
+                                  <div>
+                                    <Label className="text-xs">Correct Answer</Label>
+                                    <Input type="number" value={qCorrectInt} onChange={(e) => setQCorrectInt(e.target.value)} placeholder="e.g. 42" className="mt-1 w-40 bg-white" />
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-3">
+                                    <div>
+                                      <Label className="text-xs">Minimum</Label>
+                                      <Input type="number" value={qCorrectIntMin} onChange={(e) => setQCorrectIntMin(e.target.value)} className="mt-1 w-28 bg-white" />
+                                    </div>
+                                    <span className="mt-5 text-muted-foreground">—</span>
+                                    <div>
+                                      <Label className="text-xs">Maximum</Label>
+                                      <Input type="number" value={qCorrectIntMax} onChange={(e) => setQCorrectIntMax(e.target.value)} className="mt-1 w-28 bg-white" />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="grid w-full max-w-sm grid-cols-2 gap-3">
+                              <div><Label className="text-xs">Points</Label><Input type="number" value={qPoints} onChange={(e) => setQPoints(e.target.value)} className="mt-1 bg-white" min={1} /></div>
+                              <div><Label className="text-xs">Negative Marks</Label><Input type="number" step="0.01" min={0} value={qNegativeMarks} onChange={(e) => setQNegativeMarks(e.target.value)} className="mt-1 bg-white" /></div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-1">
+                              <Button variant="ghost" onClick={resetQuestionForm}>Clear</Button>
+                              <Button disabled={!canSaveQuestion() || addQuestionMutation.isPending} onClick={() => addQuestionMutation.mutate(test.id)}>
+                                {addQuestionMutation.isPending ? "Adding..." : "Add Question"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {qs.length > 0 && (
+                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                            MCQ: <strong>{qs.filter((q) => q.questionType === "mcq").length}</strong>
+                          </div>
+                          <div className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-800">
+                            Multi: <strong>{qs.filter((q) => q.questionType === "multi").length}</strong>
+                          </div>
+                          <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                            Integer: <strong>{qs.filter((q) => q.questionType === "integer").length}</strong>
+                          </div>
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                            Total Marks: <strong>{qs.reduce((sum, q) => sum + q.points, 0)}</strong>
+                          </div>
+                          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 sm:col-span-2 xl:col-span-4">
+                            Total Negative Marks: <strong>{qs.reduce((sum, q) => sum + Number(q.negativeMarks ?? 0), 0).toFixed(2)}</strong>
+                          </div>
+                        </div>
+                      )}
                       {qs.length === 0 ? (
                         <p className="text-sm text-muted-foreground">No questions yet.</p>
                       ) : (
@@ -403,6 +992,8 @@ export default function AdminTests() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-1">
                                     <p className="text-sm font-medium flex-1">{q.question}</p>
+                                    {q.subjectLabel && <Badge variant="outline" className="text-[10px]">{q.subjectLabel}</Badge>}
+                                    {q.questionCode && <Badge variant="secondary" className="text-[10px]">{q.questionCode}</Badge>}
                                     <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${q.questionType === "multi" ? "bg-purple-100 text-purple-700" : q.questionType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                                       {qTypeIcon[q.questionType ?? "mcq"]}{qTypeLabel[q.questionType ?? "mcq"]}
                                     </span>
@@ -436,7 +1027,9 @@ export default function AdminTests() {
                                       })}
                                     </div>
                                   )}
-                                  <p className="text-xs text-muted-foreground mt-1">{q.points} pt{q.points !== 1 ? "s" : ""}</p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {q.points} pt{q.points !== 1 ? "s" : ""} · -ve {Number(q.negativeMarks ?? 0).toFixed(2)}
+                                  </p>
                                 </div>
                                 <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive shrink-0"
                                   onClick={() => deleteQuestionMutation.mutate({ testId: test.id, qid: q.id })}>
@@ -459,210 +1052,132 @@ export default function AdminTests() {
 
       {/* ─── Create Test Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Create New Test</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label className="text-xs">Test Title *</Label><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="e.g. Chapter 1 Quiz" className="mt-1" data-testid="input-test-title" /></div>
-            <div><Label className="text-xs">Description</Label><Textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} rows={2} className="mt-1 resize-none" /></div>
-            <div>
-              <Label className="text-xs">Class <span className="text-destructive">*</span></Label>
-              <Select value={newClassId} onValueChange={setNewClassId}>
-                <SelectTrigger className={`mt-1 ${!newClassId ? "border-destructive/50" : ""}`}><SelectValue placeholder="Select a class (required)" /></SelectTrigger>
-                <SelectContent>{classes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}</SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">Students will only see tests assigned to their enrolled class.</p>
-            </div>
-            <div>
-              <Label className="text-xs">Chapter <span className="text-destructive">*</span></Label>
-              <Select value={newChapterId} onValueChange={setNewChapterId} disabled={!newClassId || chapterOptions.length === 0}>
-                <SelectTrigger className={`mt-1 ${!newChapterId ? "border-destructive/50" : ""}`}>
-                  <SelectValue placeholder={newClassId ? "Select a chapter" : "Select class first"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {chapterOptions.map((chapter) => (
-                    <SelectItem key={chapter.id} value={String(chapter.id)}>
-                      {chapter.subjectTitle} - {chapter.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">
-                Teacher tests are now chapter-based. Lectures under the chapter are optional.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label className="text-xs">Duration (minutes)</Label><Input type="number" value={newDuration} onChange={(e) => setNewDuration(e.target.value)} className="mt-1" min={5} /></div>
-              <div><Label className="text-xs">Passing Score (%)</Label><Input type="number" value={newPassing} onChange={(e) => setNewPassing(e.target.value)} className="mt-1" min={1} max={100} /></div>
-            </div>
-            <div><Label className="text-xs">Scheduled Date (optional)</Label><Input type="datetime-local" value={newScheduled} onChange={(e) => setNewScheduled(e.target.value)} className="mt-1" /></div>
-            <div className="flex gap-2 justify-end pt-1">
-              <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
-              <Button disabled={!newTitle.trim() || !newClassId || !newChapterId || createMutation.isPending} onClick={() => createMutation.mutate()} data-testid="button-confirm-create-test">
-                {createMutation.isPending ? "Creating..." : "Create Test"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ─── Add Question Dialog ─── */}
-      <Dialog open={addQOpen !== null} onOpenChange={(o) => { if (!o) resetQuestionForm(); }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Question</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {/* Question type selector */}
-            <div>
-              <Label className="text-xs">Question Type</Label>
-              <div className="grid grid-cols-3 gap-2 mt-1">
-                {(["mcq", "multi", "integer"] as QuestionType[]).map((t) => (
-                  <button key={t} type="button" onClick={() => { setQType(t); setQCorrect(0); setQCorrectMulti([]); }}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 text-xs font-medium transition-all ${qType === t ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/30"}`}
-                    data-testid={`button-qtype-${t}`}>
-                    <span className="text-base">{t === "mcq" ? "🔵" : t === "multi" ? "☑️" : "🔢"}</span>
-                    {t === "mcq" ? "MCQ" : t === "multi" ? "Multi-Select" : "Integer"}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {qType === "mcq" && "Single correct option — student picks one answer"}
-                {qType === "multi" && "Multiple correct options — student checks all that apply"}
-                {qType === "integer" && "Numeric answer — student types a number"}
-              </p>
-            </div>
-
-            <div>
-              <Label className="text-xs">Question *</Label>
-              <Textarea value={qText} onChange={(e) => setQText(e.target.value)} rows={2} className="mt-1 resize-none" placeholder="Type your question here..." data-testid="input-question-text" />
-            </div>
-
-            {/* Image upload */}
-            <div>
-              <Label className="text-xs">Question Image (optional)</Label>
-              <div className="mt-1">
-                {qImageData ? (
-                  <div className="relative inline-block">
-                    <img src={qImageData} alt="Preview" className="max-h-40 rounded-lg border border-border object-contain" />
-                    <button onClick={() => setQImageData(null)} className="absolute -top-2 -right-2 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center hover:bg-destructive/80"><X size={11} /></button>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_320px]">
+                <div className="space-y-4">
+                  <div><Label className="text-xs">Test Title *</Label><Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="e.g. GATE Physics Full Test 1" className="mt-1" data-testid="input-test-title" /></div>
+                  <div><Label className="text-xs">Instruction / Description</Label><Textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} rows={3} className="mt-1 resize-none" placeholder="Student-facing paper note or context..." /></div>
+                  <div><Label className="text-xs">Instructions</Label><Textarea value={newInstructions} onChange={(e) => setNewInstructions(e.target.value)} rows={5} className="mt-1 resize-none" placeholder="General instructions, section notes, calculator rules, marking instructions..." /></div>
+                </div>
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-600">Exam Structure</p>
+                  <div className="mt-3 grid gap-2">
+                    <Select value={newExamType} onValueChange={(value) => applyPreset(value as ExamType)}>
+                      <SelectTrigger><SelectValue placeholder="Select structure" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="custom">Custom</SelectItem>
+                        <SelectItem value="jee">JEE</SelectItem>
+                        <SelectItem value="gate">GATE</SelectItem>
+                        <SelectItem value="iit-jam">IIT JAM</SelectItem>
+                        <SelectItem value="cuet">CUET</SelectItem>
+                        <SelectItem value="neet">NEET</SelectItem>
+                        <SelectItem value="cat">CAT</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-indigo-700/80">Templates preload sections, counts, and default marking so teacher can bulk-structure different exam patterns quickly.</p>
+                    <div className="rounded-xl border border-indigo-200 bg-white/80 px-3 py-2 text-xs text-indigo-900">
+                      <p className="font-semibold">Exam Shell</p>
+                      <p className="mt-1">{newExamHeader || "Planner-defined exam header will appear here."}</p>
+                      <p className="text-indigo-700/80">{newExamSubheader || "Planner-defined exam subheader will appear here."}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 rounded-xl border border-indigo-200 bg-white/80 px-3 py-3 text-xs text-indigo-900">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-indigo-500">Duration</p>
+                        <p className="mt-1 font-semibold">{newDuration || "—"} min</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-indigo-500">Passing</p>
+                        <p className="mt-1 font-semibold">{newPassing || "—"}%</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-indigo-500">Default +ve</p>
+                        <p className="mt-1 font-semibold">{newDefaultPositiveMarks || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-indigo-500">Default -ve</p>
+                        <p className="mt-1 font-semibold">{newDefaultNegativeMarks || "—"}</p>
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <button type="button" onClick={() => imgInputRef.current?.click()}
-                    className="flex items-center gap-2 px-3 py-2 text-xs rounded-lg border border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors text-muted-foreground" data-testid="button-upload-image">
-                    <ImagePlus size={15} />Upload image (JPG, PNG — max 5MB)
-                  </button>
-                )}
-                <input ref={imgInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                <input ref={optionImgInputRef} type="file" accept="image/*" className="hidden" onChange={handleOptionImageUpload} />
+                </div>
               </div>
-            </div>
-
-            {/* Options (MCQ and Multi) */}
-            {(qType === "mcq" || qType === "multi") && (
-              <div className="space-y-2">
-                <Label className="text-xs">
-                  {qType === "mcq" ? "Options — click circle to mark correct" : "Options — check all correct answers"}
-                </Label>
-                {qOptions.map((opt, i) => {
-                  const isSelected = qType === "mcq" ? qCorrect === i : qCorrectMulti.includes(i);
-                  return (
-                    <div key={i} className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <button type="button"
-                          onClick={() => qType === "mcq" ? setQCorrect(i) : toggleMultiOption(i)}
-                          className={`flex items-center justify-center shrink-0 transition-colors ${qType === "mcq" ? "w-6 h-6 rounded-full border-2" : "w-6 h-6 rounded border-2"} ${isSelected ? "border-primary bg-primary" : "border-border"}`}
-                          data-testid={`button-correct-option-${i}`}>
-                          {isSelected && (qType === "mcq"
-                            ? <div className="w-2 h-2 rounded-full bg-white" />
-                            : <CheckCircle2 size={12} className="text-white" />)}
-                        </button>
-                        <span className="text-xs font-semibold w-5 shrink-0">{String.fromCharCode(65 + i)}.</span>
-                        <Input value={opt} onChange={(e) => { const n = [...qOptions]; n[i] = e.target.value; setQOptions(n); }}
-                          placeholder={`Option ${String.fromCharCode(65 + i)}`} className="h-8 text-sm flex-1" data-testid={`input-option-${i}`} />
-                        {qOptionImages[i] ? (
-                          <div className="relative shrink-0">
-                            <img src={qOptionImages[i]!} alt="" className="h-8 w-8 rounded border border-border object-cover" />
-                            <button type="button" onClick={() => setQOptionImages((prev) => { const n = [...prev]; n[i] = null; return n; })}
-                              className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-destructive text-white rounded-full flex items-center justify-center hover:bg-destructive/80">
-                              <X size={8} />
-                            </button>
-                          </div>
-                        ) : (
-                          <button type="button"
-                            onClick={() => { activeOptIdxRef.current = i; optionImgInputRef.current?.click(); }}
-                            className="shrink-0 w-8 h-8 rounded border border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-                            title="Add image to this option">
-                            <ImagePlus size={13} />
-                          </button>
+              <div>
+                <Label className="text-xs">Class <span className="text-destructive">*</span></Label>
+                <Select value={newClassId} onValueChange={setNewClassId}>
+                  <SelectTrigger className={`mt-1 ${!newClassId ? "border-destructive/50" : ""}`}><SelectValue placeholder="Select a class (required)" /></SelectTrigger>
+                  <SelectContent>{classes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}</SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Students will only see tests assigned to their enrolled class.</p>
+              </div>
+              <div>
+                <Label className="text-xs">Chapter <span className="text-destructive">*</span></Label>
+                <Select value={newChapterId} onValueChange={setNewChapterId} disabled={!newClassId || chapterOptions.length === 0}>
+                  <SelectTrigger className={`mt-1 ${!newChapterId ? "border-destructive/50" : ""}`}>
+                    <SelectValue placeholder={newClassId ? "Select a chapter" : "Select class first"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {chapterOptions.map((chapter) => (
+                      <SelectItem key={chapter.id} value={String(chapter.id)}>
+                        {chapter.subjectTitle} - {chapter.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Teacher tests are chapter-based. Students will get the fullscreen exam console for these tests.
+                </p>
+              </div>
+              <div><Label className="text-xs">Scheduled Date (optional)</Label><Input type="datetime-local" value={newScheduled} onChange={(e) => setNewScheduled(e.target.value)} className="mt-1" /></div>
+              <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">Sections & Metadata</p>
+                    <p className="text-xs text-muted-foreground">Define exam buckets like Physics/Chemistry/Math or Aptitude/Core with their own counts and scoring hints.</p>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setSectionDrafts((prev) => [...prev, makeSectionDraft()])}>
+                    <Plus size={13} className="mr-1" />Add Section
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {sectionDrafts.map((section, index) => (
+                    <div key={section.id} className="rounded-xl border border-border bg-background p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">Section {index + 1}</p>
+                        {sectionDrafts.length > 1 && (
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => setSectionDrafts((prev) => prev.filter((item) => item.id !== section.id))}>
+                            <Trash2 size={12} />
+                          </Button>
                         )}
                       </div>
-                      {qOptionImages[i] && (
-                        <div className="pl-[52px]">
-                          <img src={qOptionImages[i]!} alt={`Option ${String.fromCharCode(65 + i)}`} className="max-h-24 rounded-lg border border-border object-contain" />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div><Label className="text-xs">Title</Label><Input value={section.title} onChange={(e) => updateSectionDraft(section.id, { title: e.target.value })} className="mt-1 h-8" placeholder="e.g. Physics" /></div>
+                        <div><Label className="text-xs">Subject Label</Label><Input value={section.subjectLabel} onChange={(e) => updateSectionDraft(section.id, { subjectLabel: e.target.value })} className="mt-1 h-8" placeholder="e.g. General Aptitude" /></div>
+                        <div><Label className="text-xs">Target Question Count</Label><Input type="number" value={section.questionCount} onChange={(e) => updateSectionDraft(section.id, { questionCount: e.target.value })} className="mt-1 h-8" min={0} /></div>
+                        <div><Label className="text-xs">Marks Per Question</Label><Input type="number" step="0.01" value={section.marksPerQuestion} onChange={(e) => updateSectionDraft(section.id, { marksPerQuestion: e.target.value })} className="mt-1 h-8" min={0} /></div>
+                        <div><Label className="text-xs">Section -ve Marks</Label><Input type="number" step="0.01" value={section.negativeMarks} onChange={(e) => updateSectionDraft(section.id, { negativeMarks: e.target.value })} className="mt-1 h-8" min={0} /></div>
+                        <div>
+                          <Label className="text-xs">Preferred Question Type</Label>
+                          <Select value={section.preferredQuestionType} onValueChange={(value) => updateSectionDraft(section.id, { preferredQuestionType: value as QuestionType })}>
+                            <SelectTrigger className="mt-1 h-8"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="mcq">MCQ</SelectItem>
+                              <SelectItem value="multi">Multi-select</SelectItem>
+                              <SelectItem value="integer">Integer</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
-                      )}
+                        <div className="sm:col-span-2"><Label className="text-xs">Description</Label><Textarea value={section.description} onChange={(e) => updateSectionDraft(section.id, { description: e.target.value })} rows={2} className="mt-1 resize-none" placeholder="What this section covers..." /></div>
+                      </div>
                     </div>
-                  );
-                })}
-                {qType === "multi" && qCorrectMulti.length === 0 && (
-                  <p className="text-xs text-amber-600">Select at least one correct answer</p>
-                )}
-              </div>
-            )}
-
-            {/* Integer answer */}
-            {qType === "integer" && (
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs mb-1 block">Answer Type</Label>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setQIntegerMode("exact")}
-                      className={`flex-1 py-2 px-3 rounded-lg border-2 text-xs font-medium transition-all ${qIntegerMode === "exact" ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/30"}`}
-                      data-testid="button-integer-exact">
-                      🎯 Exact Answer
-                    </button>
-                    <button type="button" onClick={() => setQIntegerMode("range")}
-                      className={`flex-1 py-2 px-3 rounded-lg border-2 text-xs font-medium transition-all ${qIntegerMode === "range" ? "border-primary bg-primary/10 text-primary" : "border-border hover:border-primary/30"}`}
-                      data-testid="button-integer-range">
-                      ↔️ Answer Range
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {qIntegerMode === "exact" ? "Student must enter this exact number" : "Any number within the range will be accepted as correct"}
-                  </p>
+                  ))}
                 </div>
-                {qIntegerMode === "exact" ? (
-                  <div>
-                    <Label className="text-xs">Correct Answer *</Label>
-                    <Input type="number" value={qCorrectInt} onChange={(e) => setQCorrectInt(e.target.value)}
-                      placeholder="e.g. 42" className="mt-1 w-40" data-testid="input-integer-answer" />
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <Label className="text-xs">Minimum *</Label>
-                      <Input type="number" value={qCorrectIntMin} onChange={(e) => setQCorrectIntMin(e.target.value)}
-                        placeholder="e.g. 10" className="mt-1 w-28" data-testid="input-integer-min" />
-                    </div>
-                    <span className="text-muted-foreground mt-5">—</span>
-                    <div>
-                      <Label className="text-xs">Maximum *</Label>
-                      <Input type="number" value={qCorrectIntMax} onChange={(e) => setQCorrectIntMax(e.target.value)}
-                        placeholder="e.g. 20" className="mt-1 w-28" data-testid="input-integer-max" />
-                    </div>
-                    {qCorrectIntMin && qCorrectIntMax && parseInt(qCorrectIntMin) > parseInt(qCorrectIntMax) && (
-                      <p className="text-xs text-destructive mt-5">Min must be ≤ Max</p>
-                    )}
-                  </div>
-                )}
               </div>
-            )}
-
-            <div className="w-32"><Label className="text-xs">Points</Label><Input type="number" value={qPoints} onChange={(e) => setQPoints(e.target.value)} className="mt-1 h-8" min={1} /></div>
-
             <div className="flex gap-2 justify-end pt-1">
-              <Button variant="ghost" onClick={resetQuestionForm}>Cancel</Button>
-              <Button disabled={!canSaveQuestion() || addQuestionMutation.isPending}
-                onClick={() => addQOpen !== null && addQuestionMutation.mutate(addQOpen)} data-testid="button-save-question">
-                {addQuestionMutation.isPending ? "Adding..." : "Add Question"}
+              <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
+              <Button disabled={!newTitle.trim() || !newClassId || !newChapterId || !sectionDrafts.some((section) => section.title.trim()) || createMutation.isPending} onClick={() => createMutation.mutate()} data-testid="button-confirm-create-test">
+                {createMutation.isPending ? "Creating..." : "Create Test"}
               </Button>
             </div>
           </div>

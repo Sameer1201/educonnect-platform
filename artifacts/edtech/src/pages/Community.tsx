@@ -131,8 +131,8 @@ function PostCard({
         </div>
       )}
       <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-2 min-w-0">
             <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 font-semibold text-sm ${
               post.authorRole === "super_admin"
                 ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30"
@@ -154,7 +154,7 @@ function PostCard({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex flex-wrap items-center gap-1 shrink-0">
             <Button
               size="sm"
               variant="ghost"
@@ -241,7 +241,7 @@ function PostCard({
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-5 w-5 p-0 text-destructive hover:text-destructive"
+                      className="h-5 w-5 p-0 text-destructive hover:text-destructive shrink-0"
                         onClick={() => onDelete(reply.id)}
                         data-testid={`button-delete-reply-${reply.id}`}
                       >
@@ -372,26 +372,26 @@ export default function Community() {
       <DashboardScene accent="from-sky-500/20 via-indigo-500/10 to-fuchsia-500/20">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_360px]">
           <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-100/90">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-700 dark:text-sky-100/90">
               <Users size={12} />
               Social Space
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-white flex items-center gap-2">
+              <h1 className="flex items-center gap-2 text-2xl sm:text-3xl font-semibold tracking-tight text-foreground dark:text-white">
                 <Users size={24} className="text-cyan-300" />
                 Community
               </h1>
-              <p className="mt-2 max-w-2xl text-sm text-slate-300">
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground dark:text-slate-300">
                 A shared communication layer for students, teachers, and admins with posts, replies, direct messages, and moderation in one immersive board.
               </p>
             </div>
           </div>
           <TiltCard className="rounded-3xl">
             <HoloGrid title="Presence" subtitle="Start a discussion, share an update, or move into direct messages without leaving the space.">
-              <div className="grid grid-cols-3 gap-3 text-center text-xs text-white/70">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><div className="text-lg font-semibold text-white">{orderedPosts.length}</div><div>Threads</div></div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><div className="text-lg font-semibold text-white">{pinnedPosts.length}</div><div>Pinned</div></div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3"><div className="text-lg font-semibold text-white">{activeTab === "messages" ? "DM" : "Board"}</div><div>Mode</div></div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center text-xs text-muted-foreground dark:text-white/70">
+                <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3 dark:border-white/10 dark:bg-white/[0.04]"><div className="text-lg font-semibold text-foreground dark:text-white">{orderedPosts.length}</div><div>Threads</div></div>
+                <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3 dark:border-white/10 dark:bg-white/[0.04]"><div className="text-lg font-semibold text-foreground dark:text-white">{pinnedPosts.length}</div><div>Pinned</div></div>
+                <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3 dark:border-white/10 dark:bg-white/[0.04]"><div className="text-lg font-semibold text-foreground dark:text-white">{activeTab === "messages" ? "DM" : "Board"}</div><div>Mode</div></div>
               </div>
             </HoloGrid>
           </TiltCard>
@@ -399,17 +399,17 @@ export default function Community() {
       </DashboardScene>
 
       {/* Tab bar */}
-      <div className="flex gap-1 rounded-2xl border border-white/10 bg-white/[0.04] p-1.5 w-fit shadow-[0_14px_40px_rgba(15,23,42,0.3)] backdrop-blur-xl">
+      <div className="flex w-full flex-wrap gap-1 rounded-2xl border border-slate-200/80 bg-white/85 p-1.5 shadow-[0_14px_40px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:w-fit dark:border-white/10 dark:bg-white/[0.04] dark:shadow-[0_14px_40px_rgba(15,23,42,0.3)]">
         <button
           onClick={() => setActiveTab("board")}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === "board" ? "bg-white dark:bg-gray-800 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all sm:flex-none ${activeTab === "board" ? "bg-white dark:bg-gray-800 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           data-testid="tab-board"
         >
           <MessageSquare size={14} /> Community Board
         </button>
         <button
           onClick={() => setActiveTab("messages")}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === "messages" ? "bg-white dark:bg-gray-800 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all sm:flex-none ${activeTab === "messages" ? "bg-white dark:bg-gray-800 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           data-testid="tab-messages"
         >
           <MessageCircle size={14} /> Direct Messages
@@ -417,7 +417,7 @@ export default function Community() {
         {isModeratorRole && (
           <button
             onClick={() => setActiveTab("moderation")}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === "moderation" ? "bg-white dark:bg-gray-800 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium transition-all sm:flex-none ${activeTab === "moderation" ? "bg-white dark:bg-gray-800 shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             data-testid="tab-moderation"
           >
             <Shield size={14} /> DM Moderation
@@ -466,7 +466,7 @@ export default function Community() {
               )}
             </div>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-center gap-2">
             <Button
               variant="ghost"
               size="sm"
@@ -500,7 +500,7 @@ export default function Community() {
       {replyingTo && (
         <TiltCard className="rounded-3xl"><Card className="border-primary/30 bg-primary/5">
           <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium text-primary flex items-center gap-1.5">
                 <Reply size={14} />
                 Replying to {replyingTo.name}
@@ -529,7 +529,7 @@ export default function Community() {
                 </button>
               </div>
             )}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"

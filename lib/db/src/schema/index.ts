@@ -21,3 +21,6 @@ export * from "./student_payments";
 export * from "./lecture_plans";
 export * from "./question_bank";
 export * from "./contact_submissions";
+export * from "./platform_settings";
+export * from "./password_reset_requests";
+export * from "./exam_templates";

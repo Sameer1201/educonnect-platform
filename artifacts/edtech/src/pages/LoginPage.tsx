@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BookOpen, GraduationCap, Orbit, Sparkles, Users, Zap } from "lucide-react";
 import { Link } from "wouter";
 
@@ -15,6 +16,9 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [forgotIdentifier, setForgotIdentifier] = useState("");
+  const [forgotMessage, setForgotMessage] = useState("");
+  const [forgotOpen, setForgotOpen] = useState(false);
   const { login } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -40,7 +44,8 @@ export default function LoginPage() {
         onSuccess: (data) => {
           login(data.user);
           const role = data.user.role;
-          if (role === "super_admin") setLocation("/super-admin/dashboard");
+          if ((data.user as any).mustChangePassword && role === "student") setLocation("/student/profile");
+          else if (role === "super_admin") setLocation("/super-admin/dashboard");
           else if (role === "admin") setLocation("/admin/dashboard");
           else if (role === "planner") setLocation("/planner/dashboard");
           else setLocation("/student/dashboard");
@@ -50,6 +55,19 @@ export default function LoginPage() {
         },
       },
     );
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotMessage("");
+    const response = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/auth/forgot-password-request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier: forgotIdentifier }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    setForgotMessage(payload.message ?? payload.error ?? "Request submitted.");
+    if (response.ok) setForgotIdentifier("");
   };
 
   return (
@@ -142,15 +160,16 @@ export default function LoginPage() {
             <span className="text-xl font-bold">EduConnect</span>
           </div>
 
-          <Card className="overflow-hidden border border-white/10 bg-white/8 shadow-[0_30px_100px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
-            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(79,196,255,0.08),transparent_35%,rgba(181,101,255,0.08))]" />
+          <Card className="relative overflow-hidden border border-cyan-200/15 bg-[linear-gradient(180deg,rgba(10,18,42,0.94),rgba(11,20,49,0.92))] shadow-[0_30px_100px_rgba(0,0,0,0.48),0_0_40px_rgba(76,176,255,0.12)] backdrop-blur-2xl">
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(79,196,255,0.1),transparent_32%,rgba(181,101,255,0.12))]" />
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
             <CardHeader className="relative">
-              <div className="mb-3 inline-flex items-center rounded-full border border-white/10 bg-white/8 px-3 py-1 text-xs uppercase tracking-[0.18em] text-white/60">
+              <div className="mb-3 inline-flex items-center rounded-full border border-cyan-200/15 bg-cyan-300/8 px-3 py-1 text-xs uppercase tracking-[0.18em] text-cyan-100/80">
                 <Sparkles size={12} className="mr-2 text-cyan-200" />
                 Login Portal
               </div>
               <CardTitle className="text-2xl text-white">Sign in</CardTitle>
-              <CardDescription className="text-white/60">Enter your credentials to access your account</CardDescription>
+              <CardDescription className="text-slate-300">Enter your credentials to access your account</CardDescription>
             </CardHeader>
 
             <CardContent className="relative">
@@ -162,7 +181,7 @@ export default function LoginPage() {
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="username" className="text-white/80">Username</Label>
+                  <Label htmlFor="username" className="text-slate-100">Username</Label>
                   <Input
                     id="username"
                     data-testid="input-username"
@@ -171,12 +190,12 @@ export default function LoginPage() {
                     onChange={(e) => setUsername(e.target.value)}
                     autoComplete="username"
                     required
-                    className="border-white/10 bg-slate-950/40 text-white placeholder:text-white/35"
+                    className="border-slate-700/80 bg-slate-950/85 text-white placeholder:text-slate-400 shadow-inner"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="password" className="text-white/80">Password</Label>
+                  <Label htmlFor="password" className="text-slate-100">Password</Label>
                   <Input
                     id="password"
                     type="password"
@@ -186,29 +205,58 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="current-password"
                     required
-                    className="border-white/10 bg-slate-950/40 text-white placeholder:text-white/35"
+                    className="border-slate-700/80 bg-slate-950/85 text-white placeholder:text-slate-400 shadow-inner"
                   />
                 </div>
 
                 <Button
                   type="submit"
-                  className="w-full rounded-full bg-cyan-300 text-slate-950 shadow-[0_0_40px_rgba(90,206,255,0.25)] hover:bg-cyan-200"
+                  className="w-full rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500 text-slate-950 shadow-[0_0_40px_rgba(90,206,255,0.25)] hover:from-cyan-300 hover:via-blue-300 hover:to-cyan-300"
                   disabled={loginMutation.isPending}
                   data-testid="button-login"
                 >
                   {loginMutation.isPending ? "Signing in..." : "Sign in"}
                 </Button>
+                <div className="text-center">
+                  <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+                    <DialogTrigger asChild>
+                      <button type="button" className="text-sm font-medium text-cyan-200 hover:underline">
+                        Forgot password?
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Student Forgot Password</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={handleForgotPassword} className="space-y-4">
+                        <div className="space-y-1.5">
+                          <Label>Username or Email</Label>
+                          <Input value={forgotIdentifier} onChange={(e) => setForgotIdentifier(e.target.value)} placeholder="Enter student username or email" required />
+                        </div>
+                        {forgotMessage && (
+                          <Alert>
+                            <AlertDescription>{forgotMessage}</AlertDescription>
+                          </Alert>
+                        )}
+                        <Button type="submit" className="w-full">Send Reset Request</Button>
+                        <p className="text-xs text-muted-foreground">
+                          Admin or super admin will verify the student and set a temporary password manually.
+                        </p>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </form>
             </CardContent>
 
             <CardFooter className="relative flex flex-col gap-2 pt-0">
-              <p className="text-sm text-white/60 text-center">
+              <p className="text-sm text-slate-300 text-center">
                 New student?{" "}
                 <Link href="/register" className="text-cyan-200 font-medium hover:underline" data-testid="link-register">
                   Register here
                 </Link>
               </p>
-              <p className="text-sm text-white/60 text-center">
+              <p className="text-sm text-slate-300 text-center">
                 Want the portal intro first?{" "}
                 <Link href="/" className="text-cyan-200 font-medium hover:underline">
                   Open landing page

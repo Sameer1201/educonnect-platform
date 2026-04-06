@@ -8,6 +8,7 @@ export const supportTicketsTable = pgTable("support_tickets", {
   studentId: integer("student_id").notNull().references(() => usersTable.id),
   subject: text("subject").notNull(),
   message: text("message").notNull(),
+  imageData: text("image_data"),
   status: text("status", { enum: ["open", "in_progress", "resolved"] }).notNull().default("open"),
   adminResponse: text("admin_response"),
   respondedBy: integer("responded_by").references(() => usersTable.id),

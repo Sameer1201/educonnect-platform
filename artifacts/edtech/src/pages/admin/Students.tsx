@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { useListUsers, useApproveStudent, getListUsersQueryKey } from "@workspace/api-client-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { CheckCircle, XCircle, Clock, Users, ShieldOff, RotateCcw, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -10,9 +13,41 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function AdminStudents() {
   const { data: students = [], isLoading } = useListUsers({ role: "student" });
+  const { data: resetRequests = [] } = useQuery<any[]>({
+    queryKey: ["admin-password-reset-requests"],
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/password-reset-requests`, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to load reset requests");
+      return r.json();
+    },
+  });
   const approveStudent = useApproveStudent();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [resetDialog, setResetDialog] = useState<{ id: number; studentName: string } | null>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const resolveResetMutation = useMutation({
+    mutationFn: async ({ id, temporaryPassword }: { id: number; temporaryPassword: string }) => {
+      const r = await fetch(`${BASE}/api/password-reset-requests/${id}/resolve`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ temporaryPassword }),
+      });
+      if (!r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to set temporary password");
+      }
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-password-reset-requests"] });
+      toast({ title: "Temporary password set", description: "Student must change password after login." });
+      setResetDialog(null);
+      setTemporaryPassword("");
+    },
+    onError: (err: Error) => toast({ title: "Reset failed", description: err.message, variant: "destructive" }),
+  });
   const deleteStudentMutation = useMutation({
     mutationFn: async (id: number) => {
       const r = await fetch(`${BASE}/api/users/${id}`, { method: "DELETE", credentials: "include" });
@@ -139,6 +174,31 @@ export default function AdminStudents() {
       {/* All Students */}
       <Card>
         <CardHeader>
+          <CardTitle className="text-base">Forgot Password Requests ({resetRequests.filter((r) => r.status === "open").length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {resetRequests.filter((r) => r.status === "open").length === 0 ? (
+            <p className="text-sm text-muted-foreground">No open reset requests.</p>
+          ) : (
+            <div className="space-y-2">
+              {resetRequests.filter((r) => r.status === "open").map((request) => (
+                <div key={request.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                  <div>
+                    <p className="text-sm font-medium">{request.requestedUsername}</p>
+                    <p className="text-xs text-muted-foreground">{request.requestedEmail}</p>
+                  </div>
+                  <Button size="sm" onClick={() => setResetDialog({ id: request.id, studentName: request.requestedUsername })}>
+                    Set Temporary Password
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Users size={16} className="text-primary" />
             All Students ({students.length})
@@ -238,6 +298,23 @@ export default function AdminStudents() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!resetDialog} onOpenChange={(open) => !open && setResetDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set Temporary Password</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Temporary password for <span className="font-medium text-foreground">{resetDialog?.studentName}</span>. Student will be forced to change it after login.
+            </p>
+            <Input type="password" value={temporaryPassword} onChange={(e) => setTemporaryPassword(e.target.value)} placeholder="Minimum 6 characters" />
+            <Button className="w-full" disabled={temporaryPassword.length < 6 || resolveResetMutation.isPending} onClick={() => resetDialog && resolveResetMutation.mutate({ id: resetDialog.id, temporaryPassword })}>
+              Set Temporary Password
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

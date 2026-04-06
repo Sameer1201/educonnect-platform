@@ -6,9 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   ClipboardList, Clock, CheckCircle2, XCircle, AlertCircle, BookOpen, ChevronRight,
-  BarChart3, ListChecks, Hash, CheckSquare, Flag, Timer, TrendingUp, Target, Brain
+  BarChart3, ListChecks, Hash, CheckSquare, Flag, Timer, TrendingUp, Target, Brain,
+  Calculator, PanelRightClose, PanelRightOpen, Circle, Square
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -17,21 +19,24 @@ import {
 } from "recharts";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const TEST_DRAFT_PREFIX = "educonnect-test-draft";
 
 type QuestionType = "mcq" | "multi" | "integer";
 type ResultTab = "score" | "analysis";
 type AnalysisFilter = "all" | "correct" | "wrong" | "skipped" | "flagged";
 type AnswerValue = number | number[];
+type PaletteStatus = "not-visited" | "not-answered" | "answered" | "review" | "answered-review";
 
 interface TestItem {
   id: number; title: string; description: string | null; durationMinutes: number;
+  examHeader?: string | null; examSubheader?: string | null;
   passingScore: number; scheduledAt: string | null; className: string | null;
   subjectName?: string | null; chapterName?: string | null; alreadySubmitted: boolean;
 }
 interface Question {
   id: number; question: string; questionType: QuestionType; options: string[];
   optionImages?: (string | null)[] | null;
-  points: number; order: number; imageData?: string | null;
+  points: number; negativeMarks?: number | null; order: number; imageData?: string | null;
   correctAnswer?: number; correctAnswerMulti?: number[] | null;
   correctAnswerMin?: number | null; correctAnswerMax?: number | null;
 }
@@ -43,7 +48,20 @@ interface SubmissionData {
 }
 interface TestDetail {
   id: number; title: string; description: string | null; durationMinutes: number;
+  examHeader?: string | null; examSubheader?: string | null;
   passingScore: number; questions: Question[]; submission: SubmissionData | null;
+  className?: string | null; subjectName?: string | null; chapterName?: string | null;
+}
+
+interface SavedTestDraft {
+  answers: Record<number, AnswerValue>;
+  timeLeft: number;
+  currentQuestionIndex: number;
+  visitedQuestionIds: number[];
+  reviewQuestionIds: number[];
+  flaggedQuestionIds: number[];
+  questionTimings: Record<number, number>;
+  showInstructions: boolean;
 }
 
 function isAnswerCorrect(q: Question, answer: AnswerValue | undefined): boolean {
@@ -70,12 +88,17 @@ function formatSeconds(secs: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+function getNegativeMark(question: Question): string {
+  return Number(question.negativeMarks ?? 0).toFixed(2).replace(/\.00$/, "");
+}
+
 const PIE_COLORS = ["#22c55e", "#ef4444", "#94a3b8"];
 
 export default function StudentTests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
 
   const [activeTest, setActiveTest] = useState<TestDetail | null>(null);
   const [answers, setAnswers] = useState<Record<number, AnswerValue>>({});
@@ -83,11 +106,33 @@ export default function StudentTests() {
   const [resultTest, setResultTest] = useState<TestDetail | null>(null);
   const [resultTab, setResultTab] = useState<ResultTab>("score");
   const [analysisFilter, setAnalysisFilter] = useState<AnalysisFilter>("all");
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [visitedSet, setVisitedSet] = useState<Set<number>>(new Set());
+  const [reviewSet, setReviewSet] = useState<Set<number>>(new Set());
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
   const [flaggedSet, setFlaggedSet] = useState<Set<number>>(new Set());
+
+  const getDraftKey = (testId: number) => `${TEST_DRAFT_PREFIX}-${testId}`;
+  const clearDraft = (testId: number) => localStorage.removeItem(getDraftKey(testId));
+  const saveDraft = (test: TestDetail, draft: SavedTestDraft) => {
+    localStorage.setItem(getDraftKey(test.id), JSON.stringify(draft));
+  };
+  const buildCurrentDraft = (test: TestDetail, overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
+    answers,
+    timeLeft,
+    currentQuestionIndex,
+    visitedQuestionIds: Array.from(visitedSet),
+    reviewQuestionIds: Array.from(reviewSet),
+    flaggedQuestionIds: Array.from(flaggedSet),
+    questionTimings,
+    showInstructions,
+    ...overrides,
+  });
 
   const { data: tests = [], isLoading } = useQuery<TestItem[]>({
     queryKey: ["student-tests"],
@@ -103,8 +148,27 @@ export default function StudentTests() {
     if (!r.ok) return;
     const data: TestDetail = await r.json();
     if (data.submission) { setResultTest(data); setResultTab("score"); return; }
-    setActiveTest(data); setAnswers({}); setTimeLeft(data.durationMinutes * 60);
-    setQuestionTimings({}); setFlaggedSet(new Set()); timingActiveRef.current = null;
+    const rawDraft = localStorage.getItem(getDraftKey(testId));
+    const parsedDraft: SavedTestDraft | null = rawDraft ? JSON.parse(rawDraft) : null;
+    const shouldResume = parsedDraft ? window.confirm("A saved test attempt was found. Do you want to continue from where you left off?") : false;
+    const initialIndex = shouldResume ? Math.min(parsedDraft?.currentQuestionIndex ?? 0, Math.max(data.questions.length - 1, 0)) : 0;
+    const initialQuestion = data.questions[initialIndex];
+
+    setActiveTest(data);
+    setAnswers(shouldResume ? parsedDraft?.answers ?? {} : {});
+    setTimeLeft(shouldResume ? Math.max(parsedDraft?.timeLeft ?? data.durationMinutes * 60, 0) : data.durationMinutes * 60);
+    setQuestionTimings(shouldResume ? parsedDraft?.questionTimings ?? {} : {});
+    setFlaggedSet(new Set(shouldResume ? parsedDraft?.flaggedQuestionIds ?? [] : []));
+    timingActiveRef.current = null;
+    setCurrentQuestionIndex(initialIndex);
+    setVisitedSet(new Set(
+      shouldResume
+        ? parsedDraft?.visitedQuestionIds ?? (initialQuestion ? [initialQuestion.id] : [])
+        : (initialQuestion ? [initialQuestion.id] : [])
+    ));
+    setReviewSet(new Set(shouldResume ? parsedDraft?.reviewQuestionIds ?? [] : []));
+    setShowInstructions(shouldResume ? parsedDraft?.showInstructions ?? false : true);
+    setPaletteCollapsed(false);
   };
 
   useEffect(() => {
@@ -114,6 +178,11 @@ export default function StudentTests() {
     }, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [activeTest]);
+
+  useEffect(() => {
+    if (!activeTest || activeTest.submission) return;
+    saveDraft(activeTest, buildCurrentDraft(activeTest));
+  }, [activeTest, answers, timeLeft, currentQuestionIndex, visitedSet, reviewSet, flaggedSet, questionTimings, showInstructions]);
 
   const startInteraction = (qId: number) => {
     const now = Date.now();
@@ -142,6 +211,22 @@ export default function StudentTests() {
   const toggleFlag = (qId: number) =>
     setFlaggedSet(prev => { const n = new Set(prev); n.has(qId) ? n.delete(qId) : n.add(qId); return n; });
 
+  const isAnswered = (question: Question, answer: AnswerValue | undefined) => {
+    if (question.questionType === "multi") return Array.isArray(answer) && answer.length > 0;
+    return answer !== undefined && answer !== null && answer !== "";
+  };
+
+  const getPaletteStatus = (question: Question): PaletteStatus => {
+    const visited = visitedSet.has(question.id);
+    const answered = isAnswered(question, answers[question.id]);
+    const review = reviewSet.has(question.id);
+    if (!visited) return "not-visited";
+    if (answered && review) return "answered-review";
+    if (review) return "review";
+    if (answered) return "answered";
+    return "not-answered";
+  };
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!activeTest) throw new Error("No test");
@@ -157,6 +242,7 @@ export default function StudentTests() {
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["student-tests"] });
       if (timerRef.current) clearInterval(timerRef.current);
+      clearDraft(activeTest!.id);
       const r = await fetch(`${BASE}/api/tests/${activeTest!.id}`, { credentials: "include" });
       const data: TestDetail = await r.json();
       setActiveTest(null); setResultTest(data); setResultTab("score");
@@ -169,9 +255,7 @@ export default function StudentTests() {
 
   const answeredCount = activeTest?.questions.filter((q) => {
     const a = answers[q.id];
-    if (a === undefined || a === null) return false;
-    if (q.questionType === "multi") return Array.isArray(a) && (a as number[]).length > 0;
-    return true;
+    return isAnswered(q, a);
   }).length ?? 0;
   const totalQ = activeTest?.questions.length ?? 0;
 
@@ -187,6 +271,99 @@ export default function StudentTests() {
     if (!isNaN(num)) setAnswers(p => ({ ...p, [qId]: num }));
   };
 
+  const goToQuestion = (index: number) => {
+    if (!activeTest) return;
+    const bounded = Math.max(0, Math.min(index, activeTest.questions.length - 1));
+    const question = activeTest.questions[bounded];
+    setCurrentQuestionIndex(bounded);
+    setVisitedSet((prev) => new Set(prev).add(question.id));
+    startInteraction(question.id);
+  };
+
+  const clearResponse = (question: Question) => {
+    setAnswers((prev) => {
+      const next = { ...prev };
+      delete next[question.id];
+      return next;
+    });
+  };
+
+  const saveAndNext = () => {
+    if (!activeTest) return;
+    const current = activeTest.questions[currentQuestionIndex];
+    setReviewSet((prev) => {
+      const next = new Set(prev);
+      next.delete(current.id);
+      return next;
+    });
+    if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1);
+  };
+
+  const markForReviewAndNext = () => {
+    if (!activeTest) return;
+    const current = activeTest.questions[currentQuestionIndex];
+    setReviewSet((prev) => new Set(prev).add(current.id));
+    if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1);
+  };
+
+  const previousQuestion = () => {
+    if (currentQuestionIndex > 0) goToQuestion(currentQuestionIndex - 1);
+  };
+
+  const currentQuestion = activeTest?.questions[currentQuestionIndex] ?? null;
+  const notVisitedCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "not-visited").length ?? 0;
+  const notAnsweredCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "not-answered").length ?? 0;
+  const answeredReviewCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "answered-review").length ?? 0;
+  const reviewCount = activeTest?.questions.filter((q) => getPaletteStatus(q) === "review").length ?? 0;
+
+  const paletteStyle: Record<PaletteStatus, string> = {
+    "not-visited": "border-slate-400 bg-slate-100 text-slate-700",
+    "not-answered": "border-orange-500 bg-orange-500 text-white",
+    "answered": "border-lime-500 bg-lime-500 text-white",
+    "review": "border-violet-600 bg-violet-600 text-white",
+    "answered-review": "border-violet-600 bg-violet-600 text-white",
+  };
+
+  const renderPaletteBadge = (number: number, status: PaletteStatus, size: "sm" | "md" = "md") => {
+    const baseSize = size === "sm" ? "h-7 w-7 text-[11px]" : "h-10 w-10 text-sm";
+    const label = <span className="relative z-10 font-bold">{number}</span>;
+
+    if (status === "not-visited" || status === "answered") {
+      return <span className={`inline-flex items-center justify-center rounded-sm border shadow-sm ${baseSize} ${paletteStyle[status]}`}>{label}</span>;
+    }
+
+    if (status === "review") {
+      return <span className={`inline-flex items-center justify-center rounded-full border shadow-sm ${baseSize} ${paletteStyle[status]}`}>{label}</span>;
+    }
+
+    if (status === "not-answered") {
+      return (
+        <span
+          className={`relative inline-flex items-center justify-center border shadow-sm ${baseSize} ${paletteStyle[status]}`}
+          style={{ clipPath: "polygon(16% 0%, 84% 0%, 100% 20%, 100% 76%, 50% 100%, 0% 76%, 0% 20%)" }}
+        >
+          {label}
+        </span>
+      );
+    }
+
+    return (
+      <span className={`relative inline-flex items-center justify-center rounded-full border shadow-sm ${baseSize} ${paletteStyle[status]}`}>
+        {label}
+        <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border border-white bg-lime-400" />
+      </span>
+    );
+  };
+
+  const exitTest = () => {
+    if (!activeTest || submitMutation.isPending) return;
+    const finalTimings = finalizeTimings();
+    saveDraft(activeTest, buildCurrentDraft(activeTest, { questionTimings: finalTimings }));
+    if (timerRef.current) clearInterval(timerRef.current);
+    setActiveTest(null);
+    toast({ title: "Test saved", description: "You can continue this test later from the test list." });
+  };
+
   const submittedAnswers: Record<number, AnswerValue> = resultTest?.submission?.answers ? JSON.parse(resultTest.submission.answers) : {};
   const savedTimings: Record<string, number> = resultTest?.submission?.questionTimings ?? {};
   const savedFlagged: number[] = resultTest?.submission?.flaggedQuestions ?? [];
@@ -195,6 +372,8 @@ export default function StudentTests() {
   const correctCount = resultTest?.questions.filter(q => isAnswerCorrect(q, submittedAnswers[q.id])).length ?? 0;
   const skippedCount = resultTest?.questions.filter(q => { const a = submittedAnswers[q.id]; return a === undefined || a === null || (Array.isArray(a) && a.length === 0); }).length ?? 0;
   const wrongCount = (resultTest?.questions.length ?? 0) - correctCount - skippedCount;
+  const examHeading = activeTest?.examHeader?.trim() || activeTest?.description?.trim() || activeTest?.title || "Exam Interface";
+  const examSubheading = activeTest?.examSubheader?.trim() || activeTest?.className || activeTest?.subjectName || activeTest?.chapterName || "Online Test";
 
   const pieData = [
     { name: "Correct", value: correctCount },
@@ -271,127 +450,312 @@ export default function StudentTests() {
       )}
 
       {/* ─── Active Test Dialog ─── */}
-      <Dialog open={activeTest !== null} onOpenChange={(o) => {
-        if (!o && !submitMutation.isPending) {
-          if (confirm("Exit test? Your progress will be lost.")) { setActiveTest(null); if (timerRef.current) clearInterval(timerRef.current); }
-        }
-      }}>
-        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto p-0">
+      <Dialog open={activeTest !== null} onOpenChange={() => {}}>
+        <DialogContent
+          hideClose
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          className="left-0 top-0 h-screen max-h-screen w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none dark:bg-white"
+        >
           {activeTest && (
             <>
-              <div className="sticky top-0 z-10 bg-background border-b border-border px-6 py-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <DialogHeader><DialogTitle className="text-base">{activeTest.title}</DialogTitle></DialogHeader>
-                  <p className="text-xs text-muted-foreground mt-0.5">{answeredCount}/{totalQ} answered {flaggedSet.size > 0 && `· ${flaggedSet.size} flagged`}</p>
+              <div className="flex h-full min-h-0 flex-col bg-white text-black [color-scheme:light]">
+                <div className="border-b border-[#7f7f7f] bg-white text-black">
+                  <div className="flex items-center justify-between border-b border-[#a76d1c] px-4 py-2">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[10px] font-bold text-[#57438f]">EC</div>
+                    <div className="flex-1 px-4 text-center leading-tight">
+                      <p className="text-xl font-bold uppercase tracking-tight text-[#6e4ca5]">{examHeading}</p>
+                      <p className="text-xs font-semibold uppercase text-[#3a8b2e]">{examSubheading}</p>
+                    </div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[10px] font-bold text-[#d58a00]">QB</div>
+                  </div>
+                  <div className="flex items-center justify-between bg-[#d7edf6] px-4 py-2">
+                    <p className="text-[16px] font-bold text-[#4d4d4d]">{showInstructions ? "Instructions" : activeTest.title}</p>
+                    {!showInstructions && (
+                      <div className={`flex items-center gap-1.5 px-2 py-1 font-mono text-[14px] font-bold ${timeLeft <= 60 ? "text-red-700" : "text-[#2b2b2b]"}`}>
+                        <Clock size={13} /> Time Left : {formatTime(timeLeft)}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-mono text-sm font-bold ${timeLeft <= 60 ? "bg-red-100 text-red-700 animate-pulse" : "bg-muted text-foreground"}`}>
-                  <Clock size={13} />{formatTime(timeLeft)}
-                </div>
-              </div>
 
-              <div className="p-6 space-y-4">
-                {activeTest.questions.map((q, idx) => {
-                  const qType = q.questionType ?? "mcq";
-                  const selectedMcq = answers[q.id] as number | undefined;
-                  const selectedMulti = (answers[q.id] as number[] | undefined) ?? [];
-                  const integerVal = answers[q.id] !== undefined ? String(answers[q.id]) : "";
-                  const isFlagged = flaggedSet.has(q.id);
-
-                  return (
-                    <div key={q.id} className={`space-y-3 rounded-xl p-4 border-2 transition-colors ${isFlagged ? "border-amber-300 bg-amber-50/30" : "border-border/50 hover:border-border"}`} data-testid={`question-block-${q.id}`}>
-                      <div className="flex gap-2">
-                        <span className="text-xs font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded shrink-0 mt-0.5">Q{idx + 1}</span>
-                        <div className="flex-1">
-                          <div className="flex items-start gap-2 flex-wrap mb-1">
-                            <p className="text-sm font-medium leading-relaxed flex-1">{q.question}</p>
-                            <div className="flex items-center gap-1 shrink-0">
-                              {qType === "multi" && <span className="flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-medium"><CheckSquare size={11} />Multi</span>}
-                              {qType === "integer" && <span className="flex items-center gap-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium"><Hash size={11} />Integer</span>}
-                              <button type="button" onClick={() => toggleFlag(q.id)}
-                                className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium border transition-colors ${isFlagged ? "bg-amber-100 text-amber-700 border-amber-300" : "bg-muted text-muted-foreground border-border hover:border-amber-300 hover:text-amber-600"}`}>
-                                <Flag size={11} className={isFlagged ? "fill-amber-600" : ""} />
-                                {isFlagged ? "Flagged" : "Flag"}
-                              </button>
-                            </div>
+                {showInstructions ? (
+                  <div className="flex min-h-0 flex-1 overflow-hidden bg-white text-black">
+                    <div className="min-h-0 flex-1 overflow-y-auto border-r border-[#2f2f2f] bg-white p-6">
+                      <div className="mx-auto max-w-5xl space-y-6">
+                        <div className="text-center">
+                          <h2 className="text-[16px] font-bold text-black">General Instructions</h2>
+                        </div>
+                        <div className="space-y-4 text-[14px] leading-7 text-black">
+                          <p><strong>Please read the following carefully.</strong></p>
+                          <ol className="list-decimal space-y-3 pl-5">
+                          <li>The duration of the examination is {activeTest.durationMinutes} minutes. The countdown timer at the top right-hand corner of your screen displays the time available.</li>
+                          <li>When the timer reaches zero, the examination will end automatically and your responses will be submitted.</li>
+                          <li>The screen is divided into two panels. The panel on the left shows the questions one at a time and the panel on the right has the Question Palette.</li>
+                          <li>Click on <strong>Save &amp; Next</strong> to save your answer and move to the next question.</li>
+                          <li>Click on <strong>Mark for Review &amp; Next</strong> to mark the current question for review and continue.</li>
+                          <li>Click on a question number in the Question Palette to navigate directly without auto-saving the current question.</li>
+                          <li>Use <strong>Clear Response</strong> to remove the selected answer from the current question.</li>
+                          <li>MCQ uses circular selection, MSQ uses square selection, and integer questions use the numeric input area.</li>
+                          </ol>
+                        <div className="max-w-2xl border border-[#7f7f7f] bg-white">
+                          <div className="grid divide-y divide-[#7f7f7f]">
+                            {[
+                              { label: "Not Visited", cls: paletteStyle["not-visited"] },
+                              { label: "Not Answered", cls: paletteStyle["not-answered"] },
+                              { label: "Answered", cls: paletteStyle["answered"] },
+                              { label: "Marked For Review", cls: paletteStyle["review"] },
+                              { label: "Answered & Marked For Review", cls: paletteStyle["answered-review"] },
+                            ].map((item, index) => (
+                              <div key={item.label} className="flex items-center gap-3 px-3 py-2">
+                                {renderPaletteBadge(index + 1, ["not-visited", "not-answered", "answered", "review", "answered-review"][index] as PaletteStatus, "sm")}
+                                <span className="text-sm text-black">{item.label}</span>
+                              </div>
+                            ))}
                           </div>
-                          {q.imageData && <img src={q.imageData} alt="" className="mt-2 max-h-64 w-full rounded-lg border object-contain bg-muted/30" />}
+                        </div>
+                        </div>
+                        <div className="flex justify-end gap-3 border-t border-[#d0d0d0] pt-4">
+                          <Button variant="outline" className="rounded-none border-[#bdbdbd] bg-white text-black hover:bg-[#f3f3f3]" onClick={exitTest}>Exit</Button>
+                          <Button className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => { setShowInstructions(false); if (activeTest.questions[currentQuestionIndex]) startInteraction(activeTest.questions[currentQuestionIndex].id); }}>Next</Button>
+                        </div>
+                      </div>
+                    </div>
+                    <aside className="hidden w-[250px] shrink-0 border-l border-[#2f2f2f] bg-[#f5f5f5] md:flex md:flex-col">
+                      <div className="flex flex-1 flex-col items-center px-4 py-6 text-center">
+                        <div className="flex h-28 w-24 items-center justify-center overflow-hidden rounded-sm border border-[#7f7f7f] bg-white shadow-inner">
+                          {user && (user as any).avatarUrl ? (
+                            <img src={(user as any).avatarUrl} alt={user.fullName ?? user.username ?? "Candidate"} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#dce8f4,#8ea4bf_65%,#5d728e)] text-[10px] font-bold text-white">PHOTO</div>
+                          )}
+                        </div>
+                        <p className="mt-6 text-[14px] font-bold text-[#607a98]">Candidate</p>
+                        <p className="mt-1 text-sm font-semibold text-[#607a98]">{user?.fullName ?? user?.username ?? "John Smith"}</p>
+                      </div>
+                    </aside>
+                  </div>
+                ) : currentQuestion ? (
+                  <div className="flex min-h-0 flex-1 overflow-hidden">
+                    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-slate-300 bg-white">
+                      <div className="border-b border-slate-300 bg-[#ececec] px-2 py-2">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                          <button className="rounded-sm border border-[#7aa9d4] bg-[#7aa9d4] px-3 py-1 text-white shadow-sm">
+                            {activeTest.subjectName ?? "Question Paper"}
+                          </button>
+                          {activeTest.chapterName && (
+                            <button className="rounded-sm border border-slate-300 bg-white px-3 py-1 text-slate-700">
+                              {activeTest.chapterName}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between border-b border-slate-300 bg-white px-2 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[13px] font-bold text-black">Question Type: {currentQuestion.questionType.toUpperCase()}</span>
+                          </div>
+                        </div>
+                        <div className="text-[13px] text-black">Marks for correct answer: <span className="font-bold">{currentQuestion.points}</span> | Negative Marks: <span className="font-bold text-[#c55f00]">{getNegativeMark(currentQuestion)}</span></div>
+                      </div>
+
+                      <div className="border-b border-slate-300 px-2 py-2 text-[18px] font-bold text-black">
+                        Question No. {currentQuestionIndex + 1}
+                      </div>
+
+                      <div className="min-h-0 flex-1 overflow-y-auto bg-white p-4">
+                        <div className="relative mx-auto max-w-none border border-slate-200 bg-white p-4 sm:p-6 shadow-sm before:pointer-events-none before:absolute before:inset-0 before:bg-[repeating-linear-gradient(-60deg,transparent,transparent_180px,rgba(40,70,110,0.06)_180px,rgba(40,70,110,0.06)_240px)]">
+                          <div className="space-y-4">
+                            <p className="text-base leading-7 text-slate-900">{currentQuestion.question}</p>
+                            {currentQuestion.imageData && <img src={currentQuestion.imageData} alt="" className="max-h-[420px] w-full rounded-xl border border-slate-200 object-contain bg-white" />}
+
+                            {(currentQuestion.questionType === "mcq" || currentQuestion.questionType === "multi") && (
+                              <div className="space-y-3">
+                                {currentQuestion.options.map((opt, i) => {
+                                  const selected = currentQuestion.questionType === "multi"
+                                    ? (((answers[currentQuestion.id] as number[] | undefined) ?? []).includes(i))
+                                    : Number(answers[currentQuestion.id]) === i;
+                                  const optImg = currentQuestion.optionImages?.[i];
+                                  return (
+                                    <button
+                                      key={i}
+                                      type="button"
+                                      onClick={() => currentQuestion.questionType === "multi" ? toggleMultiAnswer(currentQuestion.id, i) : setMcqAnswer(currentQuestion.id, i)}
+                                      className={`relative w-full border-0 p-2 text-left transition-colors ${selected ? "bg-[#f5f8fd]" : "bg-transparent hover:bg-[#f9fbff]"}`}
+                                      data-testid={`option-${currentQuestion.id}-${i}`}
+                                    >
+                                      <div className="flex items-start gap-3">
+                                        <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center ${currentQuestion.questionType === "multi" ? "rounded-sm" : "rounded-full"} border text-xs font-bold ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-slate-600"}`}>
+                                          {currentQuestion.questionType === "multi" ? (selected ? <CheckSquare size={12} /> : <Square size={12} />) : (selected ? <Circle size={12} fill="currentColor" /> : <Circle size={12} />)}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-start gap-2">
+                                            <span className="font-semibold text-slate-700">{String.fromCharCode(65 + i)}.</span>
+                                            <span className="text-sm text-slate-800">{opt}</span>
+                                          </div>
+                                          {optImg && <img src={optImg} alt="" className="mt-3 max-h-40 rounded-lg border border-slate-200 object-contain bg-white" />}
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {currentQuestion.questionType === "integer" && (
+                              <div className="space-y-4">
+                                <input
+                                  type="number"
+                                  value={answers[currentQuestion.id] !== undefined ? String(answers[currentQuestion.id]) : ""}
+                                  onChange={(e) => setIntegerAnswer(currentQuestion.id, e.target.value)}
+                                  placeholder="Enter numerical answer"
+                                  className="w-full max-w-xs rounded-sm border border-slate-300 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-blue-500"
+                                  data-testid={`integer-input-${currentQuestion.id}`}
+                                />
+                                <div className="rounded-sm border border-slate-200 bg-slate-50 p-4">
+                                  <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                    <Calculator size={16} />
+                                    Virtual Numeric Keypad
+                                  </div>
+                                  <div className="mt-3 grid max-w-xs grid-cols-3 gap-2">
+                                    {["7","8","9","4","5","6","1","2","3","0","-","."].map((key) => (
+                                      <button
+                                        key={key}
+                                        type="button"
+                                        onClick={() => {
+                                          const current = answers[currentQuestion.id] !== undefined ? String(answers[currentQuestion.id]) : "";
+                                          setAnswers((prev) => ({ ...prev, [currentQuestion.id]: `${current}${key}` }));
+                                          startInteraction(currentQuestion.id);
+                                        }}
+                                        className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                      >
+                                        {key}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      {qType === "mcq" && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-8">
-                          {q.options.map((opt, i) => {
-                            const optImg = q.optionImages?.[i];
-                            return (
-                              <button key={i} onClick={() => setMcqAnswer(q.id, i)}
-                                className={`text-left text-sm px-3 py-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 ${selectedMcq === i ? "border-primary bg-primary/10 text-primary font-medium" : "border-border hover:border-primary/30 hover:bg-muted/50"}`}
-                                data-testid={`option-${q.id}-${i}`}>
-                                <div className="flex items-center gap-2">
-                                  <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 text-xs font-bold ${selectedMcq === i ? "border-primary bg-primary text-white" : "border-border"}`}>{String.fromCharCode(65 + i)}</span>
-                                  {opt}
-                                </div>
-                                {optImg && <img src={optImg} alt="" className="w-full max-h-32 rounded-lg object-contain border border-border/40 bg-white" />}
-                              </button>
-                            );
-                          })}
+                      <div className="border-t border-slate-300 bg-white px-2 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
+                              Exit
+                            </Button>
+                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
+                              Previous
+                            </Button>
+                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => toggleFlag(currentQuestion.id)}>
+                              <Flag size={14} className="mr-2" />
+                              {flaggedSet.has(currentQuestion.id) ? "Remove Flag" : "Flag"}
+                            </Button>
+                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
+                              Clear Response
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
+                              {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
+                            </Button>
+                            <Button className="rounded-none border border-[#6d9cc8] bg-[#4a8ac5] text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
+                              {currentQuestionIndex === totalQ - 1 ? "Save Response" : "Save & Next"}
+                            </Button>
+                          </div>
                         </div>
-                      )}
-
-                      {qType === "multi" && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-8">
-                          {q.options.map((opt, i) => {
-                            const checked = selectedMulti.includes(i);
-                            const optImg = q.optionImages?.[i];
-                            return (
-                              <button key={i} onClick={() => toggleMultiAnswer(q.id, i)}
-                                className={`text-left text-sm px-3 py-2.5 rounded-lg border-2 transition-all flex flex-col gap-1.5 ${checked ? "border-purple-500 bg-purple-50 text-purple-900 font-medium" : "border-border hover:border-purple-300 hover:bg-purple-50/30"}`}
-                                data-testid={`option-${q.id}-${i}`}>
-                                <div className="flex items-center gap-2">
-                                  <span className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? "border-purple-500 bg-purple-500" : "border-border"}`}>
-                                    {checked && <CheckCircle2 size={11} className="text-white" />}
-                                  </span>
-                                  <span className="text-xs font-semibold w-4 shrink-0">{String.fromCharCode(65 + i)}.</span>
-                                  {opt}
-                                </div>
-                                {optImg && <img src={optImg} alt="" className="w-full max-h-32 rounded-lg object-contain border border-border/40 bg-white" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {qType === "integer" && (
-                        <div className="pl-8 space-y-2">
-                          {q.correctAnswerMin !== null && q.correctAnswerMin !== undefined && q.correctAnswerMax !== null && q.correctAnswerMax !== undefined && (
-                            <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 inline-flex items-center gap-1">
-                              ↔️ Enter a number between <strong>{q.correctAnswerMin}</strong> and <strong>{q.correctAnswerMax}</strong>
-                            </p>
-                          )}
-                          <input type="number" value={integerVal} onChange={(e) => setIntegerAnswer(q.id, e.target.value)}
-                            placeholder="Type your numeric answer..."
-                            className="w-48 px-3 py-2 text-sm border-2 border-border rounded-lg focus:border-primary focus:outline-none transition-colors font-mono"
-                            data-testid={`integer-input-${q.id}`} />
-                        </div>
-                      )}
-
-                      <p className="pl-8 text-xs text-muted-foreground">{q.points} pt{q.points !== 1 ? "s" : ""}</p>
+                      </div>
                     </div>
-                  );
-                })}
 
-                <div className="border-t border-border pt-4 flex items-center justify-between gap-3 flex-wrap">
-                  {answeredCount < totalQ && (
-                    <div className="flex items-center gap-2 text-sm text-amber-600"><AlertCircle size={15} /><span>{totalQ - answeredCount} unanswered</span></div>
-                  )}
-                  <div className="ml-auto">
-                    <Button onClick={() => {
-                      if (answeredCount < totalQ && !confirm(`You have ${totalQ - answeredCount} unanswered question(s). Submit anyway?`)) return;
-                      submitMutation.mutate();
-                    }} disabled={submitMutation.isPending} data-testid="button-submit-test">
-                      {submitMutation.isPending ? "Submitting..." : "Submit Test"}
-                    </Button>
+                    {!paletteCollapsed && (
+                      <aside className="hidden min-h-0 w-[260px] shrink-0 flex-col border-l border-[#2f2f2f] bg-[#d9eaf5] md:flex">
+                        <div className="border-b border-[#c8c8c8] bg-[#f7f7f7] p-4">
+                          <div className="mb-4 flex items-start gap-3 rounded-none bg-white p-0">
+                            <div className="flex h-24 w-20 items-center justify-center overflow-hidden rounded-sm border border-[#7f7f7f] bg-white shadow-inner">
+                              {user && (user as any).avatarUrl ? (
+                                <img src={(user as any).avatarUrl} alt={user.fullName ?? user.username ?? "Candidate"} className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#dce8f4,#8ea4bf_65%,#5d728e)] text-[10px] font-bold text-white">
+                                  PHOTO
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-lg font-bold text-[#3f4d5c]">Candidate</p>
+                              <p className="mt-1 text-sm font-semibold text-[#607a98]">{user?.fullName ?? user?.username ?? "John Smith"}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Question Palette</p>
+                              <p className="text-xs text-slate-500">{answeredCount}/{totalQ} answered</p>
+                            </div>
+                            <button type="button" onClick={() => setPaletteCollapsed(true)} className="rounded-none border border-slate-300 bg-black p-2 text-white hover:bg-slate-800">
+                              <PanelRightClose size={16} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex min-h-0 flex-1 flex-col bg-[#d9eaf5]">
+                          <div className="overflow-y-auto space-y-0">
+                          <div className="border-b border-[#c8c8c8] bg-white p-4">
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+                            <div className="flex items-start gap-2">{renderPaletteBadge(answeredCount, "answered")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(notAnsweredCount, "not-answered")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(notVisitedCount, "not-visited")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
+                            <div className="flex items-start gap-2">{renderPaletteBadge(reviewCount, "review")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
+                            <div className="col-span-2 flex items-start gap-2">{renderPaletteBadge(answeredReviewCount, "answered-review")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review (will also be evaluated)</p></div></div>
+                          </div>
+                          </div>
+
+                          <div className="bg-[#d9eaf5]">
+                            <p className="bg-[#2a85b8] px-3 py-2 text-sm font-bold text-white">{activeTest.subjectName ?? "Section"}</p>
+                            <p className="px-4 py-3 text-[13px] font-semibold text-black">Choose a Question</p>
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-2 px-4 pb-4">
+                            {activeTest.questions.map((question, index) => {
+                              const status = getPaletteStatus(question);
+                              const isCurrent = currentQuestion.id === question.id;
+                              return (
+                                <button
+                                  key={question.id}
+                                  type="button"
+                                  onClick={() => goToQuestion(index)}
+                                  className={`flex h-11 items-center justify-center ${isCurrent ? "ring-2 ring-[#f28a27] ring-offset-1" : ""}`}
+                                >
+                                  {renderPaletteBadge(index + 1, status)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          </div>
+                        </div>
+                        <div className="border-t border-[#c8c8c8] bg-[#d9eaf5] p-4">
+                          <Button
+                            className="w-full rounded-none border border-[#8fb4d6] bg-[#78a7d3] text-white shadow-none hover:bg-[#6897c4]"
+                            onClick={() => {
+                              if (answeredCount < totalQ && !confirm(`You have ${totalQ - answeredCount} unanswered question(s). Submit anyway?`)) return;
+                              submitMutation.mutate();
+                            }}
+                            disabled={submitMutation.isPending}
+                            data-testid="button-submit-test"
+                          >
+                            {submitMutation.isPending ? "Submitting..." : "Submit"}
+                          </Button>
+                        </div>
+                      </aside>
+                    )}
+
+                    {paletteCollapsed && (
+                      <button type="button" onClick={() => setPaletteCollapsed(false)} className="hidden md:flex h-full w-10 shrink-0 items-center justify-center border-l border-slate-300 bg-slate-200 text-slate-700">
+                        <PanelRightOpen size={18} />
+                      </button>
+                    )}
                   </div>
-                </div>
+                ) : null}
               </div>
             </>
           )}
@@ -570,7 +934,8 @@ export default function StudentTests() {
                           const answer = submittedAnswers[q.id];
                           const correct = isAnswerCorrect(q, answer);
                           const skipped = answer === undefined || answer === null || (Array.isArray(answer) && answer.length === 0);
-                          const earnedPoints = correct ? q.points : 0;
+                          const penalty = Number(q.negativeMarks ?? 0);
+                          const earnedPoints = correct ? q.points : skipped ? 0 : -penalty;
                           const timeSecs = savedTimings[String(q.id)] ?? 0;
                           const isFlaggedQ = savedFlagged.includes(q.id);
                           const maxTimeSecs = Math.max(...Object.values(savedTimings).concat([1]));
@@ -586,7 +951,7 @@ export default function StudentTests() {
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap mb-1">
                                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${correct ? "bg-green-100 text-green-700" : skipped ? "bg-gray-100 text-gray-600" : "bg-red-100 text-red-700"}`}>
-                                      {skipped ? "⊘ Skipped" : correct ? `✓ +${earnedPoints}pt${earnedPoints !== 1 ? "s" : ""}` : `✗ 0/${q.points}pts`}
+                                      {skipped ? "⊘ Skipped" : correct ? `✓ +${earnedPoints}pt${earnedPoints !== 1 ? "s" : ""}` : `✗ ${earnedPoints} / ${q.points}pts`}
                                     </span>
                                     <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium ${qType === "multi" ? "bg-purple-100 text-purple-700" : qType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                                       {qType === "multi" ? <CheckSquare size={10} /> : qType === "integer" ? <Hash size={10} /> : <CheckCircle2 size={10} />}

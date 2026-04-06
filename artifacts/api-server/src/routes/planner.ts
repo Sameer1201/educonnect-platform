@@ -11,6 +11,7 @@ import {
   lecturePlansTable,
   assignmentsTable,
   questionBankQuestionsTable,
+  examTemplatesTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -28,6 +29,107 @@ function getAuth(req: any, res: any): { userId: number; role: string } | null {
 
 function sameHourWindow(a: Date, b: Date) {
   return Math.abs(a.getTime() - b.getTime()) < 60 * 60 * 1000;
+}
+
+const DEFAULT_EXAM_TEMPLATES = [
+  {
+    key: "jee-main",
+    name: "JEE Main",
+    description: "Physics, Chemistry, Mathematics with mixed MCQ and numerical structure.",
+    examHeader: "JOINT ENTRANCE EXAMINATION",
+    examSubheader: "JEE Main Mock Assessment",
+    durationMinutes: 180,
+    passingScore: 60,
+    defaultPositiveMarks: 4,
+    defaultNegativeMarks: 1,
+    isSystem: true,
+    sections: [
+      { title: "Physics", subjectLabel: "Physics", description: "JEE Main Physics. Teacher can mix MCQ and NAT.", questionCount: 25, marksPerQuestion: 4, negativeMarks: 1, preferredQuestionType: "mcq" },
+      { title: "Chemistry", subjectLabel: "Chemistry", description: "JEE Main Chemistry. Teacher can mix MCQ and NAT.", questionCount: 25, marksPerQuestion: 4, negativeMarks: 1, preferredQuestionType: "mcq" },
+      { title: "Mathematics", subjectLabel: "Mathematics", description: "JEE Main Mathematics. Teacher can mix MCQ and NAT.", questionCount: 25, marksPerQuestion: 4, negativeMarks: 1, preferredQuestionType: "mcq" },
+    ],
+  },
+  {
+    key: "gate",
+    name: "GATE",
+    description: "General Aptitude, Engineering Mathematics, and Core Subject with MCQ, MSQ, and NAT.",
+    examHeader: "GRADUATE APTITUDE TEST IN ENGINEERING",
+    examSubheader: "GATE Mock Assessment",
+    durationMinutes: 180,
+    passingScore: 60,
+    defaultPositiveMarks: 2,
+    defaultNegativeMarks: 0.66,
+    isSystem: true,
+    sections: [
+      { title: "General Aptitude", subjectLabel: "General Aptitude", description: "10 questions. Mixed +1 and +2. MCQ can carry -1/3 or -2/3. NAT/MSQ no negative.", questionCount: 10, marksPerQuestion: 1, negativeMarks: 0.33, preferredQuestionType: "mcq" },
+      { title: "Engineering Mathematics", subjectLabel: "Engineering Maths", description: "Around 10-12 questions. Mixed MCQ, MSQ, NAT allowed.", questionCount: 10, marksPerQuestion: 1, negativeMarks: 0.33, preferredQuestionType: "mcq" },
+      { title: "Core Subject", subjectLabel: "Core Subject", description: "Around 40-45 questions. Core paper with MCQ, MSQ, NAT.", questionCount: 45, marksPerQuestion: 2, negativeMarks: 0.66, preferredQuestionType: "mcq" },
+    ],
+  },
+  {
+    key: "iit-jam",
+    name: "IIT JAM",
+    description: "Single-subject paper with Section A, B, and C.",
+    examHeader: "JOINT ADMISSION TEST FOR MASTERS",
+    examSubheader: "IIT JAM Mock Assessment",
+    durationMinutes: 180,
+    passingScore: 60,
+    defaultPositiveMarks: 2,
+    defaultNegativeMarks: 0.33,
+    isSystem: true,
+    sections: [
+      { title: "Section A", subjectLabel: "Section A", description: "30 MCQs with negative marking.", questionCount: 30, marksPerQuestion: 1, negativeMarks: 0.33, preferredQuestionType: "mcq" },
+      { title: "Section B", subjectLabel: "Section B", description: "10 MSQs with no negative marking.", questionCount: 10, marksPerQuestion: 2, negativeMarks: 0, preferredQuestionType: "multi" },
+      { title: "Section C", subjectLabel: "Section C", description: "20 NAT questions with no negative marking.", questionCount: 20, marksPerQuestion: 2, negativeMarks: 0, preferredQuestionType: "integer" },
+    ],
+  },
+  {
+    key: "cuet",
+    name: "CUET",
+    description: "Language, Domain Subject, and General Test style structure. MCQ only.",
+    examHeader: "COMMON UNIVERSITY ENTRANCE TEST",
+    examSubheader: "CUET Mock Assessment",
+    durationMinutes: 60,
+    passingScore: 60,
+    defaultPositiveMarks: 5,
+    defaultNegativeMarks: 1,
+    isSystem: true,
+    sections: [
+      { title: "Language", subjectLabel: "Language", description: "50 questions, attempt around 40. MCQ only.", questionCount: 50, marksPerQuestion: 5, negativeMarks: 1, preferredQuestionType: "mcq" },
+      { title: "Domain Subjects", subjectLabel: "Domain Subjects", description: "Subject-specific MCQ section. Multiple subjects can be cloned later by planner.", questionCount: 50, marksPerQuestion: 5, negativeMarks: 1, preferredQuestionType: "mcq" },
+      { title: "General Test", subjectLabel: "General Test", description: "General aptitude and reasoning. MCQ only.", questionCount: 50, marksPerQuestion: 5, negativeMarks: 1, preferredQuestionType: "mcq" },
+    ],
+  },
+  {
+    key: "neet",
+    name: "NEET",
+    description: "Physics, Chemistry, Biology with NEET-style optional section logic.",
+    examHeader: "NATIONAL ELIGIBILITY CUM ENTRANCE TEST",
+    examSubheader: "NEET Mock Assessment",
+    durationMinutes: 200,
+    passingScore: 60,
+    defaultPositiveMarks: 4,
+    defaultNegativeMarks: 1,
+    isSystem: true,
+    sections: [
+      { title: "Physics", subjectLabel: "Physics", description: "45 MCQs. NEET-style section with optional choice rules configurable later.", questionCount: 45, marksPerQuestion: 4, negativeMarks: 1, preferredQuestionType: "mcq" },
+      { title: "Chemistry", subjectLabel: "Chemistry", description: "45 MCQs. NEET-style section with optional choice rules configurable later.", questionCount: 45, marksPerQuestion: 4, negativeMarks: 1, preferredQuestionType: "mcq" },
+      { title: "Biology", subjectLabel: "Biology", description: "90 MCQs. Includes Botany/Zoology coverage as needed.", questionCount: 90, marksPerQuestion: 4, negativeMarks: 1, preferredQuestionType: "mcq" },
+    ],
+  },
+];
+
+async function ensureExamTemplates(userId: number) {
+  const existing = await db.select().from(examTemplatesTable);
+  if (existing.length > 0) return existing;
+  const inserted = await db.insert(examTemplatesTable).values(
+    DEFAULT_EXAM_TEMPLATES.map((template) => ({
+      ...template,
+      sections: JSON.stringify(template.sections),
+      createdBy: userId,
+    })),
+  ).returning();
+  return inserted;
 }
 
 router.get("/planner/insights", async (req, res) => {
@@ -258,6 +360,74 @@ router.get("/planner/insights", async (req, res) => {
     examCalendarMapping,
     plannerApprovalQueue: approvalQueue,
   });
+});
+
+router.get("/planner/exam-templates", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (!["planner", "super_admin", "admin"].includes(auth.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const rows = await ensureExamTemplates(auth.userId);
+  return res.json(
+    rows.map((row) => ({
+      ...row,
+      examHeader: row.examHeader ?? null,
+      examSubheader: row.examSubheader ?? null,
+      sections: row.sections ? JSON.parse(row.sections) : [],
+    })),
+  );
+});
+
+router.post("/planner/exam-templates", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (!["planner", "super_admin"].includes(auth.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { key, name, description, examHeader, examSubheader, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections } = req.body;
+  if (!name || !Array.isArray(sections) || sections.length === 0) {
+    return res.status(400).json({ error: "name and sections are required" });
+  }
+  const [template] = await db.insert(examTemplatesTable).values({
+    key: key ? String(key) : String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    name: String(name),
+    description: description ? String(description) : null,
+    examHeader: examHeader ? String(examHeader) : null,
+    examSubheader: examSubheader ? String(examSubheader) : null,
+    durationMinutes: Number(durationMinutes) || 180,
+    passingScore: Number(passingScore) || 60,
+    defaultPositiveMarks: Number(defaultPositiveMarks) || 1,
+    defaultNegativeMarks: Number(defaultNegativeMarks) || 0,
+    sections: JSON.stringify(sections),
+    isSystem: false,
+    createdBy: auth.userId,
+  }).returning();
+  return res.status(201).json({ ...template, sections: JSON.parse(template.sections) });
+});
+
+router.patch("/planner/exam-templates/:id", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (!["planner", "super_admin"].includes(auth.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const templateId = Number(req.params.id);
+  const { key, name, description, examHeader, examSubheader, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections } = req.body;
+  const updates: Record<string, unknown> = {};
+  if (key !== undefined) updates.key = String(key);
+  if (name !== undefined) updates.name = String(name);
+  if (description !== undefined) updates.description = description ? String(description) : null;
+  if (examHeader !== undefined) updates.examHeader = examHeader ? String(examHeader) : null;
+  if (examSubheader !== undefined) updates.examSubheader = examSubheader ? String(examSubheader) : null;
+  if (durationMinutes !== undefined) updates.durationMinutes = Number(durationMinutes);
+  if (passingScore !== undefined) updates.passingScore = Number(passingScore);
+  if (defaultPositiveMarks !== undefined) updates.defaultPositiveMarks = Number(defaultPositiveMarks);
+  if (defaultNegativeMarks !== undefined) updates.defaultNegativeMarks = Number(defaultNegativeMarks);
+  if (sections !== undefined) updates.sections = JSON.stringify(sections);
+  const [template] = await db.update(examTemplatesTable).set(updates).where(eq(examTemplatesTable.id, templateId)).returning();
+  if (!template) return res.status(404).json({ error: "Template not found" });
+  return res.json({ ...template, sections: JSON.parse(template.sections) });
 });
 
 export { router as plannerRouter };

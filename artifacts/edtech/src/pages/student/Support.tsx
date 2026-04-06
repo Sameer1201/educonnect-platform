@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Plus, LifeBuoy, Clock, CheckCircle, AlertCircle, MessageSquare, Send, ChevronDown, ChevronUp, XCircle, AlertTriangle } from "lucide-react";
+import { Plus, LifeBuoy, Clock, CheckCircle, AlertCircle, MessageSquare, Send, ChevronDown, ChevronUp, XCircle, AlertTriangle, ImagePlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
@@ -198,6 +198,15 @@ function TicketList({ tickets, expandedId, setExpandedId, currentUserId, readOnl
                   Opened {format(new Date(ticket.createdAt), "MMM d, yyyy")}
                   {readOnly && ticket.updatedAt && ` · Resolved ${format(new Date(ticket.updatedAt), "MMM d, yyyy")}`}
                 </p>
+                {(ticket as any).imageData && (
+                  <div className="mt-2">
+                    <img
+                      src={(ticket as any).imageData}
+                      alt="Support attachment"
+                      className="max-h-24 rounded-lg border border-border object-contain bg-muted/30"
+                    />
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 ml-2 shrink-0">
                 <MessageSquare size={14} className="text-muted-foreground" />
@@ -224,7 +233,7 @@ export default function StudentSupport() {
   const { toast } = useToast();
 
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ subject: "", message: "" });
+  const [form, setForm] = useState({ subject: "", message: "", imageData: null as string | null });
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "resolved">("active");
@@ -233,17 +242,32 @@ export default function StudentSupport() {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const handleImageUpload = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Only image files are supported");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm((prev) => ({ ...prev, imageData: reader.result as string }));
+      setError("");
+    };
+    reader.onerror = () => setError("Could not read the selected image");
+    reader.readAsDataURL(file);
+  };
+
   const handleCreate = () => {
     setError("");
     if (!form.subject || !form.message) { setError("Subject and message are required"); return; }
     createTicket.mutate(
-      { data: { subject: form.subject, message: form.message } },
+      { data: { subject: form.subject, message: form.message, imageData: form.imageData } },
       {
         onSuccess: (newTicket: any) => {
           queryClient.invalidateQueries({ queryKey: getListSupportTicketsQueryKey() });
           toast({ title: "Support ticket submitted!" });
           setOpen(false);
-          setForm({ subject: "", message: "" });
+          setForm({ subject: "", message: "", imageData: null });
           setActiveTab("active");
           setExpandedId(newTicket?.id ?? null);
         },
@@ -283,6 +307,29 @@ export default function StudentSupport() {
               <div className="space-y-1.5">
                 <Label>Message</Label>
                 <Textarea name="message" placeholder="Describe your issue in detail..." value={form.message} onChange={handleChange} rows={5} data-testid="input-ticket-message" />
+              </div>
+              <div className="space-y-2">
+                <Label>Image Attachment (optional)</Label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm hover:bg-muted/40">
+                    <ImagePlus size={15} />
+                    Add Image
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleImageUpload(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  {form.imageData && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setForm((prev) => ({ ...prev, imageData: null }))}>
+                      Remove image
+                    </Button>
+                  )}
+                </div>
+                {form.imageData && (
+                  <img src={form.imageData} alt="Attachment preview" className="max-h-40 rounded-lg border border-border object-contain bg-muted/30" />
+                )}
               </div>
               <Button className="w-full" onClick={handleCreate} disabled={createTicket.isPending} data-testid="button-submit-ticket">
                 {createTicket.isPending ? "Submitting..." : "Submit Ticket"}

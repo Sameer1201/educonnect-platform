@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,7 +32,9 @@ const medalIcons = [
 
 export default function Leaderboard() {
   const { user } = useAuth();
+  const { data: platformSettings } = usePlatformSettings(!!user);
   const [classId, setClassId] = useState<string>("all");
+  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
 
   const { data: classes = [] } = useQuery<{ id: number; title: string }[]>({
     queryKey: ["classes-for-leaderboard"],
@@ -39,6 +42,7 @@ export default function Leaderboard() {
       const endpoint = user?.role === "student" ? "/classes" : "/classes";
       return api.get(endpoint).then((data) => data.map((c: any) => ({ id: c.id, title: c.title })));
     },
+    enabled: learningAccessEnabled,
   });
 
   const { data: leaderboard = [], isLoading } = useQuery<LeaderboardEntry[]>({
@@ -60,17 +64,21 @@ export default function Leaderboard() {
             <Trophy size={24} className="text-yellow-500" />
             Leaderboard
           </h1>
-          <p className="text-sm text-muted-foreground">Ranked by test scores, assignments & attendance</p>
+          <p className="text-sm text-muted-foreground">
+            {learningAccessEnabled ? "Ranked by test scores, assignments & attendance" : "Ranked by test scores"}
+          </p>
         </div>
-        <Select value={classId} onValueChange={setClassId}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="All classes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Classes</SelectItem>
-            {classes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        {learningAccessEnabled ? (
+          <Select value={classId} onValueChange={setClassId}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="All classes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Classes</SelectItem>
+              {classes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        ) : null}
       </div>
 
       {/* My rank banner */}
@@ -88,8 +96,8 @@ export default function Leaderboard() {
             </div>
             <div className="flex gap-4 text-xs text-muted-foreground">
               <span className="flex items-center gap-1"><ClipboardList size={12} /> {myEntry.testsCompleted} tests</span>
-              <span className="flex items-center gap-1"><FileText size={12} /> {myEntry.assignmentsSubmitted} assignments</span>
-              <span className="flex items-center gap-1"><UserCheck size={12} /> {myEntry.attendancePercentage}% attendance</span>
+              {learningAccessEnabled && <span className="flex items-center gap-1"><FileText size={12} /> {myEntry.assignmentsSubmitted} assignments</span>}
+              {learningAccessEnabled && <span className="flex items-center gap-1"><UserCheck size={12} /> {myEntry.attendancePercentage}% attendance</span>}
             </div>
           </CardContent>
         </Card>
@@ -103,7 +111,7 @@ export default function Leaderboard() {
         <Card>
           <CardContent className="py-16 text-center">
             <Trophy size={40} className="text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No data yet. Complete tests and assignments to appear here.</p>
+            <p className="text-muted-foreground">{learningAccessEnabled ? "No data yet. Complete tests and assignments to appear here." : "No data yet. Complete tests to appear here."}</p>
           </CardContent>
         </Card>
       ) : (
@@ -129,14 +137,18 @@ export default function Leaderboard() {
                           <ClipboardList size={11} />
                           Tests: <strong className="text-foreground">{entry.avgTestScore}%</strong>
                         </span>
-                        <span className="flex items-center gap-1">
-                          <FileText size={11} />
-                          Assignments: <strong className="text-foreground">{entry.avgAssignmentGrade > 0 ? entry.avgAssignmentGrade : "–"}</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <UserCheck size={11} />
-                          Attendance: <strong className="text-foreground">{entry.attendancePercentage}%</strong>
-                        </span>
+                        {learningAccessEnabled && (
+                          <span className="flex items-center gap-1">
+                            <FileText size={11} />
+                            Assignments: <strong className="text-foreground">{entry.avgAssignmentGrade > 0 ? entry.avgAssignmentGrade : "–"}</strong>
+                          </span>
+                        )}
+                        {learningAccessEnabled && (
+                          <span className="flex items-center gap-1">
+                            <UserCheck size={11} />
+                            Attendance: <strong className="text-foreground">{entry.attendancePercentage}%</strong>
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="text-right shrink-0">

@@ -1,6 +1,15 @@
 import { Router } from "express";
-import { db, userActivityLogs, userSessions, usersTable } from "@workspace/db";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import {
+  db,
+  userActivityLogs,
+  userSessions,
+  usersTable,
+  testsTable,
+  testQuestionsTable,
+  questionBankQuestionsTable,
+  questionBankReportsTable,
+} from "@workspace/db";
+import { eq, desc, and, gte, sql, inArray } from "drizzle-orm";
 
 const router = Router();
 
@@ -178,12 +187,27 @@ router.get("/user/:id", requireSuperAdmin, async (req, res) => {
       .limit(50);
 
     const totalSeconds = sessions.reduce((sum, s) => sum + (s.totalSeconds || 0), 0);
+    const createdTests = await db.select().from(testsTable).where(eq(testsTable.createdBy, userId));
+    const createdTestIds = createdTests.map((test) => test.id);
+    const testQuestions = createdTestIds.length > 0
+      ? await db.select().from(testQuestionsTable).where(inArray(testQuestionsTable.testId, createdTestIds))
+      : [];
+    const questionBankQuestions = await db.select().from(questionBankQuestionsTable).where(eq(questionBankQuestionsTable.createdBy, userId));
+    const questionBankReports = await db.select().from(questionBankReportsTable).where(eq(questionBankReportsTable.teacherId, userId));
+    const openQuestionBankReports = questionBankReports.filter((report) => report.status === "open");
 
     res.json({
       user: { id: user.id, username: user.username, fullName: user.fullName, role: user.role },
       totalSeconds,
       sessions,
       activities,
+      stats: {
+        testsCreated: createdTests.length,
+        testQuestionsCreated: testQuestions.length,
+        questionBankQuestionsCreated: questionBankQuestions.length,
+        reportedQuestionsReceived: questionBankReports.length,
+        openReportedQuestions: openQuestionBankReports.length,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: "Failed" });
