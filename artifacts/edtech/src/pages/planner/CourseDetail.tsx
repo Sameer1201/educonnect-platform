@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import {
@@ -30,9 +30,12 @@ interface CourseDetail {
   title: string;
   description?: string | null;
   subject: string;
+  workflowType?: string;
   adminName?: string | null;
   status: string;
   scheduledAt?: string | null;
+  weeklyTargetQuestions?: number | null;
+  weeklyTargetDeadline?: string | null;
   enrolledCount: number;
   maxStudents?: number | null;
   meetingLink?: string | null;
@@ -50,6 +53,7 @@ interface ChapterItem {
   id: number;
   title: string;
   description?: string | null;
+  targetQuestions?: number | null;
   order: number;
   lectures: LectureItem[];
 }
@@ -81,7 +85,9 @@ interface TeacherUser {
 
 export default function PlannerCourseDetail() {
   const { id } = useParams<{ id: string }>();
+  const [location] = useLocation();
   const classId = Number(id);
+  const isQuestionBankMode = location.startsWith("/planner/question-bank/");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -97,6 +103,7 @@ export default function PlannerCourseDetail() {
   const [addChapterFor, setAddChapterFor] = useState<number | null>(null);
   const [chapterTitle, setChapterTitle] = useState("");
   const [chapterDescription, setChapterDescription] = useState("");
+  const [chapterTargetQuestions, setChapterTargetQuestions] = useState("");
 
   const [addLectureFor, setAddLectureFor] = useState<number | null>(null);
   const [lectureTitle, setLectureTitle] = useState("");
@@ -156,7 +163,7 @@ export default function PlannerCourseDetail() {
         body: JSON.stringify({
           title: subjectTitle.trim(),
           description: subjectDescription.trim() || undefined,
-          teacherId: subjectTeacherId || undefined,
+          teacherId: isQuestionBankMode ? undefined : subjectTeacherId || undefined,
         }),
       });
 
@@ -208,7 +215,11 @@ export default function PlannerCourseDetail() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: chapterTitle.trim(), description: chapterDescription.trim() || undefined }),
+        body: JSON.stringify({
+          title: chapterTitle.trim(),
+          description: chapterDescription.trim() || undefined,
+          targetQuestions: chapterTargetQuestions.trim() ? Math.max(Number(chapterTargetQuestions) || 0, 0) : 0,
+        }),
       });
 
       if (!response.ok) {
@@ -224,6 +235,7 @@ export default function PlannerCourseDetail() {
       setAddChapterFor(null);
       setChapterTitle("");
       setChapterDescription("");
+      setChapterTargetQuestions("");
       toast({ title: "Chapter added" });
     },
     onError: (err: any) => {
@@ -331,7 +343,7 @@ export default function PlannerCourseDetail() {
       setSubjectError("Subject name is required.");
       return;
     }
-    if (!subjectTeacherId.trim()) {
+    if (!isQuestionBankMode && !subjectTeacherId.trim()) {
       setSubjectError("Subject teacher is required.");
       return;
     }
@@ -350,7 +362,7 @@ export default function PlannerCourseDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link href="/planner/courses">
+        <Link href={isQuestionBankMode ? "/planner/question-bank" : "/planner/courses"}>
           <Button variant="ghost" size="sm">
             <ArrowLeft size={16} className="mr-1" />
             Back
@@ -373,17 +385,35 @@ export default function PlannerCourseDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Course Summary</CardTitle>
+            <CardTitle className="text-base">{isQuestionBankMode ? "Question Bank Summary" : "Course Summary"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {course.description && (
               <p className="text-sm text-muted-foreground">{course.description}</p>
             )}
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-              <div className="inline-flex items-center gap-2">
-                <Users size={15} className="text-muted-foreground" />
-                <span>{course.enrolledCount}{course.maxStudents ? ` / ${course.maxStudents}` : ""} students</span>
-              </div>
+              {isQuestionBankMode && (
+                <>
+                  {course.weeklyTargetQuestions ? (
+                    <div className="inline-flex items-center gap-2">
+                      <BookOpen size={15} className="text-muted-foreground" />
+                      <span>Weekly target: {course.weeklyTargetQuestions} questions</span>
+                    </div>
+                  ) : null}
+                  {course.weeklyTargetDeadline ? (
+                    <div className="inline-flex items-center gap-2">
+                      <CalendarClock size={15} className="text-muted-foreground" />
+                      <span>Deadline: {format(new Date(course.weeklyTargetDeadline), "MMMM d, yyyy h:mm a")}</span>
+                    </div>
+                  ) : null}
+                </>
+              )}
+              {!isQuestionBankMode && (
+                <div className="inline-flex items-center gap-2">
+                  <Users size={15} className="text-muted-foreground" />
+                  <span>{course.enrolledCount}{course.maxStudents ? ` / ${course.maxStudents}` : ""} students</span>
+                </div>
+              )}
               {course.scheduledAt && (
                 <div className="inline-flex items-center gap-2">
                   <CalendarClock size={15} className="text-muted-foreground" />
@@ -391,57 +421,61 @@ export default function PlannerCourseDetail() {
                 </div>
               )}
             </div>
-            <div className="pt-2">
-              <Link href="/schedule">
-                <Button variant="outline" size="sm">Open Planner Schedule</Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Users size={16} className="text-primary" />
-              Enrolled Students
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {students.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No students enrolled yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {students.slice(0, 6).map((student) => (
-                  <div key={student.id} className="rounded-lg bg-muted/50 p-2.5">
-                    <p className="text-sm font-medium">{student.fullName}</p>
-                    <p className="text-xs text-muted-foreground">@{student.username}</p>
-                  </div>
-                ))}
-                {students.length > 6 && (
-                  <p className="text-xs text-muted-foreground">+{students.length - 6} more students</p>
-                )}
+            {!isQuestionBankMode && (
+              <div className="pt-2">
+                <Link href="/schedule">
+                  <Button variant="outline" size="sm">Open Planner Schedule</Button>
+                </Link>
               </div>
             )}
           </CardContent>
         </Card>
+
+        {!isQuestionBankMode && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users size={16} className="text-primary" />
+                Enrolled Students
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {students.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No students enrolled yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {students.slice(0, 6).map((student) => (
+                    <div key={student.id} className="rounded-lg bg-muted/50 p-2.5">
+                      <p className="text-sm font-medium">{student.fullName}</p>
+                      <p className="text-xs text-muted-foreground">@{student.username}</p>
+                    </div>
+                  ))}
+                  {students.length > 6 && (
+                    <p className="text-xs text-muted-foreground">+{students.length - 6} more students</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <CardTitle className="text-base flex items-center gap-2">
             <BookOpen size={16} className="text-primary" />
-            Course Curriculum ({subjects.length} subject{subjects.length !== 1 ? "s" : ""})
+            {isQuestionBankMode ? "Question Bank Structure" : "Course Curriculum"} ({subjects.length} subject{subjects.length !== 1 ? "s" : ""})
           </CardTitle>
 
           <Dialog open={subjectOpen} onOpenChange={setSubjectOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1.5">
-                <Plus size={14} /> Add Subject
+                <Plus size={14} /> {isQuestionBankMode ? "Add Subject Card" : "Add Subject"}
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Add Subject to Course</DialogTitle>
+                <DialogTitle>{isQuestionBankMode ? "Add Subject Card" : "Add Subject to Course"}</DialogTitle>
               </DialogHeader>
 
               <div className="space-y-4 mt-2">
@@ -452,8 +486,8 @@ export default function PlannerCourseDetail() {
                 )}
 
                 <div className="space-y-1.5">
-                  <Label>Subject Name</Label>
-                  <Input value={subjectTitle} onChange={(event) => setSubjectTitle(event.target.value)} placeholder="e.g. Mathematics, Organic Chemistry" />
+                  <Label>{isQuestionBankMode ? "Subject Card Name" : "Subject Name"}</Label>
+                  <Input value={subjectTitle} onChange={(event) => setSubjectTitle(event.target.value)} placeholder={isQuestionBankMode ? "e.g. Physics, Chemistry, Core Subject" : "e.g. Mathematics, Organic Chemistry"} />
                 </div>
 
                 <div className="space-y-1.5">
@@ -461,24 +495,26 @@ export default function PlannerCourseDetail() {
                   <Textarea value={subjectDescription} onChange={(event) => setSubjectDescription(event.target.value)} placeholder="Planner notes or scope for this subject…" rows={4} />
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label>Subject Teacher</Label>
-                  <select
-                    value={subjectTeacherId}
-                    onChange={(event) => setSubjectTeacherId(event.target.value)}
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Select teacher</option>
-                    {teachers.map((teacher) => (
-                      <option key={teacher.id} value={teacher.id}>
-                        {teacher.fullName} (@{teacher.username})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {!isQuestionBankMode && (
+                  <div className="space-y-1.5">
+                    <Label>Subject Teacher</Label>
+                    <select
+                      value={subjectTeacherId}
+                      onChange={(event) => setSubjectTeacherId(event.target.value)}
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Select teacher</option>
+                      {teachers.map((teacher) => (
+                        <option key={teacher.id} value={teacher.id}>
+                          {teacher.fullName} (@{teacher.username})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <Button className="w-full" onClick={handleAddSubject} disabled={addSubject.isPending}>
-                  {addSubject.isPending ? "Adding..." : "Add Subject"}
+                  {addSubject.isPending ? "Adding..." : isQuestionBankMode ? "Add Subject Card" : "Add Subject"}
                 </Button>
               </div>
             </DialogContent>
@@ -563,6 +599,9 @@ export default function PlannerCourseDetail() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className="text-sm font-semibold">{chapter.title}</p>
                                     <Badge variant="secondary">{chapter.lectures.length} lectures</Badge>
+                                    {isQuestionBankMode && (chapter.targetQuestions ?? 0) > 0 && (
+                                      <Badge variant="outline">Target {chapter.targetQuestions}</Badge>
+                                    )}
                                   </div>
                                   {chapter.description && (
                                     <p className="text-xs text-muted-foreground mt-1">{chapter.description}</p>
@@ -669,6 +708,15 @@ export default function PlannerCourseDetail() {
                             <p className="text-xs font-medium">Add Chapter</p>
                             <Input placeholder="Chapter title *" value={chapterTitle} onChange={(event) => setChapterTitle(event.target.value)} />
                             <Textarea placeholder="Description" rows={3} value={chapterDescription} onChange={(event) => setChapterDescription(event.target.value)} />
+                            {isQuestionBankMode && (
+                              <Input
+                                type="number"
+                                min={0}
+                                placeholder="Target questions"
+                                value={chapterTargetQuestions}
+                                onChange={(event) => setChapterTargetQuestions(event.target.value)}
+                              />
+                            )}
                             <div className="flex gap-2">
                               <Button size="sm" disabled={!chapterTitle.trim() || addChapter.isPending} onClick={() => addChapter.mutate(subject.id)}>
                                 {addChapter.isPending ? "Saving..." : "Save Chapter"}
@@ -680,6 +728,7 @@ export default function PlannerCourseDetail() {
                                   setAddChapterFor(null);
                                   setChapterTitle("");
                                   setChapterDescription("");
+                                  setChapterTargetQuestions("");
                                 }}
                               >
                                 Cancel

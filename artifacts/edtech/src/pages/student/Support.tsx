@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { getDeadlineUrgency, deadlineLabel, deadlineBadgeClass } from "@/lib/deadlineUtils";
+import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 
 function DeadlineBadge({ deadline }: { deadline?: string | null }) {
   if (!deadline) return null;
@@ -204,6 +205,8 @@ function TicketList({ tickets, expandedId, setExpandedId, currentUserId, readOnl
                       src={(ticket as any).imageData}
                       alt="Support attachment"
                       className="max-h-24 rounded-lg border border-border object-contain bg-muted/30"
+                      loading="lazy"
+                      decoding="async"
                     />
                   </div>
                 )}
@@ -242,19 +245,19 @@ export default function StudentSupport() {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleImageUpload = (file: File | null) => {
+  const handleImageUpload = async (file: File | null) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       setError("Only image files are supported");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setForm((prev) => ({ ...prev, imageData: reader.result as string }));
+    try {
+      const imageData = await optimizeImageToDataUrl(file, { maxWidth: 1440, maxHeight: 1440, quality: 0.82 });
+      setForm((prev) => ({ ...prev, imageData }));
       setError("");
-    };
-    reader.onerror = () => setError("Could not read the selected image");
-    reader.readAsDataURL(file);
+    } catch {
+      setError("Could not read the selected image");
+    }
   };
 
   const handleCreate = () => {
@@ -328,7 +331,7 @@ export default function StudentSupport() {
                   )}
                 </div>
                 {form.imageData && (
-                  <img src={form.imageData} alt="Attachment preview" className="max-h-40 rounded-lg border border-border object-contain bg-muted/30" />
+                  <img src={form.imageData} alt="Attachment preview" className="max-h-40 rounded-lg border border-border object-contain bg-muted/30" decoding="async" />
                 )}
               </div>
               <Button className="w-full" onClick={handleCreate} disabled={createTicket.isPending} data-testid="button-submit-ticket">

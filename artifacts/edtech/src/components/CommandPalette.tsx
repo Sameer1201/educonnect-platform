@@ -7,6 +7,7 @@ import {
   Users, UserCheck, TrendingUp, DollarSign, Activity, BarChart2,
   ChevronRight, ArrowRight, Zap,
 } from "lucide-react";
+import { APP_NAME } from "@/lib/brand";
 
 interface CmdItem {
   label: string;
@@ -214,7 +215,7 @@ export default function CommandPalette({ isOpen, onClose, role }: Props) {
           <span className="flex items-center gap-1"><kbd className="border border-border rounded px-1 py-0.5 font-mono">↑↓</kbd> navigate</span>
           <span className="flex items-center gap-1"><kbd className="border border-border rounded px-1 py-0.5 font-mono">↵</kbd> open</span>
           <span className="flex items-center gap-1"><kbd className="border border-border rounded px-1 py-0.5 font-mono">Esc</kbd> close</span>
-          <span className="ml-auto flex items-center gap-1 opacity-60"><Zap size={10} /> EduConnect</span>
+          <span className="ml-auto flex items-center gap-1 opacity-60"><Zap size={10} /> {APP_NAME}</span>
         </div>
       </div>
     </div>,

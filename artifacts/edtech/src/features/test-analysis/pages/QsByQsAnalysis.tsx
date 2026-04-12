@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { qsByQsData, completeBreakdownData, type QStatus, type QQuality } from "@/data/testData";
+import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 
 const subjectIcons: Record<string, (color: string) => React.ReactNode> = {
   physics: (color) => (
@@ -34,6 +35,19 @@ const tabIcons: Record<string, React.ReactNode> = {
 };
 
 function fallbackSubjectIcon(label: string, color: string) {
+  if (
+    label.trim().toLowerCase().includes("aptitude") ||
+    label.trim().toLowerCase().includes("technical") ||
+    label.trim().toLowerCase().includes("core") ||
+    label.trim().toLowerCase().includes("engineering math") ||
+    label.trim().toLowerCase().includes("mathematics")
+  ) {
+    return (
+      <span className="inline-flex" style={{ color }}>
+        <SubjectSectionIcon label={label} className="w-5 h-5" />
+      </span>
+    );
+  }
   const letter = label.trim().charAt(0).toUpperCase() || "S";
   return (
     <span
@@ -426,7 +440,14 @@ export default function QsByQsAnalysis() {
               {filteredRows.map((row) => (
                 <tr key={row.qNo} className="hover:bg-gray-50 transition-colors cursor-pointer">
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", textAlign: "center", fontSize: 13, color: "#374151", fontWeight: 500 }}>{row.qNo}</td>
-                  <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>{row.subject}</td>
+                  <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[#5B4DFF]">
+                        <SubjectSectionIcon label={row.subject} className="h-4 w-4" />
+                      </span>
+                      {row.subject}
+                    </div>
+                  </td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>{row.chapter}</td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>{row.topic}</td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", textAlign: "center" }}>

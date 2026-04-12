@@ -1,118 +1,63 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
-import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
+import { useRef, useState } from "react";
+import { Link, useLocation } from "wouter";
 import {
   ArrowRight,
-  Bot,
+  BarChart3,
   BookOpen,
-  Brain,
-  Clock3,
-  Globe2,
-  GraduationCap,
-  Layers3,
-  Orbit,
-  PlayCircle,
-  Radar,
-  Sparkles,
-  Star,
-  TrendingUp,
-  Users,
-  Wifi,
+  CheckCircle2,
+  FileText,
+  Mail,
+  MessageSquare,
+  ShieldCheck,
+  Timer,
+  User,
+  Zap,
+  LineChart,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { BrandLogo } from "@/components/ui/brand-logo";
+import { RankPulseLandingPreview } from "@/components/marketing/RankPulseLandingPreview";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 28 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, amount: 0.25 },
-  transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1] as const },
-};
-
-const courseCards = [
-  { title: "Live Classes", subtitle: "Teacher-led sessions, whiteboard flow, and clear classroom access", tone: "from-cyan-400/30 to-blue-500/20" },
-  { title: "Question Bank", subtitle: "Subject and chapter-wise practice built for daily preparation", tone: "from-violet-400/25 to-fuchsia-500/20" },
-  { title: "Practice Mode", subtitle: "Simple, focused preparation without distractions or ads", tone: "from-orange-300/25 to-rose-400/20" },
-];
-
-const testimonials = [
-  { name: "Aarav", role: "Student", text: "Live class aur question bank ek hi jagah milne se preparation kaafi simple ho gayi." },
-  { name: "Mira", role: "Student", text: "Practice chapter-wise milti hai, isliye padhai zyada focused feel hoti hai." },
-  { name: "Rohit", role: "Teacher", text: "Class manage karna, students ko guide karna, aur practice maintain karna kaafi easy ho gaya." },
+const features = [
+  {
+    icon: <Timer className="h-5 w-5" />,
+    iconBg: "bg-purple-100 text-purple-500",
+    title: "Timed Tests",
+    desc: "Full-screen mock tests with section switching, save-and-next flow, and an exam-style experience.",
+  },
+  {
+    icon: <BookOpen className="h-5 w-5" />,
+    iconBg: "bg-green-100 text-green-500",
+    title: "Exam Question Bank",
+    desc: "Practice by exam, subject, and chapter, then return to the exact weak areas that need another pass.",
+  },
+  {
+    icon: <LineChart className="h-5 w-5" />,
+    iconBg: "bg-orange-100 text-orange-500",
+    title: "Advanced Analysis",
+    desc: "Performance, time, attempt, difficulty, and question-wise analysis with visual graphs.",
+  },
+  {
+    icon: <MessageSquare className="h-5 w-5" />,
+    iconBg: "bg-blue-100 text-blue-500",
+    title: "Review Bucket",
+    desc: "Keep incorrect and unattempted questions in one clean place and revise them with solutions later.",
+  },
 ];
 
 export default function LandingPage() {
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [portalOpening, setPortalOpening] = useState(false);
-  const [stars, setStars] = useState<Array<{ left: string; top: string; delay: string; duration: string }>>([]);
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactSubject, setContactSubject] = useState("");
   const [contactMessage, setContactMessage] = useState("");
   const [submittingContact, setSubmittingContact] = useState(false);
-  const coursesRef = useRef<HTMLElement | null>(null);
+  const analysisRef = useRef<HTMLElement | null>(null);
   const contactRef = useRef<HTMLElement | null>(null);
-
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
-  const smoothX = useSpring(mouseX, { stiffness: 80, damping: 18 });
-  const smoothY = useSpring(mouseY, { stiffness: 80, damping: 18 });
-
-  const heroRotateY = useTransform(smoothX, [-0.5, 0.5], [10, -10]);
-  const heroRotateX = useTransform(smoothY, [-0.5, 0.5], [-10, 10]);
-  const orbX = useTransform(smoothX, [-0.5, 0.5], [-20, 20]);
-  const orbY = useTransform(smoothY, [-0.5, 0.5], [20, -20]);
-  const layerDeepX = useTransform(smoothX, [-0.5, 0.5], [-32, 32]);
-  const layerDeepY = useTransform(smoothY, [-0.5, 0.5], [26, -26]);
-  const layerNearX = useTransform(smoothX, [-0.5, 0.5], [18, -18]);
-  const layerNearY = useTransform(smoothY, [-0.5, 0.5], [-14, 14]);
-
-  useEffect(() => {
-    const generated = Array.from({ length: 44 }, (_, index) => ({
-      left: `${(index * 17) % 100}%`,
-      top: `${(index * 29) % 100}%`,
-      delay: `${(index % 9) * 0.45}s`,
-      duration: `${5 + (index % 5)}s`,
-    }));
-    setStars(generated);
-  }, []);
-
-  const stats = useMemo(
-    () => [
-      { value: "Free", label: "For all users" },
-      { value: "No Ads", label: "Distraction free" },
-      { value: "2 Roles", label: "Teachers and students" },
-    ],
-    [],
-  );
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const x = (event.clientX - bounds.left) / bounds.width - 0.5;
-    const y = (event.clientY - bounds.top) / bounds.height - 0.5;
-    mouseX.set(x);
-    mouseY.set(y);
-  };
-
-  const openLoginPortal = () => {
-    if (portalOpening) return;
-    setPortalOpening(true);
-    window.setTimeout(() => setLocation("/login"), 700);
-  };
-
-  const scrollToCourses = () => {
-    coursesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const scrollToContact = () => {
-    contactRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  const featuresRef = useRef<HTMLElement | null>(null);
 
   const submitContactForm = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -147,527 +92,363 @@ export default function LandingPage() {
   };
 
   return (
-    <div
-      className="relative min-h-screen overflow-hidden bg-[#040816] text-white"
-      onPointerMove={handlePointerMove}
-      onPointerLeave={() => {
-        mouseX.set(0);
-        mouseY.set(0);
-      }}
-    >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#223f8f_0%,#0b1431_36%,#040816_72%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(61,129,255,0.15),transparent_22%,transparent_70%,rgba(179,84,255,0.12))]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_right,rgba(65,231,255,0.12),transparent_28%)]" />
-
-      {stars.map((star, index) => (
-        <span
-          key={`${star.left}-${star.top}-${index}`}
-          className="landing-star absolute h-1 w-1 rounded-full bg-white/70"
-          style={{ left: star.left, top: star.top, animationDelay: star.delay, animationDuration: star.duration }}
-        />
-      ))}
-
-      <div className="pointer-events-none absolute -left-32 top-20 h-80 w-80 rounded-full bg-cyan-400/18 blur-3xl" />
-      <div className="pointer-events-none absolute right-0 top-40 h-96 w-96 rounded-full bg-fuchsia-500/14 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-blue-500/12 blur-3xl" />
-
-      <div className="relative mx-auto max-w-7xl px-6 py-8 lg:px-10">
-        <header className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/8 shadow-[0_0_40px_rgba(85,191,255,0.22)] backdrop-blur-xl">
-              <GraduationCap size={24} className="text-cyan-200" />
-            </div>
-            <div>
-              <p className="text-lg font-black tracking-[0.18em] text-white">EDUCONNECT</p>
-              <p className="text-xs uppercase tracking-[0.28em] text-white/45">Free Learning Portal</p>
-            </div>
-          </div>
-
-          <div className="hidden items-center gap-3 md:flex">
-            <Button variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={scrollToContact}>
+    <div className="min-h-screen bg-white text-gray-900">
+      <motion.header
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
+        className="fixed inset-x-0 top-0 z-50 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur"
+      >
+        <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <Link href="/" className="flex items-center gap-2.5">
+            <BrandLogo
+              variant="icon"
+              showLabel
+              className="gap-2.5"
+              imageClassName="h-9 w-9"
+              labelClassName="text-xl font-extrabold tracking-tight"
+            />
+          </Link>
+          <nav className="hidden items-center gap-8 md:flex">
+            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600" onClick={() => featuresRef.current?.scrollIntoView({ behavior: "smooth" })}>
+              Features
+            </button>
+            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600" onClick={() => analysisRef.current?.scrollIntoView({ behavior: "smooth" })}>
+              Analysis
+            </button>
+            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600" onClick={() => contactRef.current?.scrollIntoView({ behavior: "smooth" })}>
               Contact
-            </Button>
-            <Button variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => setLocation("/login")}>
-              Login
-            </Button>
-            <Button className="rounded-full bg-white text-slate-950 hover:bg-cyan-100" onClick={() => setLocation("/register")}>
-              Get Started
-            </Button>
+            </button>
+          </nav>
+          <div className="flex items-center gap-3">
+            <button className="hidden text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600 sm:block" onClick={() => setLocation("/login")}>
+              Log In
+            </button>
+            <button
+              className="rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition-colors hover:bg-indigo-700"
+              onClick={() => setLocation("/register")}
+            >
+              Sign Up
+            </button>
           </div>
-        </header>
+        </div>
+      </motion.header>
 
-        <section className="grid min-h-[calc(100vh-5rem)] items-center gap-14 py-10 lg:grid-cols-[1.02fr_0.98fr]">
-          <motion.div {...fadeUp} className="max-w-2xl">
-            <Badge className="rounded-full border border-cyan-200/20 bg-cyan-300/10 px-4 py-1 text-cyan-100 shadow-[0_0_30px_rgba(97,214,255,0.18)]">
-              <Orbit size={14} className="mr-2" />
-              Free Teacher Student Platform
-            </Badge>
-
-            <h1 className="mt-7 font-serif text-5xl font-black leading-[0.92] tracking-tight md:text-7xl">
-              Connect.
-              <span className="block bg-[linear-gradient(90deg,#9ce6ff_0%,#ffffff_38%,#b38dff_100%)] bg-clip-text text-transparent">
-                Learn. Grow.
-              </span>
-            </h1>
-
-            <p className="mt-6 max-w-xl text-base leading-7 text-white/72 md:text-lg">
-              EduConnect is a free platform for teachers and students to run live classes, share question bank practice, and keep study flow simple without ads or clutter.
-            </p>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button size="lg" className="group rounded-full bg-cyan-300 px-7 text-slate-950 hover:bg-cyan-200" onClick={openLoginPortal}>
-                Get Started
-                <ArrowRight size={16} className="ml-2 transition-transform group-hover:translate-x-1" />
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="rounded-full border-white/15 bg-white/6 px-7 text-white hover:bg-white/10 hover:text-white"
-                onClick={scrollToCourses}
-              >
-                <PlayCircle size={16} className="mr-2" />
-                Explore Features
-              </Button>
-            </div>
-
-            <div className="mt-10 grid gap-3 sm:grid-cols-3">
-              {stats.map((stat, index) => (
-                <motion.div
-                  key={stat.label}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.08 * index, duration: 0.55 }}
-                  className="rounded-3xl border border-white/10 bg-white/7 p-4 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.25)]"
+      <main className="w-full">
+        <section
+          ref={analysisRef}
+          className="relative overflow-hidden pb-24 pt-32 md:pb-32 md:pt-44"
+          style={{ background: "linear-gradient(135deg, #1a0533 0%, #2d1060 40%, #1e1b6e 100%)" }}
+        >
+          <div className="absolute right-0 top-0 h-96 w-96 rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(circle, #a855f7, transparent)" }} />
+          <div className="absolute bottom-0 left-0 h-80 w-80 rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(circle, #6366f1, transparent)" }} />
+          <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 lg:grid-cols-2 lg:items-center sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: "easeOut" }}
+              className="max-w-2xl"
+            >
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white">
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                Student-first exam intelligence
+              </div>
+              <h1 className="mb-6 text-5xl font-extrabold leading-tight tracking-tight text-white md:text-6xl lg:text-7xl">
+                Don&apos;t just practice.
+                <br />
+                <span className="bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">Climb faster.</span>
+              </h1>
+              <p className="mb-8 max-w-xl text-lg leading-relaxed text-purple-200 md:text-xl">
+                RankPulse gives serious students timed tests, a smart review bucket, structured question practice, and deep analysis in one clean workspace.
+              </p>
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <button
+                  className="group flex items-center justify-center gap-2 rounded-lg px-8 py-4 text-lg font-semibold text-white transition-all"
+                  style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", boxShadow: "0 0 40px -5px rgba(168,85,247,0.6)" }}
+                  onClick={() => setLocation("/register")}
                 >
-                  <p className="text-3xl font-black text-white">{stat.value}</p>
-                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-white/45">{stat.label}</p>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          <motion.div style={{ rotateY: heroRotateY, rotateX: heroRotateX }} className="relative mx-auto h-[640px] w-full max-w-[600px] transform-gpu [transform-style:preserve-3d]">
-            <motion.div style={{ x: orbX, y: orbY }} className="absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-300/12 blur-3xl" />
-            <motion.div
-              style={{ x: layerDeepX, y: layerDeepY }}
-              className="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-200/8 opacity-40"
-            />
-            <motion.div
-              style={{ x: layerNearX, y: layerNearY }}
-              className="absolute left-1/2 top-1/2 h-[180px] w-[180px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 shadow-[0_0_50px_rgba(133,220,255,0.2)]"
-            />
-            <div className="portal-grid absolute inset-x-2 bottom-12 top-28 opacity-35" />
-
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 22, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-              className="absolute left-1/2 top-1/2 h-[360px] w-[360px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-200/20"
-            />
-
-            <motion.div
-              animate={{ rotate: -360 }}
-              transition={{ duration: 28, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-              className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-fuchsia-200/16"
-            />
-
-            <div className="absolute left-1/2 top-1/2 h-[240px] w-[240px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(circle,#dff8ff_0%,#7dd9ff_18%,#2249d5_42%,rgba(5,10,28,0.1)_68%)] shadow-[0_0_90px_rgba(83,205,255,0.35)]" />
-            <div className="absolute left-1/2 top-1/2 h-[268px] w-[268px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 shadow-[inset_0_0_40px_rgba(255,255,255,0.14)]" />
-
-            <motion.div
-              animate={{ y: [0, -16, 0], rotateZ: [-2, 2, -2] }}
-              transition={{ duration: 6, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-              className="group absolute left-8 top-18 rounded-[2rem] border border-white/10 bg-white/8 p-5 backdrop-blur-xl shadow-[0_24px_80px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_28px_90px_rgba(87,196,255,0.24)]"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-300/12 text-cyan-100">
-                <BookOpen size={24} />
+                  Start for Free
+                  <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+                </button>
+                <button
+                  className="flex items-center justify-center rounded-lg border border-purple-400/40 px-8 py-4 text-lg font-semibold text-purple-200 transition-colors hover:bg-white/10"
+                  onClick={() => featuresRef.current?.scrollIntoView({ behavior: "smooth" })}
+                >
+                  Explore Features
+                </button>
               </div>
-              <p className="mt-4 text-sm font-semibold text-white">Floating Knowledge Stack</p>
-              <p className="mt-1 max-w-[180px] text-xs leading-5 text-white/60">Subjects, chapters, and practice flow organized in one place.</p>
-            </motion.div>
-
-            <motion.div
-              animate={{ y: [0, 14, 0], rotateZ: [2, -1, 2] }}
-              transition={{ duration: 7.5, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-              className="group absolute right-6 top-8 rounded-[2rem] border border-white/10 bg-white/8 p-5 backdrop-blur-xl shadow-[0_24px_80px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_28px_90px_rgba(180,98,255,0.24)]"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-fuchsia-300/10 text-fuchsia-100">
-                <GraduationCap size={24} />
-              </div>
-              <p className="mt-4 text-sm font-semibold text-white">3D Mentor Portal</p>
-              <p className="mt-1 max-w-[190px] text-xs leading-5 text-white/60">Teachers can run classes and guide students from a clean dashboard.</p>
-            </motion.div>
-
-            <motion.div
-              animate={{ y: [0, -12, 0] }}
-              transition={{ duration: 5.5, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-              className="group absolute bottom-26 right-14 rounded-[2rem] border border-white/10 bg-white/8 p-5 backdrop-blur-xl shadow-[0_24px_80px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_28px_90px_rgba(91,233,198,0.24)]"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-300/10 text-emerald-100">
-                  <Globe2 size={22} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Global Education</p>
-                  <p className="text-xs text-white/60">Connected class access</p>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {["Delhi", "Berlin", "Seoul"].map((city) => (
-                  <div key={city} className="rounded-xl bg-white/6 px-3 py-2 text-center text-[11px] uppercase tracking-[0.16em] text-white/65">
-                    {city}
+              <div className="mt-10 flex flex-wrap items-center gap-6 text-sm font-medium text-purple-300">
+                {["Timed tests", "Review bucket", "Detailed graphs"].map((item) => (
+                  <div key={item} className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <span>{item}</span>
                   </div>
                 ))}
               </div>
             </motion.div>
 
             <motion.div
-              style={{ x: layerNearX, y: layerNearY }}
-              animate={{ y: [0, -10, 0], rotateZ: [-4, 0, -4] }}
-              transition={{ duration: 6.8, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-              className="group absolute bottom-36 left-6 rounded-[2rem] border border-white/10 bg-white/8 p-4 backdrop-blur-xl shadow-[0_24px_80px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_28px_90px_rgba(125,215,255,0.24)]"
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.8, delay: 0.15 }}
+              className="relative"
             >
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-300/10 text-cyan-100">
-                  <Wifi size={20} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">Live Network Grid</p>
-                  <p className="text-xs text-white/58">Class and practice sync</p>
-                </div>
-              </div>
-              <div className="mt-4 flex gap-2">
-                {[92, 76, 98, 84].map((value, index) => (
-                  <div key={value} className="flex-1 rounded-xl bg-white/6 p-2 text-center">
-                    <p className="text-sm font-semibold text-white">{value}%</p>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-white/45">Node {index + 1}</p>
-                  </div>
-                ))}
-              </div>
+              <RankPulseLandingPreview />
             </motion.div>
-
-            <motion.div
-              style={{ x: layerDeepX, y: layerNearY }}
-              animate={{ y: [0, 12, 0], rotateZ: [1, -2, 1] }}
-              transition={{ duration: 8, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-              className="group absolute right-2 top-1/2 w-52 rounded-[2rem] border border-white/10 bg-white/8 p-4 backdrop-blur-xl shadow-[0_24px_80px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_28px_90px_rgba(185,117,255,0.22)]"
-            >
-              <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">Digital Screen</p>
-                <Sparkles size={16} className="text-fuchsia-200" />
-              </div>
-              <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(88,196,255,0.12),rgba(176,108,255,0.08))] p-4">
-                <div className="flex items-end gap-2">
-                  {[34, 62, 48, 80, 71].map((height, index) => (
-                    <div
-                      key={height}
-                      className="flex-1 rounded-full bg-[linear-gradient(180deg,rgba(114,226,255,0.9),rgba(105,120,255,0.35))]"
-                      style={{ height: `${height}px`, opacity: 0.7 + index * 0.05 }}
-                    />
-                  ))}
-                </div>
-                <p className="mt-3 text-xs uppercase tracking-[0.18em] text-white/52">Student progress view</p>
-              </div>
-            </motion.div>
-
-            <div className="absolute inset-0">
-              {[
-                { left: "18%", top: "35%" },
-                { left: "30%", top: "20%" },
-                { left: "52%", top: "26%" },
-                { left: "68%", top: "38%" },
-                { left: "60%", top: "62%" },
-                { left: "34%", top: "66%" },
-              ].map((node, index) => (
-                <span key={`${node.left}-${node.top}-${index}`} className="absolute h-3 w-3 rounded-full bg-cyan-200 shadow-[0_0_18px_rgba(130,230,255,0.9)]" style={node} />
-              ))}
-
-              <svg className="absolute inset-0 h-full w-full opacity-75" viewBox="0 0 600 640" fill="none">
-                {[
-                  ["108", "224", "180", "132"],
-                  ["180", "132", "312", "170"],
-                  ["312", "170", "410", "240"],
-                  ["410", "240", "358", "398"],
-                  ["358", "398", "204", "420"],
-                  ["204", "420", "108", "224"],
-                  ["180", "132", "358", "398"],
-                ].map((line, index) => (
-                  <motion.line
-                    key={line.join("-")}
-                    x1={line[0]}
-                    y1={line[1]}
-                    x2={line[2]}
-                    y2={line[3]}
-                    stroke="url(#networkGlow)"
-                    strokeWidth="1.2"
-                    strokeDasharray="5 8"
-                    initial={{ pathLength: 0.2, opacity: 0.2 }}
-                    animate={{ pathLength: [0.25, 1, 0.25], opacity: [0.25, 0.9, 0.25] }}
-                    transition={{ duration: 4 + index * 0.3, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
-                  />
-                ))}
-                <defs>
-                  <linearGradient id="networkGlow" x1="0" y1="0" x2="600" y2="640">
-                    <stop offset="0%" stopColor="#82e6ff" />
-                    <stop offset="50%" stopColor="#ffffff" />
-                    <stop offset="100%" stopColor="#b778ff" />
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-
-            <motion.button
-              onClick={openLoginPortal}
-              className="group absolute bottom-4 left-1/2 w-[88%] -translate-x-1/2 overflow-hidden rounded-[2rem] border border-cyan-200/15 bg-slate-950/55 p-5 text-left backdrop-blur-xl shadow-[0_30px_90px_rgba(0,0,0,0.45)]"
-              whileHover={{ y: -8, scale: 1.01 }}
-              animate={portalOpening ? { scale: 1.18, opacity: 0, filter: "blur(10px)" } : { scale: 1, opacity: 1, filter: "blur(0px)" }}
-              transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(79,196,255,0.14),transparent_38%,rgba(181,101,255,0.14))]" />
-              <div className="relative flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-100/58">Login Entry</p>
-                  <p className="mt-1 text-xl font-semibold text-white">Floating 3D Login Portal</p>
-                  <p className="mt-1 text-sm text-white/58">Zoom-in transition opens the teacher and student login page.</p>
-                </div>
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-cyan-200/20 bg-cyan-300/10 text-cyan-100 shadow-[0_0_36px_rgba(90,206,255,0.28)] transition-all duration-300 group-hover:scale-110">
-                  <ArrowRight size={24} />
-                </div>
-              </div>
-            </motion.button>
-          </motion.div>
+          </div>
         </section>
 
-        <section className="space-y-24 pb-24">
-          <motion.section {...fadeUp} className="rounded-[2rem] border border-white/10 bg-white/6 p-6 backdrop-blur-xl shadow-[0_24px_90px_rgba(0,0,0,0.35)] md:p-8">
-            <div className="flex items-center gap-3">
-              <Badge className="border border-white/10 bg-white/8 text-white">Features</Badge>
-              <p className="text-sm text-white/55">Designed for modern students and mentors</p>
-            </div>
+        <section className="border-y border-gray-100 bg-white py-12">
+          <div className="mx-auto grid max-w-7xl grid-cols-2 gap-8 px-4 text-center md:grid-cols-4 sm:px-6 lg:px-8">
+            {[
+              { label: "Students Practicing", value: "50,000+" },
+              { label: "Questions Attempted", value: "10M+" },
+              { label: "Mock Tests", value: "5,000+" },
+              { label: "Improvement Lift", value: "3.4x" },
+            ].map((stat) => (
+              <div key={stat.label} className="space-y-2">
+                <div className="text-3xl font-bold text-gray-900 md:text-4xl">{stat.value}</div>
+                <div className="text-sm font-medium uppercase tracking-[0.18em] text-gray-500">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </section>
 
-            <div className="mt-8 grid gap-4 lg:grid-cols-3">
-              {[
-                {
-                  icon: <Bot size={22} />,
-                  title: "Question Bank Practice",
-                  text: "Students can practice subject-wise and chapter-wise from the assigned batch question bank.",
-                },
-                {
-                  icon: <Clock3 size={22} />,
-                  title: "Live Classes",
-                  text: "Teachers and students join focused live sessions with a clear classroom flow.",
-                },
-                {
-                  icon: <TrendingUp size={22} />,
-                  title: "Simple Progress Flow",
-                  text: "Track preparation through classes, practice, and teacher-led learning without extra clutter.",
-                },
-              ].map((feature, index) => (
+        <section id="features" ref={featuresRef} className="bg-white py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-12">
+              <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">Core Features</p>
+              <h2 className="text-3xl font-bold text-gray-900 md:text-4xl">Everything important, without clutter.</h2>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              {features.map((feature) => (
                 <motion.div
                   key={feature.title}
-                  initial={{ opacity: 0, y: 18 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.55, delay: index * 0.08 }}
-                  whileHover={{ y: -10, rotateX: -4, rotateY: 3 }}
-                  className="rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-cyan-100 shadow-[0_0_28px_rgba(96,201,255,0.18)]">
-                    {feature.icon}
-                  </div>
-                  <h3 className="mt-4 text-lg font-semibold">{feature.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-white/62">{feature.text}</p>
-                </motion.div>
-              ))}
-            </div>
-          </motion.section>
-
-          <motion.section {...fadeUp} ref={coursesRef}>
-            <div className="flex items-end justify-between gap-4 flex-wrap">
-              <div>
-              <Badge className="border border-white/10 bg-white/8 text-white">Platform Focus</Badge>
-              <h2 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">Built for class, practice, and teacher student connection</h2>
-              </div>
-              <p className="max-w-lg text-sm leading-6 text-white/58">
-                EduConnect currently focuses on what matters most: live classes, question bank practice, and a clean free experience.
-              </p>
-            </div>
-
-            <div className="mt-8 grid gap-5 lg:grid-cols-3">
-              {courseCards.map((course, index) => (
-                <motion.div
-                  key={course.title}
-                  initial={{ opacity: 0, y: 26 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: index * 0.08 }}
-                  whileHover={{ y: -12, rotateX: -6, rotateY: index === 1 ? 0 : index === 0 ? 5 : -5, boxShadow: "0 32px 90px rgba(74,133,255,0.22)" }}
-                  className={`rounded-[2rem] border border-white/10 bg-[linear-gradient(160deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] backdrop-blur-xl`}
-                >
-                  <div className={`rounded-[1.5rem] bg-gradient-to-br ${course.tone} p-5 ring-1 ring-white/10`}>
-                    <div className="flex items-center justify-between">
-                      <div className="rounded-2xl bg-white/10 p-3 text-white">
-                        {index === 0 ? <Brain size={24} /> : index === 1 ? <Radar size={24} /> : <Layers3 size={24} />}
-                      </div>
-                      <span className="text-xs uppercase tracking-[0.2em] text-white/55">Core 0{index + 1}</span>
-                    </div>
-                    <h3 className="mt-12 text-2xl font-bold text-white">{course.title}</h3>
-                    <p className="mt-2 max-w-[260px] text-sm leading-6 text-white/70">{course.subtitle}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.section>
-
-          <motion.section {...fadeUp} className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
-            <div>
-              <Badge className="border border-white/10 bg-white/8 text-white">Teachers And Students</Badge>
-              <h2 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">A platform that keeps teaching and preparation in one flow</h2>
-              <p className="mt-4 max-w-xl text-sm leading-7 text-white/58">
-                The product is simple on purpose: classes, question bank, practice, and direct teacher student connection.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              {testimonials.map((testimonial, index) => (
-                <motion.div
-                  key={testimonial.name}
                   initial={{ opacity: 0, y: 24 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: index * 0.08 }}
-                  animate={{ y: [0, index % 2 === 0 ? -8 : 8, 0] }}
-                  whileHover={{ y: -12, scale: 1.02 }}
-                  className="rounded-[2rem] border border-white/10 bg-white/7 p-5 backdrop-blur-xl shadow-[0_24px_80px_rgba(0,0,0,0.28)]"
+                  transition={{ duration: 0.45 }}
+                  whileHover={{ y: -4 }}
+                  className="cursor-default rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition-all hover:shadow-md"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(122,225,255,0.9),rgba(181,110,255,0.9))] text-slate-950 font-bold">
-                      {testimonial.name.slice(0, 1)}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-white">{testimonial.name}</p>
-                      <p className="text-xs uppercase tracking-[0.18em] text-white/45">{testimonial.role}</p>
-                    </div>
+                  <div className={`mb-5 flex h-10 w-10 items-center justify-center rounded-xl ${feature.iconBg}`}>
+                    {feature.icon}
                   </div>
-                  <div className="mt-4 flex gap-1 text-yellow-300">
-                    {Array.from({ length: 5 }).map((_, starIndex) => (
-                      <Star key={starIndex} size={14} fill="currentColor" />
-                    ))}
-                  </div>
-                  <p className="mt-4 text-sm leading-6 text-white/65">{testimonial.text}</p>
+                  <h3 className="mb-2 text-base font-bold text-gray-900">{feature.title}</h3>
+                  <p className="text-sm leading-relaxed text-gray-500">{feature.desc}</p>
                 </motion.div>
               ))}
             </div>
-          </motion.section>
+          </div>
+        </section>
 
-          <motion.section
-            {...fadeUp}
-            className="relative overflow-hidden rounded-[2.3rem] border border-cyan-200/12 bg-[linear-gradient(135deg,rgba(36,102,255,0.18),rgba(179,82,255,0.13)_55%,rgba(255,255,255,0.06))] p-8 shadow-[0_30px_100px_rgba(0,0,0,0.38)] backdrop-blur-xl md:p-10"
-          >
-            <div className="absolute -right-16 top-0 h-56 w-56 rounded-full bg-cyan-300/12 blur-3xl" />
-            <div className="absolute bottom-0 left-0 h-48 w-48 rounded-full bg-fuchsia-400/10 blur-3xl" />
-            <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-              <div className="max-w-2xl">
-                <Badge className="border border-white/10 bg-white/8 text-white">Call To Action</Badge>
-                <h2 className="mt-4 text-3xl font-black tracking-tight md:text-5xl">Study and teach without ads, fees, or distractions</h2>
-                <p className="mt-4 max-w-xl text-sm leading-7 text-white/65">
-                  EduConnect is free for everything right now, with a focused experience built around classes and question bank practice.
+        <section className="overflow-hidden border-y border-gray-100 bg-gray-50 py-24">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-16 max-w-3xl text-center mx-auto">
+              <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">Advanced Analysis</p>
+              <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">Deep insight into every attempt</h2>
+              <p className="text-lg text-gray-500">
+                Stop guessing what went wrong. RankPulse breaks down accuracy, time, difficulty, and question journey clearly after every test.
+              </p>
+            </div>
+            <div className="grid gap-8 md:grid-cols-3">
+              {[
+                { title: "Subject-wise Accuracy", desc: "See exactly which subjects are dragging your score down." },
+                { title: "Negative Marking Control", desc: "Track unforced errors and learn where to hold back." },
+                { title: "Peer Comparison", desc: "Compare your sectional performance against strong attempts." },
+              ].map((item, index) => (
+                <motion.div
+                  key={item.title}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.45, delay: index * 0.08 }}
+                  className="flex items-start gap-4"
+                >
+                  <div className="mt-1 rounded p-1.5 text-indigo-600 bg-indigo-100 shrink-0">
+                    <Zap className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900">{item.title}</h4>
+                    <p className="text-gray-500">{item.desc}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-white py-24">
+          <div className="mx-auto grid max-w-7xl gap-16 px-4 lg:grid-cols-2 lg:items-center sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, x: -40 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.55 }}
+              className="space-y-8"
+            >
+              <div>
+                <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">Built for the grind</h2>
+                <p className="text-lg text-gray-500">
+                  Late nights, long revision loops, and repeated mock analysis. RankPulse is designed for students who actually sit and solve.
                 </p>
               </div>
-
-              <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.98 }}>
-                <Button size="lg" className="rounded-full bg-cyan-300 px-8 text-slate-950 shadow-[0_0_40px_rgba(90,206,255,0.35)] hover:bg-cyan-200" onClick={openLoginPortal}>
-                  Enter Login Portal
-                  <ArrowRight size={16} className="ml-2" />
-                </Button>
-              </motion.div>
-            </div>
-          </motion.section>
-
-          <motion.section
-            {...fadeUp}
-            ref={contactRef}
-            className="grid gap-6 rounded-[2.3rem] border border-white/10 bg-white/6 p-6 shadow-[0_24px_90px_rgba(0,0,0,0.35)] backdrop-blur-xl md:p-8 lg:grid-cols-[0.92fr_1.08fr]"
-          >
-            <div className="relative overflow-hidden rounded-[2rem] border border-cyan-200/10 bg-[linear-gradient(160deg,rgba(55,123,255,0.16),rgba(174,97,255,0.12),rgba(255,255,255,0.04))] p-6">
-              <div className="absolute -left-10 top-8 h-36 w-36 rounded-full bg-cyan-300/12 blur-3xl" />
-              <div className="absolute bottom-0 right-0 h-40 w-40 rounded-full bg-fuchsia-400/10 blur-3xl" />
-              <div className="relative">
-                <Badge className="border border-white/10 bg-white/8 text-white">Contact Us</Badge>
-                <h2 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">Talk to the EduConnect team</h2>
-                <p className="mt-4 max-w-md text-sm leading-7 text-white/62">
-                  For support, teacher onboarding, or student help, send a message here and it will go directly to the super admin team.
+              <div className="space-y-4">
+                <p className="text-gray-500">
+                  The platform keeps your tests, weak-question review bucket, and analysis together so you can move from attempt to revision without losing context.
                 </p>
-
-                <div className="mt-8 rounded-[1.7rem] border border-white/10 bg-white/7 p-5">
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/45">Direct Admin Routing</p>
-                  <p className="mt-2 text-sm leading-6 text-white/62">
-                    Every contact form submission from this page is stored inside the platform and shown to the super admin support panel.
-                  </p>
-                </div>
+                <p className="text-gray-500">
+                  Build a practice habit around the exact chapters and question styles that still need work instead of random repetition.
+                </p>
               </div>
-            </div>
+              <button
+                className="group flex items-center gap-2 rounded-lg px-8 py-4 text-lg font-semibold text-white transition-all hover:opacity-90"
+                style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", boxShadow: "0 0 30px -5px rgba(124,58,237,0.5)" }}
+                onClick={() => setLocation("/register")}
+              >
+                Get Started Free
+                <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+              </button>
+            </motion.div>
 
             <motion.div
-              whileHover={{ rotateX: -3, rotateY: 4, y: -6 }}
-              className="rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)]"
+              initial={{ opacity: 0, x: 40 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.55 }}
+              className="space-y-6 rounded-2xl border border-gray-100 bg-gray-50 p-8 shadow-lg"
             >
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/6 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/45">Response Time</p>
-                  <p className="mt-2 text-3xl font-black text-white">&lt; 24 hrs</p>
-                  <p className="mt-2 text-sm text-white/58">Fast replies for support and onboarding queries.</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/6 p-4">
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/45">Pricing</p>
-                  <p className="mt-2 text-3xl font-black text-white">Free</p>
-                  <p className="mt-2 text-sm text-white/58">No ads and no paid barrier for current features.</p>
+              <h3 className="text-xl font-bold text-gray-900">Built around student practice</h3>
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { name: "Mock Tests", color: "bg-blue-100 text-blue-700" },
+                  { name: "Question Bank", color: "bg-green-100 text-green-700" },
+                  { name: "Review Bucket", color: "bg-purple-100 text-purple-700" },
+                  { name: "Deep Analysis", color: "bg-orange-100 text-orange-700" },
+                  { name: "Time Tracking", color: "bg-red-100 text-red-700" },
+                  { name: "Progress Graphs", color: "bg-indigo-100 text-indigo-700" },
+                ].map((item) => (
+                  <div key={item.name} className={`${item.color} rounded-lg px-3 py-2 text-center text-xs font-bold`}>
+                    {item.name}
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-gray-200 pt-4">
+                <div className="flex items-center gap-3 text-sm text-gray-500">
+                  <BarChart3 className="h-5 w-5 shrink-0 text-indigo-600" />
+                  <span>Clean full-screen test flow, bucket-based revision, and post-test analytics in one place.</span>
                 </div>
               </div>
-
-              <form onSubmit={submitContactForm} className="mt-4 rounded-[1.75rem] border border-cyan-200/10 bg-slate-950/45 p-5 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/45">Contact Form</p>
-                    <p className="mt-1 text-xl font-semibold text-white">Send a message to super admin</p>
-                  </div>
-                  <Users size={22} className="text-cyan-100" />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <Label className="text-white/75">Name</Label>
-                    <Input value={contactName} onChange={(e) => setContactName(e.target.value)} required className="mt-1 border-white/10 bg-white/6 text-white placeholder:text-white/35" placeholder="Your name" />
-                  </div>
-                  <div>
-                    <Label className="text-white/75">Email</Label>
-                    <Input type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} required className="mt-1 border-white/10 bg-white/6 text-white placeholder:text-white/35" placeholder="Your email" />
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="text-white/75">Subject</Label>
-                  <Input value={contactSubject} onChange={(e) => setContactSubject(e.target.value)} required className="mt-1 border-white/10 bg-white/6 text-white placeholder:text-white/35" placeholder="Support, onboarding, teacher query..." />
-                </div>
-
-                <div>
-                  <Label className="text-white/75">Message</Label>
-                  <Textarea value={contactMessage} onChange={(e) => setContactMessage(e.target.value)} required rows={5} className="mt-1 border-white/10 bg-white/6 text-white placeholder:text-white/35" placeholder="Write your message here..." />
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <Button type="submit" className="rounded-full bg-cyan-300 text-slate-950 hover:bg-cyan-200" disabled={submittingContact}>
-                    {submittingContact ? "Sending..." : "Submit To Super Admin"}
-                  </Button>
-                  <Button type="button" variant="outline" className="rounded-full border-white/15 bg-white/6 text-white hover:bg-white/10 hover:text-white" onClick={openLoginPortal}>
-                    Enter Portal
-                  </Button>
-                </div>
-              </form>
             </motion.div>
-          </motion.section>
+          </div>
         </section>
-      </div>
+
+        <section ref={contactRef} className="border-t border-gray-100 bg-gray-50 py-24">
+          <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+            <div className="grid gap-6 md:grid-cols-2">
+              <motion.div
+                initial={{ opacity: 0, x: -30 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
+                className="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-8 shadow-sm"
+              >
+                <div className="space-y-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">Contact</p>
+                  <h2 className="text-2xl font-extrabold text-gray-900">Need help getting started?</h2>
+                  <p className="leading-relaxed text-gray-500">
+                    Send a message if you need help with access, test flow, revision flow, or understanding your analysis.
+                  </p>
+                </div>
+                <div className="mt-10 space-y-4">
+                  <div className="flex items-center gap-3 text-sm text-gray-500">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 shrink-0">
+                      <Mail className="h-4 w-4" />
+                    </div>
+                    <span>support@rankpulse.in</span>
+                  </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, x: 30 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
+                className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm"
+              >
+                <form onSubmit={submitContactForm} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="mb-1.5 block text-sm font-semibold text-gray-700">Name</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Your name"
+                          value={contactName}
+                          onChange={(e) => setContactName(e.target.value)}
+                          required
+                          className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-sm font-semibold text-gray-700">Email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="email"
+                          placeholder="you@example.com"
+                          value={contactEmail}
+                          onChange={(e) => setContactEmail(e.target.value)}
+                          required
+                          className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-gray-700">Subject</label>
+                    <div className="relative">
+                      <FileText className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="What do you want to discuss?"
+                        value={contactSubject}
+                        onChange={(e) => setContactSubject(e.target.value)}
+                        required
+                        className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-semibold text-gray-700">Message</label>
+                    <div className="relative">
+                      <MessageSquare className="absolute left-3 top-3.5 h-4 w-4 text-gray-400" />
+                      <textarea
+                        rows={5}
+                        placeholder="Tell us what you need help with."
+                        value={contactMessage}
+                        onChange={(e) => setContactMessage(e.target.value)}
+                        required
+                        className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={submittingContact}
+                    className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {submittingContact ? "Sending..." : "Send Message"}
+                  </button>
+                </form>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }

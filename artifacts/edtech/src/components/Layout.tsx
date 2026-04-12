@@ -1,21 +1,28 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import NotificationBell from "@/components/NotificationBell";
-import CommandPalette from "@/components/CommandPalette";
-import DeadlineAlertPopup from "@/components/DeadlineAlertPopup";
 import { useDeadlineAlerts } from "@/hooks/useDeadlineAlerts";
+import { useQuestionBankTargetAlerts } from "@/hooks/useQuestionBankTargetAlerts";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import StudentOnboardingGate from "@/components/student/StudentOnboardingGate";
+import { APP_NAME } from "@/lib/brand";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import {
   LayoutDashboard, Users, BookOpen, GraduationCap,
   LogOut, Menu, X, UserCheck, TrendingUp, LifeBuoy, Star,
   MessageSquare, DollarSign, ClipboardList, CalendarDays, Activity,
-  FileText, Trophy, BarChart2, ChevronLeft, ChevronRight, Zap,
-  Search, Bell, Medal, UserCircle, CreditCard,
+  FileText, BarChart2, ChevronLeft, ChevronRight, Zap,
+  Bell, Medal, CreditCard,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+
+const NotificationBell = lazy(() => import("@/components/NotificationBell"));
+const LeaderboardPanel = lazy(() => import("@/components/LeaderboardPanel"));
+const CommandPalette = lazy(() => import("@/components/CommandPalette"));
+const DeadlineAlertPopup = lazy(() => import("@/components/DeadlineAlertPopup"));
+const QuestionBankTargetPopup = lazy(() => import("@/components/QuestionBankTargetPopup"));
 
 interface NavItem { label: string; href: string; icon: React.ReactNode; }
 interface NavGroup { label?: string; items: NavItem[]; }
@@ -59,10 +66,8 @@ function getSuperAdminGroups(): NavGroup[] {
     ]},
     { label: "Communication", items: [
       { label: "Send Notification", href: "/super-admin/send-notification", icon: <Bell size={17} /> },
-      { label: "Leaderboard", href: "/leaderboard", icon: <Trophy size={17} /> },
       { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
       { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
-      { label: "Support Tickets", href: "/super-admin/support", icon: <LifeBuoy size={17} /> },
     ]},
   ];
 }
@@ -81,13 +86,8 @@ function getAdminGroups(): NavGroup[] {
       { label: "Analytics", href: "/admin/analytics", icon: <TrendingUp size={17} /> },
     ]},
     { label: "Community", items: [
-      { label: "Leaderboard", href: "/leaderboard", icon: <Trophy size={17} /> },
       { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
       { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
-      { label: "Support Tickets", href: "/admin/support", icon: <LifeBuoy size={17} /> },
-    ]},
-    { label: "Account", items: [
-      { label: "My Profile", href: "/admin/profile", icon: <UserCircle size={17} /> },
     ]},
   ];
 }
@@ -103,15 +103,12 @@ function getStudentGroups(): NavGroup[] {
       { label: "My Progress", href: "/student/progress", icon: <BarChart2 size={17} /> },
     ]},
     { label: "Community", items: [
-      { label: "Leaderboard", href: "/leaderboard", icon: <Trophy size={17} /> },
       { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
       { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
     { label: "Help", items: [
       { label: "My Payments", href: "/student/payments", icon: <CreditCard size={17} /> },
       { label: "Feedback", href: "/student/feedback", icon: <Star size={17} /> },
-      { label: "Support", href: "/student/support", icon: <LifeBuoy size={17} /> },
-      { label: "My Profile", href: "/student/profile", icon: <UserCircle size={17} /> },
     ]},
   ];
 }
@@ -121,12 +118,12 @@ function getPlannerGroups(): NavGroup[] {
     { items: [{ label: "Dashboard", href: "/planner/dashboard", icon: <LayoutDashboard size={17} /> }] },
     { label: "Planning", items: [
       { label: "Exam Templates", href: "/planner/exam-templates", icon: <ClipboardList size={17} /> },
+      { label: "Question Bank", href: "/planner/question-bank", icon: <BookOpen size={17} /> },
       { label: "Courses", href: "/planner/courses", icon: <BookOpen size={17} /> },
       { label: "Lecture Plans", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
     { label: "Community", items: [
       { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
-      { label: "Leaderboard", href: "/leaderboard", icon: <Trophy size={17} /> },
     ]},
   ];
 }
@@ -166,6 +163,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [shellWidgetsReady, setShellWidgetsReady] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
@@ -187,6 +185,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
+        setShellWidgetsReady(true);
         setCmdOpen((o) => !o);
       }
     };
@@ -194,12 +193,68 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadWidgets = () => {
+      if (!cancelled) setShellWidgetsReady(true);
+    };
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(loadWidgets, { timeout: 1500 });
+      return () => {
+        cancelled = true;
+        if ("cancelIdleCallback" in window) {
+          (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+        }
+      };
+    }
+
+    const timeoutId = window.setTimeout(loadWidgets, 800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, []);
+
   const supportHref = user?.role === "super_admin" ? "/super-admin/support"
     : user?.role === "admin" ? "/admin/support"
-    : user?.role === "planner" ? "/planner/dashboard"
-    : "/student/support";
+    : user?.role === "student" ? "/student/support"
+    : null;
+  const showLeaderboardShortcut = user.role !== "planner";
+  const supportBase = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  const { data: supportTickets = [] } = useQuery<any[]>({
+    queryKey: ["support-shortcut-status", user?.id, user?.role],
+    enabled: Boolean(user && supportHref),
+    queryFn: async () => {
+      const response = await fetch(`${supportBase}/api/support`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load support status");
+      return response.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const supportStage =
+    supportTickets.some((ticket) => ticket.status === "open") ? "open" :
+    supportTickets.some((ticket) => ticket.status === "in_progress") ? "in_progress" :
+    supportTickets.some((ticket) => ticket.status === "resolved") ? "resolved" :
+    "idle";
+
+  const supportTone =
+    supportStage === "open"
+      ? "border-[#FDBA74] bg-[#FFF7ED] text-[#EA580C] hover:bg-[#FFEDD5] hover:text-[#C2410C]"
+      : supportStage === "in_progress"
+        ? "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB] hover:bg-[#DBEAFE] hover:text-[#1D4ED8]"
+        : supportStage === "resolved"
+          ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A] hover:bg-[#DCFCE7] hover:text-[#15803D]"
+          : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F8FAFC] hover:text-[#111827]";
 
   const { alerts: deadlineAlerts, show: showDeadlinePopup, dismiss: dismissDeadlines } = useDeadlineAlerts(!!user);
+  const {
+    alerts: questionBankAlerts,
+    show: showQuestionBankPopup,
+    dismiss: dismissQuestionBankAlerts,
+  } = useQuestionBankTargetAlerts(user?.role === "admin", user?.id);
 
   if (!user) return <>{children}</>;
 
@@ -227,6 +282,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const roleConfig = getRoleConfig(user.role);
   const initials = getInitials(user.fullName ?? user.username ?? "?");
+  const profileHref =
+    user.role === "admin" ? "/admin/profile" :
+    user.role === "student" ? "/student/profile" :
+    null;
 
   const handleLogout = () => {
     logoutMutation.mutate(undefined, {
@@ -240,12 +299,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className={`border-b border-[#E5E7EB] px-4 py-4 ${collapsed ? "items-center" : ""}`}>
         <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"} gap-2`}>
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className={`w-8 h-8 rounded-xl shrink-0 flex items-center justify-center ${roleConfig.iconBg}`}>
-              <GraduationCap size={15} className="text-white" />
-            </div>
+            <BrandLogo variant={collapsed ? "icon" : "wordmark"} imageClassName={collapsed ? "h-8" : "h-10"} />
             {!collapsed && (
               <div className="min-w-0">
-                <p className="text-sm font-bold leading-tight text-[#111827]">EduConnect</p>
                 <p className="text-[10px] text-[#6B7280]">{roleConfig.label} Portal</p>
               </div>
             )}
@@ -278,27 +334,39 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </nav>
 
       {/* Bottom: user + collapse */}
-      <div className="space-y-1 border-t border-[#E5E7EB] p-3">
+      <div className={`border-t border-[#E5E7EB] p-3 ${collapsed ? "space-y-3" : "space-y-1"}`}>
         {/* User row */}
         {!collapsed ? (
           <div className="flex items-center gap-2.5 px-1 py-1.5">
-            {(user as any).avatarUrl ? (
-              <img
-                src={(user as any).avatarUrl}
-                alt={user.fullName}
-                className={`w-8 h-8 rounded-full object-cover shrink-0 border-2 border-[#E5E7EB]`}
-              />
-            ) : (
-              <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white ${roleConfig.iconBg}`}>
-                {initials}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold leading-tight text-[#111827]">{user.fullName}</p>
-              <p className="truncate text-[11px] text-[#6B7280]">@{user.username}</p>
-            </div>
             <button
-              onClick={handleLogout}
+              type="button"
+              onClick={() => profileHref && setLocation(profileHref)}
+              className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition-colors ${profileHref ? "hover:bg-[#F3F5F9]" : ""}`}
+              title={profileHref ? "Open profile" : undefined}
+            >
+              {(user as any).avatarUrl ? (
+                <img
+                  src={(user as any).avatarUrl}
+                  alt={user.fullName}
+                  loading="lazy"
+                  decoding="async"
+                  className={`w-8 h-8 rounded-full object-cover shrink-0 border-2 border-[#E5E7EB]`}
+                />
+              ) : (
+                <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white ${roleConfig.iconBg}`}>
+                  {initials}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold leading-tight text-[#111827]">{user.fullName}</p>
+                <p className="truncate text-[11px] text-[#6B7280]">@{user.username}</p>
+              </div>
+            </button>
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                handleLogout();
+              }}
               className="shrink-0 rounded p-1 text-[#6B7280] transition-colors hover:text-[#111827]"
               title="Logout"
             >
@@ -306,24 +374,63 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         ) : (
-          <button
-            onClick={handleLogout}
-            className="w-full rounded-lg py-2 text-[#6B7280] transition-colors hover:bg-[#F3F5F9] hover:text-[#111827]"
-            title="Logout"
-          >
-            <LogOut size={15} />
-          </button>
+          <div className="flex flex-col items-center gap-4 py-1">
+            <button
+              type="button"
+              onClick={() => profileHref && setLocation(profileHref)}
+              className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${profileHref ? "hover:bg-[#F3F5F9]" : ""}`}
+              title={profileHref ? "Open profile" : undefined}
+            >
+              {(user as any).avatarUrl ? (
+                <img
+                  src={(user as any).avatarUrl}
+                  alt={user.fullName}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-12 w-12 rounded-full border-2 border-[#E5E7EB] object-cover"
+                />
+              ) : (
+                <div className={`flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold text-white ${roleConfig.iconBg}`}>
+                  {initials}
+                </div>
+              )}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-[#6B7280] transition-colors hover:bg-[#F3F5F9] hover:text-[#111827]"
+              title="Logout"
+            >
+              <LogOut size={15} />
+            </button>
+          </div>
         )}
 
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed((c) => !c)}
-          className={`w-full rounded-lg py-1.5 text-[11px] text-[#9CA3AF] transition-colors hover:text-[#6B7280] ${collapsed ? "flex items-center justify-center" : "flex items-center justify-center gap-2"}`}
+          className={`rounded-lg py-1.5 text-[11px] text-[#9CA3AF] transition-colors hover:text-[#6B7280] ${collapsed ? "mx-auto flex h-8 w-8 items-center justify-center" : "flex w-full items-center justify-center gap-2"}`}
         >
           {collapsed ? <ChevronRight size={13} /> : <><ChevronLeft size={13} /><span>Collapse sidebar</span></>}
         </button>
       </div>
     </div>
+  );
+
+  const SupportShortcut = ({ mobile = false }: { mobile?: boolean }) => (
+    <button
+      type="button"
+      onClick={() => supportHref && setLocation(supportHref)}
+      className={
+        mobile
+          ? `inline-flex h-9 w-9 items-center justify-center rounded-xl border transition ${supportTone}`
+          : `inline-flex h-9 w-9 items-center justify-center rounded-xl border transition ${supportTone}`
+      }
+      title="Support"
+      aria-label="Support"
+      data-testid="button-support-shortcut"
+    >
+      <LifeBuoy size={16} />
+    </button>
   );
 
   return (
@@ -350,26 +457,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <button onClick={() => setMobileOpen(!mobileOpen)} className="p-1 text-[#6B7280] hover:text-[#111827]" data-testid="button-menu">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${roleConfig.iconBg}`}>
-              <GraduationCap size={12} className="text-white" />
-            </div>
-            <span className="truncate text-sm font-semibold text-[#111827]">EduConnect</span>
+          <div className="flex min-w-0 flex-1 items-center">
+            <BrandLogo className="min-w-0" imageClassName="h-8" />
           </div>
-          <button onClick={() => setCmdOpen(true)} className="p-1 text-[#6B7280] hover:text-[#111827]">
-            <Search size={18} />
-          </button>
-          <NotificationBell />
+          {showLeaderboardShortcut && (
+            <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
+              {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+            </Suspense>
+          )}
+          {supportHref ? <SupportShortcut mobile /> : null}
+          <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
+            {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+          </Suspense>
         </header>
 
         {/* Desktop topbar */}
         <header className="hidden shrink-0 items-center justify-end gap-2 border-b border-[#E5E7EB] bg-white px-6 py-2.5 lg:flex">
-          <button onClick={() => setCmdOpen(true)} className="mr-2 flex items-center gap-2 rounded-xl border border-[#E5E7EB] px-3 py-1.5 text-xs text-[#6B7280] transition-colors hover:bg-[#F5F7FB] hover:text-[#111827]">
-            <Search size={13} />
-            <span>Search</span>
-            <kbd className="rounded bg-[#F5F7FB] px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
-          </button>
-          <NotificationBell />
+          {showLeaderboardShortcut && (
+            <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
+              {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+            </Suspense>
+          )}
+          {supportHref ? <SupportShortcut /> : null}
+          <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
+            {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+          </Suspense>
         </header>
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6">
@@ -378,15 +490,34 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Command Palette */}
-      <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} role={user.role} />
+      <Suspense fallback={null}>
+        {shellWidgetsReady ? <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} role={user.role} /> : null}
+      </Suspense>
 
       {/* Deadline Alert Popup */}
-      <DeadlineAlertPopup
-        open={showDeadlinePopup}
-        alerts={deadlineAlerts}
-        onDismiss={dismissDeadlines}
-        supportHref={supportHref}
-      />
+      <Suspense fallback={null}>
+        {shellWidgetsReady ? (
+          <DeadlineAlertPopup
+            open={showDeadlinePopup}
+            alerts={deadlineAlerts}
+            onDismiss={dismissDeadlines}
+            supportHref={supportHref}
+          />
+        ) : null}
+      </Suspense>
+
+      <Suspense fallback={null}>
+        {shellWidgetsReady ? (
+          <QuestionBankTargetPopup
+            open={!showDeadlinePopup && showQuestionBankPopup}
+            alerts={questionBankAlerts}
+            onDismiss={dismissQuestionBankAlerts}
+            href="/admin/question-bank"
+          />
+        ) : null}
+      </Suspense>
+
+      <StudentOnboardingGate />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { APP_NAME } from "@/lib/brand";
 import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -213,7 +214,7 @@ export default function SuperAdminDashboard() {
               <Activity size={20} className="text-red-200" />
             </div>
             <div className="flex-1">
-              <h2 className="text-lg font-semibold">Dashboard data load nahi ho paaya</h2>
+              <h2 className="text-lg font-semibold">Unable to load dashboard data</h2>
               <p className="mt-2 text-sm text-white/75">
                 {error instanceof Error ? error.message : "Super admin dashboard request failed."}
               </p>
@@ -238,9 +239,9 @@ export default function SuperAdminDashboard() {
     return (
       <DashboardScene accent="from-orange-500/18 via-red-500/12 to-violet-500/12">
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)]">
-          <h2 className="text-lg font-semibold">Dashboard data abhi available nahi hai</h2>
+          <h2 className="text-lg font-semibold">Dashboard data is not available yet</h2>
           <p className="mt-2 text-sm text-white/65">
-            Super admin page blank nahi rahega. Yahan data aate hi summary render ho jayegi.
+            Summary cards will appear as soon as dashboard data is available.
           </p>
           <div className="mt-4">
             <Button onClick={() => refetch()} className="bg-white text-slate-900 hover:bg-white/90">
@@ -287,7 +288,7 @@ export default function SuperAdminDashboard() {
               {greeting}, <span className="text-orange-300">Sameer</span> 👋
             </h1>
             <p className="text-white/50 text-sm mt-1">
-              EduConnect Platform — Super Administrator
+              {APP_NAME} Platform — Super Administrator
             </p>
 
             {/* health badges */}

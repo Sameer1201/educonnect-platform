@@ -6,6 +6,7 @@ export const chaptersTable = pgTable("chapters", {
   subjectId: integer("subject_id").notNull().references(() => subjectsTable.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
+  targetQuestions: integer("target_questions").notNull().default(0),
   order: integer("order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -72,6 +72,7 @@ async function serializeClass(cls: typeof classesTable.$inferSelect, studentId?:
     scheduledAt: cls.scheduledAt?.toISOString() ?? null,
     startedAt: cls.startedAt?.toISOString() ?? null,
     endedAt: cls.endedAt?.toISOString() ?? null,
+    weeklyTargetDeadline: cls.weeklyTargetDeadline?.toISOString() ?? null,
   };
 }
 

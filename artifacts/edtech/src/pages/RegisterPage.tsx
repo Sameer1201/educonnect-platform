@@ -1,84 +1,67 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { useRegisterStudent } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { GraduationCap, CheckCircle } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 import { Link } from "wouter";
+import { APP_NAME } from "@/lib/brand";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-interface RegistrationExamOption {
-  exam: string;
-  label: string;
-  description?: string | null;
-  durationMinutes?: number | null;
-}
-
 export default function RegisterPage() {
   const [form, setForm] = useState({
-    username: "", password: "", confirmPassword: "", fullName: "", email: "", phone: "", exam: ""
+    username: "", password: "", fullName: ""
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [, setLocation] = useLocation();
-  const registerMutation = useRegisterStudent();
-  const { data: examOptions = [] } = useQuery<RegistrationExamOption[]>({
-    queryKey: ["registration-exams"],
-    queryFn: async () => {
-      const response = await fetch(`${BASE}/api/auth/exams`);
-      if (!response.ok) throw new Error("Failed to load exams");
-      return response.json();
-    },
-    staleTime: 60000,
-    retry: 1,
-  });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
     if (form.password.length < 6) {
       setError("Password must be at least 6 characters");
       return;
     }
-    if (!form.exam.trim()) {
-      setError("Please choose the exam you want to prepare for");
+    if (!form.fullName.trim()) {
+      setError("Name is required");
+      return;
+    }
+    if (!form.username.trim()) {
+      setError("User ID is required");
       return;
     }
 
-    registerMutation.mutate(
-      {
-        data: {
-          username: form.username,
+    setSaving(true);
+    try {
+      const response = await fetch(`${BASE}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: form.username.trim(),
           password: form.password,
-          fullName: form.fullName,
-          email: form.email,
-          phone: form.phone || undefined,
-          exam: form.exam.trim(),
-        }
-      },
-      {
-        onSuccess: () => {
-          setSuccess(true);
-        },
-        onError: (err: any) => {
-          setError(err?.data?.error ?? "Registration failed. Please try again.");
-        },
+          fullName: form.fullName.trim(),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Registration failed. Please try again.");
       }
-    );
+      setSuccess(true);
+    } catch (err: any) {
+      setError(err.message ?? "Registration failed. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (success) {
@@ -93,7 +76,7 @@ export default function RegisterPage() {
             </div>
             <h2 className="text-2xl font-bold mb-2">Registration Submitted!</h2>
             <p className="text-muted-foreground mb-6">
-              Your account is pending approval from a teacher/admin. Once approved, you will be placed into the matching batch for your selected exam.
+              Your account is pending approval. After your first login, we will ask you to complete your student setup and select your target exam.
             </p>
             <Button onClick={() => setLocation("/login")} data-testid="button-go-login" className="w-full">
               Go to Login
@@ -108,8 +91,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-8">
       <div className="w-full max-w-md">
         <div className="flex items-center gap-2 mb-6">
-          <GraduationCap size={24} className="text-primary" />
-          <span className="text-xl font-bold">EduConnect</span>
+          <BrandLogo imageClassName="h-14" />
         </div>
 
         <Card className="shadow-lg">
@@ -140,78 +122,16 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="username">User ID</Label>
                 <Input
                   id="username"
                   name="username"
                   data-testid="input-username"
-                  placeholder="Choose a username"
+                  placeholder="Choose your user ID"
                   value={form.username}
                   onChange={handleChange}
                   required
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  data-testid="input-email"
-                  placeholder="your@email.com"
-                  value={form.email}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="phone">Phone (optional)</Label>
-                <Input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  data-testid="input-phone"
-                  placeholder="Your phone number"
-                  value={form.phone}
-                  onChange={handleChange}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="exam">Target Exam</Label>
-                {examOptions.length > 0 ? (
-                  <select
-                    id="exam"
-                    name="exam"
-                    data-testid="select-exam"
-                    value={form.exam}
-                    onChange={handleChange}
-                    required
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Select exam</option>
-                    {examOptions.map((option) => (
-                      <option key={option.exam} value={option.exam}>
-                        {option.label || option.exam}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <Input
-                    id="exam"
-                    name="exam"
-                    data-testid="input-exam"
-                    placeholder="e.g. GATE, IIT JAM"
-                    value={form.exam}
-                    onChange={handleChange}
-                    required
-                  />
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Only planner-enabled exams are shown here. You will see tests for the same exam pattern after approval.
-                </p>
               </div>
 
               <div className="space-y-1.5">
@@ -228,27 +148,13 @@ export default function RegisterPage() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type="password"
-                  data-testid="input-confirm-password"
-                  placeholder="Repeat your password"
-                  value={form.confirmPassword}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-
               <Button
                 type="submit"
                 className="w-full"
-                disabled={registerMutation.isPending}
+                disabled={saving}
                 data-testid="button-register"
               >
-                {registerMutation.isPending ? "Registering..." : "Create Account"}
+                {saving ? "Creating account..." : "Create Account"}
               </Button>
             </form>
           </CardContent>

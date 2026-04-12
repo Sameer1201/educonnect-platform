@@ -10,6 +10,24 @@ function getUser(req: any) {
   return { userId, userRole };
 }
 
+function parseJsonValue<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback;
+  if (typeof value !== "string") return value as T;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function countAnsweredQuestions(answers: unknown) {
+  const parsed = parseJsonValue<Record<string, unknown>>(answers, {});
+  return Object.values(parsed).filter((value) => {
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== null && value !== undefined && value !== "";
+  }).length;
+}
+
 router.get("/leaderboard", async (req, res): Promise<void> => {
   const { userId, userRole } = getUser(req);
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -91,6 +109,7 @@ router.get("/progress/:studentId", async (req, res): Promise<void> => {
       score: testSubmissionsTable.score,
       totalMarks: testSubmissionsTable.totalPoints,
       percentage: testSubmissionsTable.percentage,
+      answers: testSubmissionsTable.answers,
       submittedAt: testSubmissionsTable.submittedAt,
       testTitle: testsTable.title,
       classId: testsTable.classId,
@@ -305,6 +324,7 @@ router.get("/progress/:studentId", async (req, res): Promise<void> => {
     recommendations: recs,
     tests: testSubs.map((s) => ({
       ...s,
+      answeredCount: countAnsweredQuestions(s.answers),
       submittedAt: s.submittedAt?.toISOString() ?? null,
       percentage: pctOf(s),
     })),

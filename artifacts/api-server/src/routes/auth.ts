@@ -1,17 +1,114 @@
 import { Router, type IRouter } from "express";
-import { db, classesTable, examTemplatesTable, passwordResetRequestsTable, usersTable } from "@workspace/db";
+import { db, examTemplatesTable, passwordResetRequestsTable, usersTable } from "@workspace/db";
 import { eq, or, desc } from "drizzle-orm";
-import { LoginBody, RegisterStudentBody } from "@workspace/api-zod";
+import { LoginBody } from "@workspace/api-zod";
 import { hashPassword, verifyPassword } from "../lib/auth";
 
 const router: IRouter = Router();
 
+function readTrimmedString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function validateRegisterStudentBody(body: unknown) {
+  const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const username = readTrimmedString(payload.username);
+  const password = typeof payload.password === "string" ? payload.password : "";
+  const fullName = readTrimmedString(payload.fullName);
+
+  if (username.length < 3) return { error: "User ID must be at least 3 characters" } as const;
+  if (username.length > 64) return { error: "User ID is too long" } as const;
+  if (password.length < 6) return { error: "Password must be at least 6 characters" } as const;
+  if (!fullName) return { error: "Name is required" } as const;
+  if (fullName.length > 120) return { error: "Name is too long" } as const;
+
+  return { data: { username, password, fullName } } as const;
+}
+
+function validateStudentOnboardingBody(body: unknown) {
+  const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const fullName = readTrimmedString(payload.fullName);
+  const phone = readTrimmedString(payload.phone);
+  const subject = readTrimmedString(payload.subject);
+  const profileDetails = payload.profileDetails;
+
+  if (!fullName) return { error: "Full name is required" } as const;
+  if (fullName.length > 120) return { error: "Full name is too long" } as const;
+  if (phone.length < 10) return { error: "Phone number is required" } as const;
+  if (phone.length > 20) return { error: "Phone number is too long" } as const;
+  if (!subject) return { error: "Target exam is required" } as const;
+
+  if (!profileDetails || typeof profileDetails !== "object") {
+    return { error: "Profile details are required" } as const;
+  }
+
+  const details = profileDetails as Record<string, unknown>;
+  const address = (details.address && typeof details.address === "object" ? details.address : {}) as Record<string, unknown>;
+  const preparation = (details.preparation && typeof details.preparation === "object" ? details.preparation : {}) as Record<string, unknown>;
+  const learningMode = (details.learningMode && typeof details.learningMode === "object" ? details.learningMode : {}) as Record<string, unknown>;
+
+  const normalized = {
+    dateOfBirth: readTrimmedString(details.dateOfBirth),
+    whatsappOnSameNumber: details.whatsappOnSameNumber === true,
+    address: {
+      country: readTrimmedString(address.country),
+      state: readTrimmedString(address.state),
+      city: readTrimmedString(address.city),
+      pincode: readTrimmedString(address.pincode),
+    },
+    preparation: {
+      classLevel: readTrimmedString(preparation.classLevel),
+      board: readTrimmedString(preparation.board),
+      targetYear: readTrimmedString(preparation.targetYear),
+      targetExam: readTrimmedString(preparation.targetExam) || subject,
+    },
+    learningMode: {
+      mode: readTrimmedString(learningMode.mode),
+      provider: readTrimmedString(learningMode.provider),
+    },
+    hearAboutUs: readTrimmedString(details.hearAboutUs),
+  };
+
+  if (!normalized.dateOfBirth) return { error: "Date of birth is required" } as const;
+  if (!normalized.address.country) return { error: "Country is required" } as const;
+  if (!normalized.address.state) return { error: "State is required" } as const;
+  if (!normalized.address.city) return { error: "City is required" } as const;
+  if (!normalized.address.pincode) return { error: "Pincode is required" } as const;
+  if (!normalized.preparation.classLevel) return { error: "Current stage is required" } as const;
+  if (!normalized.preparation.board) return { error: "Board is required" } as const;
+  if (!normalized.preparation.targetYear) return { error: "Target year is required" } as const;
+  if (!normalized.preparation.targetExam) return { error: "Target exam is required" } as const;
+  if (!normalized.learningMode.mode) return { error: "Learning mode is required" } as const;
+  if (!normalized.hearAboutUs) return { error: "Please choose how you heard about us" } as const;
+
+  return {
+    data: {
+      fullName,
+      phone,
+      subject,
+      profileDetails: normalized,
+    },
+  } as const;
+}
+
+function parseStudentProfileData(raw: string | null) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function serializeUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash, ...rest } = user;
   void passwordHash;
+  const onboardingComplete = user.onboardingComplete || (user.role === "student" && Boolean(user.subject?.trim()));
   return {
     ...rest,
     additionalExams: user.additionalExams ?? [],
+    onboardingComplete,
+    profileDetails: parseStudentProfileData(user.studentProfileData ?? null),
   };
 }
 
@@ -114,13 +211,14 @@ router.get("/auth/exams", async (_req, res): Promise<void> => {
 });
 
 router.post("/auth/register", async (req, res): Promise<void> => {
-  const parsed = RegisterStudentBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
+  const parsed = validateRegisterStudentBody(req.body);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error });
     return;
   }
 
-  const { username, password, fullName, email, phone, exam } = parsed.data;
+  const { username, password, fullName } = parsed.data;
+  const placeholderEmail = `student+${Buffer.from(username.trim().toLowerCase()).toString("hex")}@educonnect.local`;
 
   // Check if username or email already taken
   const [existing] = await db
@@ -136,7 +234,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const [existingEmail] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.email, email));
+    .where(eq(usersTable.email, placeholderEmail));
 
   if (existingEmail) {
     res.status(400).json({ error: "Email already registered" });
@@ -147,9 +245,9 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     username,
     passwordHash: hashPassword(password),
     fullName,
-    email,
-    phone: phone ?? null,
-    subject: exam.trim(),
+    email: placeholderEmail,
+    phone: null,
+    subject: null,
     role: "student",
     status: "pending",
   }).returning();
@@ -188,6 +286,60 @@ router.patch("/auth/profile", async (req, res): Promise<void> => {
 
   const [updated] = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
   if (!updated) { res.status(404).json({ error: "User not found" }); return; }
+  res.json(serializeUser(updated));
+});
+
+router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
+  const userIdCookie = req.cookies?.userId;
+  if (!userIdCookie) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const userId = parseInt(userIdCookie, 10);
+  if (isNaN(userId)) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const parsed = validateStudentOnboardingBody(req.body);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+
+  const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!existingUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (existingUser.role !== "student") {
+    res.status(403).json({ error: "Only students can complete onboarding" });
+    return;
+  }
+
+  const { fullName, phone, subject, profileDetails } = parsed.data;
+  const normalizedSubject = profileDetails.preparation.targetExam.trim() || subject.trim();
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({
+      fullName,
+      phone,
+      subject: normalizedSubject,
+      onboardingComplete: true,
+      studentProfileData: JSON.stringify({
+        ...profileDetails,
+        preparation: {
+          ...profileDetails.preparation,
+          targetExam: normalizedSubject,
+        },
+      }),
+    })
+    .where(eq(usersTable.id, userId))
+    .returning();
+
   res.json(serializeUser(updated));
 });
 

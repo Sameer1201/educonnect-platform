@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 import {
   BookOpen,
   CalendarDays,
@@ -27,46 +28,13 @@ import {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-function resizeImage(file: File, maxSize = 256): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let { width, height } = img;
-      if (width > height) {
-        if (width > maxSize) { height = Math.round((height * maxSize) / width); width = maxSize; }
-      } else if (height > maxSize) {
-        width = Math.round((width * maxSize) / height);
-        height = maxSize;
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        URL.revokeObjectURL(url);
-        reject(new Error("Failed to process image"));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, width, height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.85));
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("Failed to load image"));
-    };
-    img.src = url;
-  });
-}
-
 function getInitials(name: string) {
   return name.split(" ").map((part) => part[0]).join("").toUpperCase().slice(0, 2);
 }
 
 function Avatar({ src, initials }: { src?: string | null; initials: string }) {
   if (src) {
-    return <img src={src} alt="Profile" className="h-24 w-24 rounded-full border-4 border-white/20 object-cover shadow-xl" />;
+    return <img src={src} alt="Profile" className="h-24 w-24 rounded-full border-4 border-white/20 object-cover shadow-xl" decoding="async" />;
   }
   return (
     <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white/20 bg-gradient-to-br from-violet-600 to-fuchsia-500 text-3xl font-bold text-white shadow-xl">
@@ -129,7 +97,7 @@ export default function StudentProfile() {
     }
     setError("");
     try {
-      const resized = await resizeImage(file, 256);
+      const resized = await optimizeImageToDataUrl(file, { maxWidth: 256, maxHeight: 256, quality: 0.85, outputType: "image/jpeg" });
       setAvatarPreview(resized);
       setAvatarChanged(true);
     } catch {
@@ -290,7 +258,7 @@ export default function StudentProfile() {
           {avatarPreview && (
             <div className="mt-3 flex items-center justify-between rounded-lg border border-border bg-muted/40 p-3">
               <div className="flex items-center gap-3">
-                <img src={avatarPreview} alt="Preview" className="h-10 w-10 rounded-full object-cover" />
+                <img src={avatarPreview} alt="Preview" className="h-10 w-10 rounded-full object-cover" decoding="async" />
                 <div>
                   <p className="text-sm font-medium">Profile photo ready</p>
                   <p className="text-xs text-muted-foreground">Save profile to update it everywhere.</p>

@@ -140,58 +140,6 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-.dark {
-  --button-outline: rgba(255,255,255, .10);
-  --badge-outline: rgba(255,255,255, .05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
-
-  --background: 230 72% 6%;
-  --foreground: 210 40% 96%;
-  --border: 228 34% 20%;
-  --card: 228 56% 11%;
-  --card-foreground: 210 40% 96%;
-  --card-border: 228 34% 20%;
-  --sidebar: 232 66% 8%;
-  --sidebar-foreground: 210 40% 90%;
-  --sidebar-border: 230 42% 16%;
-  --sidebar-primary: 196 100% 58%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 229 42% 14%;
-  --sidebar-accent-foreground: 210 40% 86%;
-  --sidebar-ring: 196 100% 58%;
-  --popover: 228 50% 10%;
-  --popover-foreground: 210 40% 96%;
-  --popover-border: 228 30% 18%;
-  --primary: 196 100% 58%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 276 44% 19%;
-  --secondary-foreground: 290 50% 90%;
-  --muted: 228 40% 14%;
-  --muted-foreground: 220 18% 68%;
-  --accent: 328 52% 20%;
-  --accent-foreground: 330 60% 92%;
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 100%;
-  --input: 228 32% 24%;
-  --ring: 196 100% 58%;
-  --chart-1: 196 100% 58%;
-  --chart-2: 157 78% 46%;
-  --chart-3: 40 96% 56%;
-  --chart-4: 286 78% 64%;
-  --chart-5: 334 82% 60%;
-
-  --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.3);
-  --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.4);
-  --shadow-sm: 0px 2px 4px 0px rgba(0,0,0,0.4), 0px 1px 2px -1px rgba(0,0,0,0.3);
-  --shadow: 0px 2px 8px 0px rgba(0,0,0,0.5), 0px 1px 2px -1px rgba(0,0,0,0.3);
-  --shadow-md: 0px 4px 12px 0px rgba(0,0,0,0.5), 0px 2px 4px -1px rgba(0,0,0,0.3);
-  --shadow-lg: 0px 8px 24px 0px rgba(0,0,0,0.5), 0px 4px 6px -1px rgba(0,0,0,0.3);
-  --shadow-xl: 0px 12px 32px 0px rgba(0,0,0,0.6), 0px 8px 10px -1px rgba(0,0,0,0.3);
-  --shadow-2xl: 0px 20px 40px 0px rgba(0,0,0,0.7);
-}
-
 @keyframes portal-spin {
   from {
     transform: rotate(0deg) scale(1);
@@ -270,6 +218,15 @@
     transform: translate3d(0, -18px, 0) scale(1.05);
     opacity: 0.72;
   }
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 @layer base {

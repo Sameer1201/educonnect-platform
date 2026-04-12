@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,6 +15,21 @@ import { useToast } from "@/hooks/use-toast";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type QuestionType = "mcq" | "multi" | "integer";
+
+function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
+  const safeName = templateName.trim() || "the examination";
+  const safeDuration = Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 180;
+  return [
+    `The duration of ${safeName} is ${safeDuration} minutes. The countdown timer at the top right-hand corner of your screen displays the remaining time.`,
+    "When the timer reaches zero, the test will be submitted automatically.",
+    "Read every question carefully before selecting or entering your response.",
+    "Use Save & Next to save the current response and move ahead.",
+    "Use Mark for Review & Next when you want to revisit a question before final submission.",
+    "You can jump to any question from the question palette without losing the current screen context.",
+    "Use Clear Response to remove the selected answer from the current question.",
+    "MCQ uses single selection, MSQ uses multiple selections, and integer questions require a numeric answer.",
+  ].join("\n");
+}
 
 interface ExamTemplateSectionDraft {
   id: string;
@@ -33,6 +49,8 @@ interface ExamTemplate {
   description?: string | null;
   examHeader?: string | null;
   examSubheader?: string | null;
+  instructions?: string | null;
+  customInstructions?: string | null;
   durationMinutes: number;
   passingScore: number | null;
   showInRegistration?: boolean;
@@ -70,6 +88,7 @@ export default function PlannerExamTemplates() {
   const [templateDescription, setTemplateDescription] = useState("");
   const [templateHeader, setTemplateHeader] = useState("");
   const [templateSubheader, setTemplateSubheader] = useState("");
+  const [templateCustomInstructions, setTemplateCustomInstructions] = useState("");
   const [templateDuration, setTemplateDuration] = useState("180");
   const [templatePassing, setTemplatePassing] = useState("60");
   const [templateShowInRegistration, setTemplateShowInRegistration] = useState(true);
@@ -91,6 +110,7 @@ export default function PlannerExamTemplates() {
     setTemplateDescription("");
     setTemplateHeader("");
     setTemplateSubheader("");
+    setTemplateCustomInstructions("");
     setTemplateDuration("180");
     setTemplatePassing("");
     setTemplateShowInRegistration(true);
@@ -108,6 +128,7 @@ export default function PlannerExamTemplates() {
     setTemplateDescription(template.description ?? "");
     setTemplateHeader(template.examHeader ?? "");
     setTemplateSubheader(template.examSubheader ?? "");
+    setTemplateCustomInstructions(template.customInstructions?.trim() || "");
     setTemplateDuration(String(template.durationMinutes));
     setTemplatePassing(template.passingScore == null ? "" : String(template.passingScore));
     setTemplateShowInRegistration(template.showInRegistration !== false);
@@ -129,13 +150,15 @@ export default function PlannerExamTemplates() {
 
   const saveTemplateMutation = useMutation({
     mutationFn: async () => {
+      const resolvedDuration = Number(templateDuration) || 180;
       const payload = {
         key: templateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         name: templateName.trim(),
         description: templateDescription.trim() || null,
         examHeader: templateHeader.trim() || null,
         examSubheader: templateSubheader.trim() || null,
-        durationMinutes: Number(templateDuration) || 180,
+        customInstructions: templateCustomInstructions.trim() || null,
+        durationMinutes: resolvedDuration,
         passingScore: templatePassing.trim() ? Number(templatePassing) : null,
         showInRegistration: templateShowInRegistration,
         sections: templateSections
@@ -209,7 +232,7 @@ export default function PlannerExamTemplates() {
             </div>
             <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight">Exam Templates</h1>
             <p className="mt-3 text-sm sm:text-base text-muted-foreground leading-relaxed">
-              Planner yahin se exam structure define karega. Teacher test banate waqt bas exam select karega, structure auto-apply ho jayega.
+              Define the exam structure once. Teachers then select the template and start adding questions.
             </p>
           </div>
           <Button onClick={() => openTemplateEditor()} className="gap-2">
@@ -281,10 +304,10 @@ export default function PlannerExamTemplates() {
               <p className="text-3xl font-black mt-2">{examTemplates.length}</p>
             </div>
             <div className="rounded-2xl border p-4">
-              <p className="text-sm font-semibold">Planner-owned flow</p>
-              <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                Header, subheader, duration, sections, marking scheme, and preferred question type yahin define hoga. Teacher sirf question author karega.
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">Planner-owned flow</p>
+                <InfoTip content="Planner controls the exam shell, duration, sections, default marking, and preferred question types. Teachers only author questions." />
+              </div>
             </div>
             <div className="rounded-2xl border p-4">
               <p className="text-sm font-semibold">Active defaults</p>
@@ -309,6 +332,31 @@ export default function PlannerExamTemplates() {
             <div className="grid gap-4 md:grid-cols-2">
               <div><Label>Exam Header</Label><Input value={templateHeader} onChange={(e) => setTemplateHeader(e.target.value)} className="mt-1" placeholder="e.g. GRADUATE APTITUDE TEST IN ENGINEERING" /></div>
               <div><Label>Exam Subheader</Label><Input value={templateSubheader} onChange={(e) => setTemplateSubheader(e.target.value)} className="mt-1" placeholder="e.g. GATE Mock Assessment" /></div>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <Label>Default Test Instructions</Label>
+                <Textarea
+                  value={getDefaultTemplateInstructions(templateName, Number(templateDuration) || 180)}
+                  readOnly
+                  className="mt-1 min-h-[220px] resize-none bg-slate-50 text-slate-700"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  These always stay on the first test page.
+                </p>
+              </div>
+              <div>
+                <Label>Additional Planner Instructions</Label>
+                <Textarea
+                  value={templateCustomInstructions}
+                  onChange={(e) => setTemplateCustomInstructions(e.target.value)}
+                  className="mt-1 min-h-[140px] resize-y"
+                  placeholder="Add calculator rules, reporting notes, or any extra instructions."
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  These appear below the default list. The default content stays unchanged.
+                </p>
+              </div>
             </div>
             <div className="grid gap-4 md:grid-cols-4">
               <div><Label>Duration</Label><Input type="number" value={templateDuration} onChange={(e) => setTemplateDuration(e.target.value)} className="mt-1" /></div>

@@ -151,7 +151,7 @@ export default function PlannerCourses() {
             </div>
             <h1 className="text-3xl font-black mt-4">Create Courses, Assign Teachers, Structure Subjects</h1>
             <p className="text-sm text-white/75 mt-3 max-w-xl">
-              Yahin se planner course/batch banayega, teacher assign karega, aur phir subjects add karke schedule ready karega.
+              Create courses, assign teachers, and prepare subject structure from one workspace.
             </p>
           </div>
 

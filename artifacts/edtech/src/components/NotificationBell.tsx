@@ -204,11 +204,11 @@ export default function NotificationBell() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-sidebar-accent transition-colors"
+          className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-[#E5E7EB] bg-white text-[#6B7280] transition-colors hover:bg-[#F5F7FB] hover:text-[#111827]"
           data-testid="notification-bell"
           aria-label="Notifications"
         >
-          <Bell size={18} className="text-sidebar-foreground/70" />
+          <Bell size={18} className="text-current" />
           {unread > 0 && (
             <span
               className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 animate-in fade-in-0 zoom-in-75"

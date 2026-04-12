@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import type { ViewMode } from "@/App";
+import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 
 const CELL_BORDER = "1px solid #e5e7eb";
 
@@ -27,6 +28,9 @@ function tabIcon(tab: string) {
   const value = tab.toLowerCase();
   if (value === "overall") {
     return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
+  }
+  if (value.includes("aptitude") || value.includes("technical") || value.includes("core") || value.includes("engineering math") || value.includes("mathematics")) {
+    return <span className="inline-flex" style={{ color }}><SubjectSectionIcon label={tab} className="w-4 h-4" /></span>;
   }
   if (value.includes("physics")) {
     return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636l12.728 12.728" /><circle cx="12" cy="12" r="2" /></svg>;

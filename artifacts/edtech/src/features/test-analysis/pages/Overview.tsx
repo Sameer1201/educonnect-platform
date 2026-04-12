@@ -1,273 +1,374 @@
-import { Info, Plus } from "lucide-react";
-import { testData } from "@/data/testData";
-import { useState, useEffect, useRef } from "react";
+import { AlertTriangle, Clock3, Medal, Plus, ShieldCheck, Sparkles, Target, TrendingUp } from "lucide-react";
+import { useMemo, useState } from "react";
 
-function AccuracyRing({ pct }: { pct: number }) {
-  const radius = 10;
-  const circumference = 2 * Math.PI * radius;
-  const [offset, setOffset] = useState(circumference);
-  const [hovered, setHovered] = useState(false);
-  const ref = useRef<SVGCircleElement>(null);
+import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
+import { attemptData, testData, timeData } from "@/data/testData";
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setOffset(circumference - (pct / 100) * circumference);
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [pct, circumference]);
+function ratio(score: number, max: number) {
+  if (!max) return 0;
+  return Math.max(0, Math.min(100, (score / max) * 100));
+}
 
-  const restart = () => {
-    setOffset(circumference);
-    setTimeout(() => setOffset(circumference - (pct / 100) * circumference), 30);
-  };
+function formatSignedMarks(value: number) {
+  if (value > 0) return `+${value}`;
+  if (value < 0) return `${value}`;
+  return "0";
+}
+
+function StatTile({
+  label,
+  value,
+  detail,
+  icon,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: React.ReactNode;
+  tone?: "neutral" | "green" | "orange" | "purple";
+}) {
+  const tones = {
+    neutral: "border-[#E5E7EB] bg-white",
+    green: "border-[#BBF7D0] bg-[#F0FDF4]",
+    orange: "border-[#FED7AA] bg-[#FFF7ED]",
+    purple: "border-[#DDD6FE] bg-[#F5F3FF]",
+  } as const;
 
   return (
-    <svg
-      width="28" height="28" viewBox="0 0 28 28"
-      className="cursor-pointer"
-      onMouseEnter={() => { setHovered(true); restart(); }}
-      onMouseLeave={() => setHovered(false)}
-      onClick={restart}
-      style={{ transition: "transform 0.15s", transform: hovered ? "scale(1.2)" : "scale(1)" }}
-    >
-      {/* Track */}
-      <circle cx="14" cy="14" r={radius} fill="none" stroke="#d1fae5" strokeWidth="3" />
-      {/* Animated fill */}
-      <circle
-        ref={ref}
-        cx="14" cy="14" r={radius}
-        fill="none"
-        stroke="#22c55e"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        transform="rotate(-90 14 14)"
-        style={{ transition: "stroke-dashoffset 1s cubic-bezier(0.4,0,0.2,1)" }}
-      />
-      {/* Center check */}
-      <path
-        d="M10 14l2.5 2.5 5.5-5"
-        stroke={hovered ? "#22c55e" : "#4ade80"}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-        style={{ transition: "stroke 0.2s" }}
-      />
-    </svg>
+    <div className={`rounded-3xl border px-4 py-4 shadow-sm ${tones[tone]}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">{label}</div>
+        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white text-[#5B4DFF] shadow-sm">
+          {icon}
+        </div>
+      </div>
+      <p className="mt-3 text-[28px] font-bold leading-none text-[#111827]">{value}</p>
+      <p className="mt-2 text-sm text-[#6B7280]">{detail}</p>
+    </div>
   );
 }
 
-const StatCard = ({
-  label,
-  icon,
+function FocusCard({
+  title,
   value,
-  sub,
-  extra,
+  detail,
+  icon,
+  accent,
+  valueIcon,
 }: {
-  label: string;
+  title: string;
+  value: string;
+  detail: string;
   icon: React.ReactNode;
-  value: React.ReactNode;
-  sub?: string;
-  extra?: React.ReactNode;
-}) => (
-  <div className="bg-white rounded-xl border border-gray-100 p-5 flex flex-col gap-2" style={{ borderTop: "3px solid #111827" }}>
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">{label}</span>
+  accent: string;
+  valueIcon?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border border-[#E5E7EB] bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">{title}</div>
+        <div
+          className="flex h-10 w-10 items-center justify-center rounded-2xl text-white shadow-sm"
+          style={{ background: accent }}
+        >
+          {icon}
+        </div>
       </div>
-      <Info className="w-3.5 h-3.5 text-gray-400" />
+      <div className="mt-4 flex items-center gap-2">
+        {valueIcon ? <span className="text-[#5B4DFF]">{valueIcon}</span> : null}
+        <p className="text-lg font-semibold text-[#111827]">{value}</p>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-[#6B7280]">{detail}</p>
     </div>
-    <div className="flex items-end justify-between">
-      <div className="text-[32px] font-bold text-gray-900 leading-none">{value}</div>
-      {extra}
-    </div>
-    {sub && <p className="text-xs text-gray-500">{sub}</p>}
-  </div>
-);
+  );
+}
 
 export default function Overview({ mode: _mode }: { mode?: string }) {
-  const [learnings, setLearnings] = useState<string[]>(["", ""]);
-  const subjectCards = testData.subjectSummaries.slice(0, 3);
+  const [learnings, setLearnings] = useState(["", ""]);
 
-  const handleLearningChange = (index: number, value: string) => {
-    const updated = [...learnings];
-    updated[index] = value;
-    setLearnings(updated);
-  };
+  const subjectCards = testData.subjectSummaries.slice(0, 4);
+  const sectionRows = testData.performanceBreakdown.filter((row) => row.subject !== "Overall");
+  const timeRows = timeData.breakdown.filter((row) => row.subject !== "Overall");
+  const overallAttempt = attemptData.summary.find((row) => row.subject === "Overall");
 
-  const addLearning = () => {
-    if (learnings.length < 3) {
-      setLearnings([...learnings, ""]);
-    }
-  };
+  const strongestSection = useMemo(() => {
+    return [...sectionRows].sort((a, b) => ratio(b.totalScore, b.maxTotalScore) - ratio(a.totalScore, a.maxTotalScore))[0] ?? null;
+  }, [sectionRows]);
+
+  const weakestSection = useMemo(() => {
+    return [...sectionRows].sort((a, b) => ratio(a.totalScore, a.maxTotalScore) - ratio(b.totalScore, b.maxTotalScore))[0] ?? null;
+  }, [sectionRows]);
+
+  const slowestSection = useMemo(() => {
+    return [...timeRows].sort((a, b) => b.timeSpent - a.timeSpent)[0] ?? null;
+  }, [timeRows]);
+
+  const biggestAttemptConcern = useMemo(() => {
+    if (!overallAttempt) return null;
+    const entries = [
+      { label: "Perfect attempts", value: overallAttempt.perfect },
+      { label: "Wasted attempts", value: overallAttempt.wasted },
+      { label: "Overtime attempts", value: overallAttempt.overtime },
+      { label: "Confused attempts", value: overallAttempt.confused },
+    ];
+    return entries.sort((a, b) => b.value - a.value)[0] ?? null;
+  }, [overallAttempt]);
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Top row: Overall Score + Predicted Percentile */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Overall Score Card */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5" style={{ borderTop: "3px solid #111827" }}>
-          <div className="flex items-start justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">Overall Score</h3>
-            <div className="w-14 h-14 rounded-full border-2 border-indigo-200 flex items-center justify-center bg-indigo-50">
-              <span className="text-[9px] font-bold text-indigo-600 text-center leading-tight">INDIA'S BEST<br/>TEST SERIES</span>
+      <div className="grid gap-4 xl:grid-cols-[1.3fr_0.9fr]">
+        <section className="overflow-hidden rounded-[30px] border border-[#DDE7FF] bg-[linear-gradient(135deg,#EEF2FF_0%,#FFFFFF_48%,#F8FAFF_100%)] p-6 shadow-sm">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#5B4DFF]">Performance Snapshot</p>
+              <h3 className="mt-3 text-3xl font-bold tracking-tight text-[#111827]">
+                {testData.overallScore}
+                <span className="text-xl font-semibold text-[#9CA3AF]"> / {testData.maxScore}</span>
+              </h3>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-[#6B7280]">
+                This is your current scoring position across the paper. Use the section snapshots below to spot where accuracy, speed, or selection quality needs work.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Percentile</p>
+                <p className="mt-2 text-lg font-semibold text-[#111827]">{testData.predictedPercentile}%ile</p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Rank</p>
+                <p className="mt-2 text-lg font-semibold text-[#111827]">{testData.leaderboardRank}/{testData.totalParticipants.toLocaleString()}</p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Attempted</p>
+                <p className="mt-2 text-lg font-semibold text-[#111827]">{testData.questionsAttempted}/{testData.totalQuestions}</p>
+              </div>
+              <div className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">Accuracy</p>
+                <p className="mt-2 text-lg font-semibold text-[#111827]">{testData.accuracy}%</p>
+              </div>
             </div>
           </div>
-          <div className="flex items-baseline gap-1 mb-4">
-            <span className="text-[52px] font-black text-indigo-600 leading-none">{testData.overallScore}</span>
-            <span className="text-xl font-semibold text-gray-400">/{testData.maxScore}</span>
-          </div>
-          <div className="flex items-center gap-6 flex-wrap">
-            {subjectCards.map((subject) => (
-              <div key={subject.key}>
-                <p className="text-[11px] text-gray-500 font-medium">{subject.label}</p>
-                <p className="text-base font-bold" style={{ color: subject.color }}>
-                  {subject.score}<span className="text-xs font-medium text-gray-400">/{subject.max}</span>
-                </p>
+        </section>
+
+        <section className="rounded-[30px] border border-[#E5E7EB] bg-white p-6 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#6B7280]">Current Pulse</p>
+          <div className="mt-4 space-y-3">
+            <div className="rounded-2xl bg-[#F8FAFC] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[#6B7280]">Positive score</span>
+                <span className="text-base font-semibold text-[#111827]">{testData.positiveScore}</span>
               </div>
-            ))}
+            </div>
+            <div className="rounded-2xl bg-[#F8FAFC] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[#6B7280]">Marks lost</span>
+                <span className="text-base font-semibold text-[#111827]">{testData.marksLost}</span>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-[#F8FAFC] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[#6B7280]">Time used</span>
+                <span className="text-base font-semibold text-[#111827]">{testData.timeTaken} min</span>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-[#F8FAFC] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-[#6B7280]">Top issue</span>
+                <span className="text-right text-base font-semibold text-[#111827]">
+                  {biggestAttemptConcern ? `${biggestAttemptConcern.label} · ${biggestAttemptConcern.value}` : "Stable"}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatTile
+          label="Attempt quality"
+          value={overallAttempt ? String(overallAttempt.perfect) : "0"}
+          detail="Perfect attempts completed within expected time."
+          icon={<ShieldCheck className="h-4 w-4" />}
+          tone="green"
+        />
+        <StatTile
+          label="Speed pressure"
+          value={overallAttempt ? String(overallAttempt.overtime) : "0"}
+          detail="Questions where time exceeded the expected range."
+          icon={<Clock3 className="h-4 w-4" />}
+          tone="orange"
+        />
+        <StatTile
+          label="Waste spots"
+          value={overallAttempt ? String(overallAttempt.wasted) : "0"}
+          detail="Incorrect attempts that still consumed decision time."
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone="neutral"
+        />
+        <StatTile
+          label="Leaderboard"
+          value={`#${testData.leaderboardRank || 0}`}
+          detail={`Out of ${testData.totalParticipants.toLocaleString()} participants`}
+          icon={<Medal className="h-4 w-4" />}
+          tone="purple"
+        />
+      </div>
+
+      <section className="rounded-[30px] border border-[#E5E7EB] bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#6B7280]">Section Snapshots</p>
+            <h3 className="mt-2 text-xl font-semibold text-[#111827]">Where the paper moved well, and where it slowed down</h3>
           </div>
         </div>
 
-        {/* Predicted Percentile Card */}
-        <div className="rounded-xl p-5 text-white overflow-hidden relative" style={{ background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%)" }}>
-          {/* Decorative circles */}
-          <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-white opacity-5" />
-          <div className="absolute -right-4 top-4 w-20 h-20 rounded-full bg-white opacity-5" />
-          <div className="absolute right-10 -bottom-6 w-16 h-16 rounded-full bg-white opacity-5" />
+        <div className="mt-5 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {subjectCards.map((subject) => {
+            const matchingPerformance = sectionRows.find((row) => row.subject === subject.label);
+            const matchingTime = timeRows.find((row) => row.subject === subject.label);
+            const progress = ratio(subject.score, subject.max);
 
-          <h3 className="text-sm font-semibold text-indigo-100 mb-2">Quizrr Predicted Percentile</h3>
-          <div className="flex items-baseline gap-1 mb-4">
-            <span className="text-[52px] font-black text-white leading-none">{testData.predictedPercentile}</span>
-            <span className="text-2xl font-bold text-indigo-200">+</span>
-          </div>
-          <div className="flex items-center gap-6 mb-3 flex-wrap">
-            {subjectCards.map((subject) => (
-              <div key={`${subject.key}-percentile`}>
-                <p className="text-[11px] text-indigo-200">{subject.label}</p>
-                <p className="text-sm font-bold text-white">{subject.percentile}%ile</p>
+            return (
+              <div key={subject.key} className="rounded-3xl border border-[#E5E7EB] bg-[#FCFCFE] p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[#5B4DFF]">
+                        <SubjectSectionIcon label={subject.label} className="h-4 w-4" />
+                      </span>
+                      <p className="text-base font-semibold text-[#111827]">{subject.label}</p>
+                    </div>
+                    <p className="mt-1 text-sm text-[#6B7280]">{subject.percentile}%ile estimate</p>
+                  </div>
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-semibold text-white"
+                    style={{ backgroundColor: subject.color }}
+                  >
+                    {Math.round(progress)}%
+                  </div>
+                </div>
+
+                <div className="mt-4 h-2 rounded-full bg-[#EEF2F7]">
+                  <div
+                    className="h-2 rounded-full transition-all"
+                    style={{ width: `${progress}%`, backgroundColor: subject.color }}
+                  />
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-2xl bg-white px-3 py-3">
+                    <p className="text-[#6B7280]">Score</p>
+                    <p className="mt-1 font-semibold text-[#111827]">{subject.score}/{subject.max}</p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-3 py-3">
+                    <p className="text-[#6B7280]">Attempted</p>
+                    <p className="mt-1 font-semibold text-[#111827]">
+                      {matchingPerformance ? `${matchingPerformance.attemptedCorrect + matchingPerformance.attemptedWrong}/${matchingPerformance.totalQs}` : "0/0"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-3 py-3">
+                    <p className="text-[#6B7280]">Accuracy</p>
+                    <p className="mt-1 font-semibold text-[#111827]">
+                      {matchingPerformance && matchingPerformance.attemptedCorrect + matchingPerformance.attemptedWrong > 0
+                        ? `${Math.round((matchingPerformance.attemptedCorrect / (matchingPerformance.attemptedCorrect + matchingPerformance.attemptedWrong)) * 100)}%`
+                        : "0%"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-3 py-3">
+                    <p className="text-[#6B7280]">Time spent</p>
+                    <p className="mt-1 font-semibold text-[#111827]">{matchingTime ? `${matchingTime.timeSpent} min` : "0 min"}</p>
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-indigo-200 leading-relaxed">
-            Predicted percentile adapts based on this paper structure and available submission data.
-          </p>
+            );
+          })}
         </div>
-      </div>
+      </section>
 
-      {/* Stats Row 1 */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard
-          label="Leaderboard Rank"
-          icon={<svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
-          value={
-            <div className="flex items-baseline gap-1">
-              <span className="text-[32px] font-black text-gray-900 leading-none">{testData.leaderboardRank}</span>
-              <span className="text-sm text-gray-400 font-medium">/{testData.totalParticipants.toLocaleString()}</span>
-            </div>
+      <div className="grid gap-4 xl:grid-cols-3">
+        <FocusCard
+          title="Strongest Section"
+          value={strongestSection?.subject ?? "Not enough data"}
+          valueIcon={strongestSection ? <SubjectSectionIcon label={strongestSection.subject} className="h-4 w-4" /> : undefined}
+          detail={
+            strongestSection
+              ? `${formatSignedMarks(strongestSection.totalScore)} out of ${strongestSection.maxTotalScore}, with ${strongestSection.attemptedCorrect} correct answers.`
+              : "Complete more questions to identify your strongest section."
           }
-          extra={
-            <button className="flex items-center gap-1 text-xs text-indigo-600 font-semibold border border-indigo-200 px-2.5 py-1 rounded-full hover:bg-indigo-50 transition-colors">
-              View
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          }
+          icon={<Sparkles className="h-4 w-4" />}
+          accent="linear-gradient(135deg, #22C55E 0%, #16A34A 100%)"
         />
-        <StatCard
-          label="Qs Attempted"
-          icon={<svg className="w-4 h-4 text-pink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
-          value={
-            <div className="flex items-baseline gap-1">
-              <span className="text-[32px] font-black text-gray-900 leading-none">{testData.questionsAttempted}</span>
-              <span className="text-sm text-gray-400 font-medium">/{testData.totalQuestions}</span>
-            </div>
+        <FocusCard
+          title="Needs Attention"
+          value={weakestSection?.subject ?? "Not enough data"}
+          valueIcon={weakestSection ? <SubjectSectionIcon label={weakestSection.subject} className="h-4 w-4" /> : undefined}
+          detail={
+            weakestSection
+              ? `${weakestSection.notAttempted} not attempted and ${weakestSection.attemptedWrong} wrong in this section.`
+              : "No weak section is visible yet."
           }
+          icon={<Target className="h-4 w-4" />}
+          accent="linear-gradient(135deg, #F97316 0%, #EA580C 100%)"
         />
-        <StatCard
-          label="Accuracy"
-          icon={<AccuracyRing pct={testData.accuracy} />}
-          value={<span className="text-[32px] font-black text-gray-900 leading-none">{testData.accuracy}%</span>}
-        />
-      </div>
-
-      {/* Stats Row 2 */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard
-          label="Positive Score"
-          icon={<svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>}
-          value={
-            <div className="flex items-baseline gap-1">
-              <span className="text-[32px] font-black text-gray-900 leading-none">{testData.positiveScore}</span>
-              <span className="text-sm text-gray-400 font-medium">/{testData.maxScore}</span>
-            </div>
+        <FocusCard
+          title="Pacing Watch"
+          value={slowestSection?.subject ?? "Balanced pacing"}
+          valueIcon={slowestSection ? <SubjectSectionIcon label={slowestSection.subject} className="h-4 w-4" /> : undefined}
+          detail={
+            slowestSection
+              ? `${slowestSection.timeSpent} minutes spent here, with ${slowestSection.accuracy}% accuracy.`
+              : "No pacing issue detected yet."
           }
-        />
-        <StatCard
-          label="Marks Lost"
-          icon={<svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>}
-          value={
-            <div className="flex items-baseline gap-1">
-              <span className="text-[32px] font-black text-gray-900 leading-none">{testData.marksLost}</span>
-              <span className="text-sm text-gray-400 font-medium">/{testData.maxScore}</span>
-            </div>
-          }
-        />
-        <StatCard
-          label="Time Taken"
-          icon={<svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" /></svg>}
-          value={
-            <div className="flex items-baseline gap-1">
-              <span className="text-[32px] font-black text-gray-900 leading-none">{testData.timeTaken}</span>
-              <span className="text-sm text-gray-400 font-medium">min</span>
-            </div>
-          }
+          icon={<TrendingUp className="h-4 w-4" />}
+          accent="linear-gradient(135deg, #5B4DFF 0%, #4338CA 100%)"
         />
       </div>
 
-      {/* Learnings Card */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5" style={{ borderTop: "3px solid #111827" }}>
-        <div className="flex items-start gap-3 mb-4">
-          <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
+      <section className="rounded-[30px] border border-[#E5E7EB] bg-white p-6 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#FFF7ED] text-[#F97316]">
+            <Plus className="h-4 w-4" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-gray-800">Note Down Your Learnings</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Add up to 3 things you learned in this test</p>
+            <h3 className="text-lg font-semibold text-[#111827]">Learning Notes</h3>
+            <p className="mt-1 text-sm text-[#6B7280]">Keep a quick log of what you learned from this test.</p>
           </div>
         </div>
 
-        <div className="border-t border-gray-100 pt-3 flex flex-col gap-2">
+        <div className="mt-5 space-y-3">
           {learnings.map((learning, index) => (
-            <button
-              key={index}
-              className="flex items-center gap-2 w-full text-left px-3 py-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors group"
-              onClick={() => {
-                const val = prompt("Enter your learning:");
-                if (val !== null) handleLearningChange(index, val);
-              }}
-            >
-              <Plus className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <span className="text-sm text-gray-400">
-                {learning || "Click to add your learnings"}
-              </span>
-            </button>
+            <div key={index} className="rounded-2xl border border-[#E5E7EB] bg-[#FCFCFE] px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#EEF2FF] text-xs font-semibold text-[#5B4DFF]">
+                  {index + 1}
+                </span>
+                <input
+                  value={learning}
+                  onChange={(event) => {
+                    const updated = [...learnings];
+                    updated[index] = event.target.value;
+                    setLearnings(updated);
+                  }}
+                  className="w-full bg-transparent text-sm text-[#111827] outline-none placeholder:text-[#9CA3AF]"
+                  placeholder="Add a takeaway from this test..."
+                />
+              </div>
+            </div>
           ))}
-          {learnings.length < 3 && (
+
+          {learnings.length < 3 ? (
             <button
-              className="flex items-center gap-2 w-full text-left px-3 py-3 border border-dashed border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-400 text-sm mt-1"
-              onClick={addLearning}
+              type="button"
+              className="inline-flex items-center gap-2 rounded-full border border-dashed border-[#C7D2FE] px-4 py-2 text-sm font-medium text-[#5B4DFF] transition-colors hover:bg-[#F5F3FF]"
+              onClick={() => setLearnings((current) => [...current, ""])}
             >
-              <Plus className="w-4 h-4" />
-              Add another learning
+              <Plus className="h-4 w-4" />
+              Add another note
             </button>
-          )}
+          ) : null}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

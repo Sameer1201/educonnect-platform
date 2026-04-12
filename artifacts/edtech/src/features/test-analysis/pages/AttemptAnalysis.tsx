@@ -4,6 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
 } from "recharts";
 import type { ViewMode } from "@/App";
+import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 
 const CELL_BORDER = "1px solid #e5e7eb";
 
@@ -26,6 +27,9 @@ function tabIcon(tab: string) {
   const color = subjectColor(tab);
   const value = tab.toLowerCase();
   if (value === "overall") return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
+  if (value.includes("aptitude") || value.includes("technical") || value.includes("core") || value.includes("engineering math") || value.includes("mathematics")) {
+    return <span className="inline-flex" style={{ color }}><SubjectSectionIcon label={tab} className="w-4 h-4" /></span>;
+  }
   if (value.includes("physics")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636l12.728 12.728" /><circle cx="12" cy="12" r="2" /></svg>;
   if (value.includes("chem")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>;
   if (value.includes("math")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><line x1="4" y1="9" x2="20" y2="9" strokeLinecap="round" /><line x1="4" y1="15" x2="14" y2="15" strokeLinecap="round" /><line x1="4" y1="6" x2="4" y2="12" strokeLinecap="round" /><line x1="19" y1="12" x2="19" y2="18" strokeLinecap="round" /><line x1="16" y1="15" x2="22" y2="15" strokeLinecap="round" /></svg>;
@@ -286,7 +290,7 @@ export default function AttemptAnalysis({ mode }: { mode?: ViewMode }) {
     return (
       <div className="flex flex-col gap-5">
         {/* Category Cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {attemptData.categories.map((cat) => (
             <div key={cat.key} className="bg-white rounded-xl p-4" style={{ border: CELL_BORDER }}>
               <div className="flex items-center gap-1.5 mb-1">
@@ -306,7 +310,7 @@ export default function AttemptAnalysis({ mode }: { mode?: ViewMode }) {
   return (
     <div className="flex flex-col gap-5">
       {/* Category Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {attemptData.categories.map((cat) => (
           <div key={cat.key} className="bg-white rounded-xl p-4" style={{ border: CELL_BORDER }}>
             <div className="flex items-center gap-1.5 mb-1">

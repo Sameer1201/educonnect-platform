@@ -8,37 +8,13 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 import {
   Camera, User, Mail, Phone, BookOpen, Shield, CheckCircle,
   Upload, Trash2, Save, Loader2,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-/* ── Resize image client-side to max dimensions ─────────────── */
-function resizeImage(file: File, maxSize = 256): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let { width, height } = img;
-      if (width > height) {
-        if (width > maxSize) { height = Math.round(height * maxSize / width); width = maxSize; }
-      } else {
-        if (height > maxSize) { width = Math.round(width * maxSize / height); height = maxSize; }
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, width, height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", 0.85));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load image")); };
-    img.src = url;
-  });
-}
 
 function Avatar({ src, initials, size = 96 }: { src?: string | null; initials: string; size?: number }) {
   if (src) {
@@ -47,6 +23,7 @@ function Avatar({ src, initials, size = 96 }: { src?: string | null; initials: s
         src={src}
         alt="Profile"
         className="rounded-full object-cover border-4 border-white/20 shadow-xl"
+        decoding="async"
         style={{ width: size, height: size }}
       />
     );
@@ -91,7 +68,7 @@ export default function AdminProfile() {
     }
     setError("");
     try {
-      const resized = await resizeImage(file, 256);
+      const resized = await optimizeImageToDataUrl(file, { maxWidth: 256, maxHeight: 256, quality: 0.85, outputType: "image/jpeg" });
       setAvatarPreview(resized);
       setAvatarChanged(true);
     } catch {
@@ -221,7 +198,7 @@ export default function AdminProfile() {
           {avatarPreview && (
             <div className="flex items-center justify-between mt-3 p-2.5 rounded-lg bg-muted/50 border border-border">
               <div className="flex items-center gap-2.5">
-                <img src={avatarPreview} alt="Preview" className="w-9 h-9 rounded-full object-cover" />
+                <img src={avatarPreview} alt="Preview" className="w-9 h-9 rounded-full object-cover" decoding="async" />
                 <div>
                   <p className="text-xs font-medium">New photo selected</p>
                   <p className="text-[10px] text-muted-foreground">Click Save to apply</p>

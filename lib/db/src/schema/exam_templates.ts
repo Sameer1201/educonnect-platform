@@ -8,6 +8,7 @@ export const examTemplatesTable = pgTable("exam_templates", {
   description: text("description"),
   examHeader: text("exam_header"),
   examSubheader: text("exam_subheader"),
+  instructions: text("instructions"),
   durationMinutes: integer("duration_minutes").notNull().default(180),
   passingScore: integer("passing_score"),
   defaultPositiveMarks: real("default_positive_marks").notNull().default(1),

@@ -34,9 +34,10 @@ interface SidebarProps {
   onTabChange: (tab: string) => void;
   mode: "personal" | "comparative";
   onModeChange: (m: "personal" | "comparative") => void;
+  onBack?: () => void;
 }
 
-export default function Sidebar({ activeTab, onTabChange, mode, onModeChange }: SidebarProps) {
+export default function Sidebar({ activeTab, onTabChange, mode, onModeChange, onBack }: SidebarProps) {
   const navItems = mode === "comparative" ? comparativeNavItems : personalNavItems;
 
   const handleModeChange = (newMode: "personal" | "comparative") => {
@@ -50,7 +51,21 @@ export default function Sidebar({ activeTab, onTabChange, mode, onModeChange }: 
   };
 
   return (
-    <aside className="w-[230px] min-h-screen bg-white border-r border-[#ECEFF5] flex flex-col py-6 px-4 flex-shrink-0">
+    <aside className="h-full w-[230px] flex-shrink-0 overflow-y-auto border-r border-[#ECEFF5] bg-white px-4 py-6">
+      {onBack ? (
+        <div className="mb-5">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex w-full items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold text-[#475569] shadow-sm transition hover:border-[#CBD5E1] hover:bg-[#F8FAFC] hover:text-[#111827]"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 4l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Back
+          </button>
+        </div>
+      ) : null}
       <div className="mb-6">
         <h1 className="text-[18px] font-bold text-[#111827]">Test Analysis</h1>
         <p className="mt-0.5 text-xs font-medium text-[#6B7280]">{testData.testName}</p>

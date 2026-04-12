@@ -31,6 +31,38 @@ function sameHourWindow(a: Date, b: Date) {
   return Math.abs(a.getTime() - b.getTime()) < 60 * 60 * 1000;
 }
 
+function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
+  const safeName = templateName?.trim() || "the examination";
+  const safeDuration = Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 180;
+  return [
+    `The duration of ${safeName} is ${safeDuration} minutes. The countdown timer at the top right-hand corner of your screen displays the remaining time.`,
+    "When the timer reaches zero, the test will be submitted automatically.",
+    "Read every question carefully before selecting or entering your response.",
+    "Use Save & Next to save the current response and move ahead.",
+    "Use Mark for Review & Next when you want to revisit a question before final submission.",
+    "You can jump to any question from the question palette without losing the current screen context.",
+    "Use Clear Response to remove the selected answer from the current question.",
+    "MCQ uses single selection, MSQ uses multiple selections, and integer questions require a numeric answer.",
+  ].join("\n");
+}
+
+function extractCustomTemplateInstructions(storedInstructions: unknown, templateName: string, durationMinutes: number) {
+  if (typeof storedInstructions !== "string" || !storedInstructions.trim()) return "";
+  const defaultInstructions = getDefaultTemplateInstructions(templateName, durationMinutes).trim();
+  const normalizedStored = storedInstructions.trim();
+  if (normalizedStored === defaultInstructions) return "";
+  if (normalizedStored.startsWith(defaultInstructions)) {
+    return normalizedStored.slice(defaultInstructions.length).replace(/^\s+/, "").trim();
+  }
+  return normalizedStored;
+}
+
+function mergeTemplateInstructions(storedInstructions: unknown, templateName: string, durationMinutes: number) {
+  const defaultInstructions = getDefaultTemplateInstructions(templateName, durationMinutes).trim();
+  const customInstructions = extractCustomTemplateInstructions(storedInstructions, templateName, durationMinutes);
+  return customInstructions ? `${defaultInstructions}\n${customInstructions}` : defaultInstructions;
+}
+
 const DEFAULT_EXAM_TEMPLATES = [
   {
     key: "jee-main",
@@ -38,6 +70,7 @@ const DEFAULT_EXAM_TEMPLATES = [
     description: "Physics, Chemistry, Mathematics with mixed MCQ and numerical structure.",
     examHeader: "JOINT ENTRANCE EXAMINATION",
     examSubheader: "JEE Main Mock Assessment",
+    instructions: getDefaultTemplateInstructions("JEE Main", 180),
     durationMinutes: 180,
     passingScore: null,
     defaultPositiveMarks: 4,
@@ -56,6 +89,7 @@ const DEFAULT_EXAM_TEMPLATES = [
     description: "General Aptitude, Engineering Mathematics, and Core Subject with MCQ, MSQ, and NAT.",
     examHeader: "GRADUATE APTITUDE TEST IN ENGINEERING",
     examSubheader: "GATE Mock Assessment",
+    instructions: getDefaultTemplateInstructions("GATE", 180),
     durationMinutes: 180,
     passingScore: null,
     defaultPositiveMarks: 2,
@@ -74,6 +108,7 @@ const DEFAULT_EXAM_TEMPLATES = [
     description: "Single-subject paper with Section A, B, and C.",
     examHeader: "JOINT ADMISSION TEST FOR MASTERS",
     examSubheader: "IIT JAM Mock Assessment",
+    instructions: getDefaultTemplateInstructions("IIT JAM", 180),
     durationMinutes: 180,
     passingScore: null,
     defaultPositiveMarks: 2,
@@ -92,6 +127,7 @@ const DEFAULT_EXAM_TEMPLATES = [
     description: "Language, Domain Subject, and General Test style structure. MCQ only.",
     examHeader: "COMMON UNIVERSITY ENTRANCE TEST",
     examSubheader: "CUET Mock Assessment",
+    instructions: getDefaultTemplateInstructions("CUET", 60),
     durationMinutes: 60,
     passingScore: null,
     defaultPositiveMarks: 5,
@@ -110,6 +146,7 @@ const DEFAULT_EXAM_TEMPLATES = [
     description: "Physics, Chemistry, Biology with NEET-style optional section logic.",
     examHeader: "NATIONAL ELIGIBILITY CUM ENTRANCE TEST",
     examSubheader: "NEET Mock Assessment",
+    instructions: getDefaultTemplateInstructions("NEET", 200),
     durationMinutes: 200,
     passingScore: null,
     defaultPositiveMarks: 4,
@@ -379,6 +416,8 @@ router.get("/planner/exam-templates", async (req, res) => {
       ...row,
       examHeader: row.examHeader ?? null,
       examSubheader: row.examSubheader ?? null,
+      instructions: mergeTemplateInstructions(row.instructions, row.name, row.durationMinutes),
+      customInstructions: extractCustomTemplateInstructions(row.instructions, row.name, row.durationMinutes),
       showInRegistration: row.showInRegistration ?? true,
       sections: row.sections ? JSON.parse(row.sections) : [],
     })),
@@ -391,17 +430,25 @@ router.post("/planner/exam-templates", async (req, res) => {
   if (!["planner", "super_admin"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
-  const { key, name, description, examHeader, examSubheader, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections, showInRegistration } = req.body;
+  const { key, name, description, examHeader, examSubheader, instructions, customInstructions, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections, showInRegistration } = req.body;
   if (!name || !Array.isArray(sections) || sections.length === 0) {
     return res.status(400).json({ error: "name and sections are required" });
   }
+  const resolvedDuration = Number(durationMinutes) || 180;
+  const resolvedCustomInstructions =
+    typeof customInstructions === "string"
+      ? customInstructions.trim()
+      : typeof instructions === "string"
+        ? extractCustomTemplateInstructions(instructions, String(name), resolvedDuration)
+        : "";
   const [template] = await db.insert(examTemplatesTable).values({
     key: key ? String(key) : String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     name: String(name),
     description: description ? String(description) : null,
     examHeader: examHeader ? String(examHeader) : null,
     examSubheader: examSubheader ? String(examSubheader) : null,
-    durationMinutes: Number(durationMinutes) || 180,
+    instructions: resolvedCustomInstructions || null,
+    durationMinutes: resolvedDuration,
     passingScore: passingScore === undefined || passingScore === null || String(passingScore).trim() === "" ? null : Number(passingScore),
     defaultPositiveMarks: Number(defaultPositiveMarks) || 1,
     defaultNegativeMarks: Number(defaultNegativeMarks) || 0,
@@ -410,7 +457,12 @@ router.post("/planner/exam-templates", async (req, res) => {
     showInRegistration: showInRegistration !== false,
     createdBy: auth.userId,
   }).returning();
-  return res.status(201).json({ ...template, sections: JSON.parse(template.sections) });
+  return res.status(201).json({
+    ...template,
+    instructions: mergeTemplateInstructions(template.instructions, template.name, template.durationMinutes),
+    customInstructions: extractCustomTemplateInstructions(template.instructions, template.name, template.durationMinutes),
+    sections: JSON.parse(template.sections),
+  });
 });
 
 router.patch("/planner/exam-templates/:id", async (req, res) => {
@@ -420,7 +472,9 @@ router.patch("/planner/exam-templates/:id", async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   }
   const templateId = Number(req.params.id);
-  const { key, name, description, examHeader, examSubheader, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections, showInRegistration } = req.body;
+  const { key, name, description, examHeader, examSubheader, instructions, customInstructions, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections, showInRegistration } = req.body;
+  const [existingTemplate] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.id, templateId));
+  if (!existingTemplate) return res.status(404).json({ error: "Template not found" });
   const updates: Record<string, unknown> = {};
   if (key !== undefined) updates.key = String(key);
   if (name !== undefined) updates.name = String(name);
@@ -428,6 +482,16 @@ router.patch("/planner/exam-templates/:id", async (req, res) => {
   if (examHeader !== undefined) updates.examHeader = examHeader ? String(examHeader) : null;
   if (examSubheader !== undefined) updates.examSubheader = examSubheader ? String(examSubheader) : null;
   if (durationMinutes !== undefined) updates.durationMinutes = Number(durationMinutes);
+  const nextName = name !== undefined ? String(name) : existingTemplate.name;
+  const nextDuration = durationMinutes !== undefined ? Number(durationMinutes) : existingTemplate.durationMinutes;
+  if (instructions !== undefined || customInstructions !== undefined) {
+    updates.instructions =
+      typeof customInstructions === "string"
+        ? (customInstructions.trim() || null)
+        : typeof instructions === "string"
+          ? (extractCustomTemplateInstructions(instructions, nextName, nextDuration) || null)
+          : null;
+  }
   if (passingScore !== undefined) {
     updates.passingScore = passingScore === null || String(passingScore).trim() === "" ? null : Number(passingScore);
   }
@@ -436,8 +500,12 @@ router.patch("/planner/exam-templates/:id", async (req, res) => {
   if (sections !== undefined) updates.sections = JSON.stringify(sections);
   if (showInRegistration !== undefined) updates.showInRegistration = Boolean(showInRegistration);
   const [template] = await db.update(examTemplatesTable).set(updates).where(eq(examTemplatesTable.id, templateId)).returning();
-  if (!template) return res.status(404).json({ error: "Template not found" });
-  return res.json({ ...template, sections: JSON.parse(template.sections) });
+  return res.json({
+    ...template,
+    instructions: mergeTemplateInstructions(template.instructions, template.name, template.durationMinutes),
+    customInstructions: extractCustomTemplateInstructions(template.instructions, template.name, template.durationMinutes),
+    sections: JSON.parse(template.sections),
+  });
 });
 
 export { router as plannerRouter };

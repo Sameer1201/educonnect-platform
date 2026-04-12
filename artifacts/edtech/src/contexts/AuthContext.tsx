@@ -1,19 +1,18 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { useGetCurrentUser, type User } from "@workspace/api-client-react";
-import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useGetCurrentUser } from "@workspace/api-client-react";
+import type { AuthUser } from "@/types/auth";
 
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   isLoading: boolean;
-  login: (user: User) => void;
+  login: (user: AuthUser) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
+  const [user, setUser] = useState<AuthUser | null>(() => {
     const saved = localStorage.getItem("educonnect_user");
     return saved ? JSON.parse(saved) : null;
   });
@@ -26,15 +25,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (currentUser) {
-      setUser(currentUser);
-      localStorage.setItem("educonnect_user", JSON.stringify(currentUser));
+      const nextUser = currentUser as AuthUser;
+      setUser(nextUser);
+      localStorage.setItem("educonnect_user", JSON.stringify(nextUser));
     } else if (isError) {
       setUser(null);
       localStorage.removeItem("educonnect_user");
     }
   }, [currentUser, isError]);
 
-  const login = (newUser: User) => {
+  const login = (newUser: AuthUser) => {
     setUser(newUser);
     localStorage.setItem("educonnect_user", JSON.stringify(newUser));
   };

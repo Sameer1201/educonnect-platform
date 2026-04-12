@@ -239,7 +239,11 @@ router.post("/subjects/:subjectId/chapters", async (req, res) => {
   }
 
   const { title, description, order } = req.body;
+  const targetQuestions = Number(req.body?.targetQuestions ?? 0);
   if (!title?.trim()) return res.status(400).json({ error: "Title is required" });
+  if (!Number.isFinite(targetQuestions) || targetQuestions < 0) {
+    return res.status(400).json({ error: "Target questions must be zero or more" });
+  }
 
   const [chapter] = await db
     .insert(chaptersTable)
@@ -247,6 +251,7 @@ router.post("/subjects/:subjectId/chapters", async (req, res) => {
       subjectId: context.subject.id,
       title: title.trim(),
       description: description?.trim() ?? null,
+      targetQuestions: Math.max(0, Math.round(targetQuestions)),
       order: order ?? 0,
     })
     .returning();

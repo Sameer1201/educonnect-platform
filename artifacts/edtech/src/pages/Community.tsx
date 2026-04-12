@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardScene, HoloGrid, TiltCard } from "@/components/dashboard-3d";
+import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -75,15 +76,6 @@ function roleLabel(role: string) {
   if (role === "super_admin") return "Super Admin";
   if (role === "admin") return "Teacher";
   return "Student";
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function PostCard({
@@ -212,6 +204,8 @@ function PostCard({
             src={post.imageUrl}
             alt="Post image"
             className="mt-3 max-h-64 rounded-lg object-cover border border-border"
+            loading="lazy"
+            decoding="async"
           />
         )}
       </div>
@@ -251,7 +245,7 @@ function PostCard({
                   </div>
                   <p className="text-sm">{reply.content}</p>
                   {reply.imageUrl && (
-                    <img src={reply.imageUrl} alt="Reply image" className="mt-2 max-h-40 rounded-lg object-cover border border-border" />
+                    <img src={reply.imageUrl} alt="Reply image" className="mt-2 max-h-40 rounded-lg object-cover border border-border" loading="lazy" decoding="async" />
                   )}
                 </div>
               </div>
@@ -326,7 +320,7 @@ export default function Community() {
       toast({ title: "Image too large", description: "Please choose an image under 2MB", variant: "destructive" });
       return;
     }
-    const base64 = await fileToBase64(file);
+    const base64 = await optimizeImageToDataUrl(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.82 });
     if (forReply) setReplyImage(base64);
     else setPostImage(base64);
   };
@@ -455,7 +449,7 @@ export default function Community() {
               />
               {postImage && (
                 <div className="relative inline-block">
-                  <img src={postImage} alt="Preview" className="max-h-40 rounded-lg border border-border object-cover" />
+                  <img src={postImage} alt="Preview" className="max-h-40 rounded-lg border border-border object-cover" decoding="async" />
                   <button
                     className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black/80"
                     onClick={() => setPostImage(null)}
@@ -520,7 +514,7 @@ export default function Community() {
             />
             {replyImage && (
               <div className="relative inline-block">
-                <img src={replyImage} alt="Preview" className="max-h-32 rounded-lg border border-border object-cover" />
+                <img src={replyImage} alt="Preview" className="max-h-32 rounded-lg border border-border object-cover" decoding="async" />
                 <button
                   className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-0.5 hover:bg-black/80"
                   onClick={() => setReplyImage(null)}

@@ -19,6 +19,7 @@ export const questionBankQuestionsTable = pgTable("question_bank_questions", {
   correctAnswerMax: integer("correct_answer_max"),
   answer: text("answer"),
   explanation: text("explanation"),
+  topicTag: text("topic_tag"),
   difficulty: text("difficulty").notNull().default("medium"),
   points: integer("points").notNull().default(1),
   order: integer("order").notNull().default(0),

@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { subjectMovementData } from "@/data/testData";
+import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 
 const subjectIcons: Record<string, React.ReactNode> = {
   physics: (
@@ -32,6 +33,15 @@ const iconBorderColor: Record<string, string> = {
 };
 
 function fallbackIcon(label: string) {
+  if (
+    label.trim().toLowerCase().includes("aptitude") ||
+    label.trim().toLowerCase().includes("technical") ||
+    label.trim().toLowerCase().includes("core") ||
+    label.trim().toLowerCase().includes("engineering math") ||
+    label.trim().toLowerCase().includes("mathematics")
+  ) {
+    return <SubjectSectionIcon label={label} className="w-6 h-6" />;
+  }
   const letter = label.trim().charAt(0).toUpperCase() || "S";
   return (
     <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#5B4DFF] text-xs font-semibold text-white">

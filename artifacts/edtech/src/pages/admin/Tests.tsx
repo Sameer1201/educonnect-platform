@@ -4,17 +4,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
-import * as XLSX from "xlsx";
+import { optimizeImageToDataUrl } from "@/lib/imageUpload";
+import { looksLikeRichHtmlContent, sanitizeRichHtml } from "@/lib/richContent";
 import {
   ClipboardList, Plus, Trash2, CheckCircle2, XCircle, ChevronDown, ChevronRight,
   ToggleLeft, ToggleRight, Clock, BarChart3, ImagePlus, X, Hash, ListChecks, CheckSquare,
-  TrendingUp, Users, Award, Target, PencilLine
+  TrendingUp, Users, Award, Target, PencilLine, Download, Upload
 } from "lucide-react";
 import { format } from "date-fns";
 import { useListClasses } from "@workspace/api-client-react";
@@ -27,6 +30,21 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type QuestionType = "mcq" | "multi" | "integer";
 type ExamType = string;
+
+function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
+  const safeName = templateName.trim() || "the examination";
+  const safeDuration = Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 180;
+  return [
+    `The duration of ${safeName} is ${safeDuration} minutes. The countdown timer at the top right-hand corner of your screen displays the remaining time.`,
+    "When the timer reaches zero, the test will be submitted automatically.",
+    "Read every question carefully before selecting or entering your response.",
+    "Use Save & Next to save the current response and move ahead.",
+    "Use Mark for Review & Next when you want to revisit a question before final submission.",
+    "You can jump to any question from the question palette without losing the current screen context.",
+    "Use Clear Response to remove the selected answer from the current question.",
+    "MCQ uses single selection, MSQ uses multiple selections, and integer questions require a numeric answer.",
+  ].join("\n");
+}
 
 interface SectionDraft {
   id: string;
@@ -43,6 +61,8 @@ interface QuestionDraftState {
   questionType: QuestionType;
   question: string;
   imageData: string | null;
+  solutionText: string;
+  solutionImageData: string | null;
   options: string[];
   optionImages: (string | null)[];
   correctAnswer: number;
@@ -60,10 +80,6 @@ interface QuestionDraftState {
   points: string;
   negativeMarks: string;
   sourceType: string;
-}
-
-interface BulkRowRecord {
-  [key: string]: string | number | null | undefined;
 }
 
 interface Test {
@@ -87,6 +103,8 @@ interface Question {
   correctAnswer: number; correctAnswerMulti: number[] | null;
   correctAnswerMin?: number | null; correctAnswerMax?: number | null;
   points: number; negativeMarks?: number | null; order: number; imageData?: string | null; meta?: Record<string, unknown> | null;
+  solutionText?: string | null;
+  solutionImageData?: string | null;
 }
 interface TestSection {
   id: number;
@@ -107,6 +125,8 @@ interface ExamTemplate {
   description?: string | null;
   examHeader?: string | null;
   examSubheader?: string | null;
+  instructions?: string | null;
+  customInstructions?: string | null;
   durationMinutes: number;
   passingScore: number | null;
   defaultPositiveMarks: number;
@@ -120,6 +140,19 @@ interface ExamTemplate {
     negativeMarks?: number | null;
     preferredQuestionType?: QuestionType;
   }>;
+}
+
+function isHtmlImportedExamConfig(value: unknown) {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      return Boolean(parsed?.importedFromHtml);
+    } catch {
+      return false;
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Boolean((value as Record<string, unknown>).importedFromHtml);
 }
 interface Analytics {
   test: { id: number; title: string; passingScore: number | null };
@@ -138,6 +171,280 @@ interface Analytics {
     id: number; studentName: string; studentUsername: string;
     score: number; totalPoints: number; percentage: number; passed: boolean; submittedAt: string;
   }[];
+}
+
+interface ExportedTestBundle {
+  version: number;
+  exportedAt: string;
+  source?: {
+    testId: number;
+    title: string;
+    examType?: string | null;
+  };
+  test: {
+    title: string;
+    description?: string | null;
+    examType?: string | null;
+    examHeader?: string | null;
+    examSubheader?: string | null;
+    instructions?: string | null;
+    examConfig?: Record<string, unknown> | null;
+    durationMinutes?: number;
+    passingScore?: number | null;
+    defaultPositiveMarks?: number | null;
+    defaultNegativeMarks?: number | null;
+    scheduledAt?: string | null;
+    sections: Array<Record<string, unknown>>;
+    questions: Array<Record<string, unknown>>;
+  };
+}
+
+function normalizeImportedText(value: string) {
+  return value
+    .replace(/\u00a0/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function extractReadableText(element: Element | null, options?: { stripOptionPrefix?: boolean }) {
+  if (!element || typeof document === "undefined") return "";
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("input, summary, script, style").forEach((node) => node.remove());
+  clone.querySelectorAll("img").forEach((img) => {
+    img.replaceWith(document.createTextNode(" "));
+  });
+  const rawText = normalizeImportedText(clone.textContent || "");
+  return options?.stripOptionPrefix ? rawText.replace(/^[A-D]\.\s*/i, "").trim() : rawText;
+}
+
+function extractRichImportHtml(element: Element | null) {
+  if (!element || typeof document === "undefined") return "";
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("input, summary, script, style").forEach((node) => node.remove());
+  if (!clone.querySelector("img, sup, sub")) return "";
+  const sanitized = sanitizeRichHtml(clone.innerHTML);
+  return looksLikeRichHtmlContent(sanitized) ? sanitized : "";
+}
+
+function extractFirstImageSource(element: Element | null) {
+  if (!element) return null;
+  const images = Array.from(element.querySelectorAll("img"));
+  for (const image of images) {
+    const src = image.getAttribute("src")?.trim() || "";
+    if (src) return src;
+  }
+  return null;
+}
+
+function normalizeImportedSectionTitle(value: string, options?: { gateImport?: boolean }) {
+  const cleaned = normalizeImportedText(value) || "Imported Section";
+  const normalized = cleaned.toLowerCase();
+  if (normalized.includes("general aptitude")) return "General Aptitude";
+  if (options?.gateImport) return "Technical";
+  return cleaned;
+}
+
+function inferImportedDifficulty(tags: string[]): "easy" | "moderate" | "tough" {
+  const combined = tags.join(" ").toLowerCase();
+  if (combined.includes("expert") || combined.includes("advanced") || combined.includes("hard")) return "tough";
+  if (combined.includes("easy")) return "easy";
+  return "moderate";
+}
+
+function defaultIdealTimeSeconds(difficulty: "easy" | "moderate" | "tough") {
+  if (difficulty === "easy") return 60;
+  if (difficulty === "tough") return 180;
+  return 90;
+}
+
+function toImportedQuestionType(value: string | null): QuestionType {
+  const normalized = value?.trim().toUpperCase();
+  if (normalized === "MSQ" || normalized === "MULTI") return "multi";
+  if (normalized === "NAT" || normalized === "INTEGER") return "integer";
+  return "mcq";
+}
+
+function answerLettersToIndices(value: string | null) {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((entry) => entry.trim().toUpperCase())
+    .filter(Boolean)
+    .map((entry) => entry.charCodeAt(0) - 65)
+    .filter((entry) => entry >= 0);
+}
+
+async function parseSavedHtmlTestImport(file: File): Promise<ExportedTestBundle> {
+  const html = await file.text();
+  const documentParser = new DOMParser().parseFromString(html, "text/html");
+  const cards = Array.from(documentParser.querySelectorAll("section.card.qcard"));
+  if (!cards.length) throw new Error("No importable questions found in the HTML file.");
+
+  const rawTitle =
+    normalizeImportedText(documentParser.querySelector("title")?.textContent || "") ||
+    file.name.replace(/\.(html?|json)$/i, "").trim() ||
+    "Imported Test";
+  const gateImport = /gate/i.test(rawTitle) || /gate/i.test(file.name);
+  const durationSeconds = Number(documentParser.querySelector("#timerWrap")?.getAttribute("data-duration") || 0);
+  const durationMinutes = durationSeconds > 0 ? Math.max(1, Math.round(durationSeconds / 60)) : 180;
+
+  const sections = new Map<
+    string,
+    {
+      exportRef: string;
+      title: string;
+      questionCount: number;
+      marks: Set<number>;
+      negatives: Set<number>;
+      typeCounts: Record<QuestionType, number>;
+      order: number;
+    }
+  >();
+
+  const questions: ExportedTestBundle["test"]["questions"] = [];
+
+  for (const [index, card] of cards.entries()) {
+    const questionNumber = Number(card.getAttribute("data-qnum") || index + 1);
+    const questionType = toImportedQuestionType(card.getAttribute("data-qtype"));
+    const tags = normalizeImportedText(card.querySelector(".tags")?.textContent || "")
+      .split("•")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const sectionTitle = normalizeImportedSectionTitle(tags[0] || "Imported Section", { gateImport });
+    const sectionKey = sectionTitle.toLowerCase();
+    if (!sections.has(sectionKey)) {
+      sections.set(sectionKey, {
+        exportRef: `section-${sections.size + 1}`,
+        title: sectionTitle,
+        questionCount: 0,
+        marks: new Set<number>(),
+        negatives: new Set<number>(),
+        typeCounts: { mcq: 0, multi: 0, integer: 0 },
+        order: sections.size,
+      });
+    }
+    const section = sections.get(sectionKey)!;
+
+    const qtext = card.querySelector(".qtext");
+    const questionRichHtml = extractRichImportHtml(qtext);
+    const questionText = questionRichHtml || extractReadableText(qtext) || `Imported question ${questionNumber}`;
+    const questionImageData = !questionRichHtml ? extractFirstImageSource(qtext) : null;
+
+    const optionNodes = Array.from(card.querySelectorAll(".opts label.opt"));
+    const options = optionNodes.map((node) => extractReadableText(node.querySelector("div") ?? node, { stripOptionPrefix: true }));
+    const optionImages = optionNodes.map((node) => extractFirstImageSource(node.querySelector("div") ?? node));
+
+    const difficulty = inferImportedDifficulty(tags);
+    const negativeMarks = Number(card.getAttribute("data-wrong") || 0) || 0;
+    const points = Number(card.getAttribute("data-right") || 1) || 1;
+
+    const solutionRoot = card.querySelector("details.solution");
+    const solutionClone = solutionRoot?.cloneNode(true) as HTMLElement | null;
+    solutionClone?.querySelector("summary")?.remove();
+    const solutionRichHtml = extractRichImportHtml(solutionClone);
+    const solutionText = solutionRichHtml || extractReadableText(solutionClone);
+    const solutionImageData = !solutionRichHtml ? extractFirstImageSource(solutionClone) : null;
+
+    const correctLetters = answerLettersToIndices(card.getAttribute("data-correct"));
+    const questionRecord: Record<string, unknown> = {
+      question: questionText,
+      questionType,
+      sectionRef: section.exportRef,
+      questionCode: `Q${String(questionNumber).padStart(2, "0")}`,
+      sourceType: "html-import",
+      subjectLabel: section.title,
+      options: questionType === "integer" ? [] : options,
+      optionImages: questionType === "integer" || optionImages.every((entry) => !entry) ? [] : optionImages,
+      points,
+      negativeMarks,
+      meta: {
+        difficulty,
+        estimatedTimeSeconds: defaultIdealTimeSeconds(difficulty),
+        importedTags: tags,
+        importedQuestionNumber: questionNumber,
+        importedSourceFile: file.name,
+      },
+      solutionText: solutionText || null,
+      solutionImageData,
+      order: index,
+      imageData: questionImageData,
+    };
+
+    if (questionType === "mcq") {
+      questionRecord.correctAnswer = correctLetters[0] ?? 0;
+    } else if (questionType === "multi") {
+      questionRecord.correctAnswerMulti = correctLetters;
+    } else {
+      const low = card.getAttribute("data-nat-low");
+      const high = card.getAttribute("data-nat-high");
+      if (low && high && Number(low) !== Number(high)) {
+        questionRecord.correctAnswerMin = Number(low);
+        questionRecord.correctAnswerMax = Number(high);
+      } else {
+        questionRecord.correctAnswer = low && low.trim() ? Number(low) : Number(card.querySelector(".answerline b")?.textContent || 0);
+      }
+    }
+
+    questions.push(questionRecord);
+    section.questionCount += 1;
+    section.marks.add(points);
+    section.negatives.add(negativeMarks);
+    section.typeCounts[questionType] += 1;
+  }
+
+  const exportedSections = Array.from(sections.values())
+    .sort((left, right) => left.order - right.order)
+    .map((section) => {
+      const preferredQuestionType = (Object.entries(section.typeCounts)
+        .sort((left, right) => right[1] - left[1])[0]?.[0] ?? "mcq") as QuestionType;
+      return {
+        exportRef: section.exportRef,
+        title: section.title,
+        description: null,
+        subjectLabel: section.title,
+        questionCount: section.questionCount,
+        marksPerQuestion: section.marks.size === 1 ? Array.from(section.marks)[0] : null,
+        negativeMarks: section.negatives.size === 1 ? Array.from(section.negatives)[0] : null,
+        meta: {
+          preferredQuestionType,
+          importedFromHtml: true,
+        },
+        order: section.order,
+      };
+    });
+
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    source: {
+      testId: 0,
+      title: rawTitle,
+      examType: "custom",
+    },
+    test: {
+      title: rawTitle,
+      description: `Imported from saved HTML: ${file.name}`,
+      examType: "custom",
+      examHeader: rawTitle,
+      examSubheader: "Imported",
+      instructions: null,
+      examConfig: {
+        importedFromHtml: true,
+        sourceFile: file.name,
+      },
+      durationMinutes,
+      passingScore: null,
+      defaultPositiveMarks: null,
+      defaultNegativeMarks: null,
+      scheduledAt: null,
+      sections: exportedSections,
+      questions,
+    },
+  };
 }
 
 const PIE_COLORS = ["#22c55e", "#ef4444"];
@@ -236,6 +543,7 @@ const FALLBACK_TEMPLATES: ExamTemplate[] = Object.entries(EXAM_PRESETS).map(([ke
   description: null,
   examHeader: preset.label.toUpperCase(),
   examSubheader: `${preset.label} Mock Assessment`,
+  instructions: getDefaultTemplateInstructions(preset.label, Number(preset.duration)),
   durationMinutes: Number(preset.duration),
   passingScore: Number(preset.passing),
   defaultPositiveMarks: Number(preset.positive),
@@ -256,54 +564,8 @@ function makeSectionDraft(input?: Partial<SectionDraft>): SectionDraft {
   };
 }
 
-function normalizeBulkKey(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-}
-
-function normalizeBulkRow(row: Record<string, unknown>): BulkRowRecord {
-  return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => {
-      if (typeof value === "string") return [normalizeBulkKey(key), value.trim()];
-      if (value == null) return [normalizeBulkKey(key), ""];
-      return [normalizeBulkKey(key), value];
-    }),
-  );
-}
-
-function getBulkValue(row: BulkRowRecord, keys: string[]) {
-  for (const key of keys) {
-    const value = row[normalizeBulkKey(key)];
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  }
-  return "";
-}
-
-function parseAnswerIndex(value: string, optionsLength: number) {
-  const cleaned = value.trim().toUpperCase();
-  if (!cleaned) return 0;
-  const numeric = Number(cleaned);
-  if (Number.isFinite(numeric) && numeric > 0) return Math.max(0, Math.min(optionsLength - 1, numeric - 1));
-  const alpha = cleaned.replace(/OPTION\s*/g, "");
-  const code = alpha.charCodeAt(0);
-  if (code >= 65 && code <= 90) return Math.max(0, Math.min(optionsLength - 1, code - 65));
-  return 0;
-}
-
-function parseMultiAnswerIndices(value: string, optionsLength: number) {
-  return value
-    .split(/[,\s/|;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => parseAnswerIndex(item, optionsLength))
-    .filter((item, index, list) => list.indexOf(item) === index);
-}
-
-function parseBulkDifficulty(value: string): "easy" | "moderate" | "tough" {
-  const cleaned = value.trim().toLowerCase();
-  if (cleaned.startsWith("e")) return "easy";
-  if (cleaned.startsWith("t") || cleaned.startsWith("h")) return "tough";
-  return "moderate";
+function minutesFromSeconds(seconds: number) {
+  return String(Number((seconds / 60).toFixed(2)));
 }
 
 export default function AdminTests() {
@@ -315,6 +577,7 @@ export default function AdminTests() {
   const [newTitle, setNewTitle] = useState("");
   const [newExamHeader, setNewExamHeader] = useState("");
   const [newExamSubheader, setNewExamSubheader] = useState("");
+  const [newCustomInstructions, setNewCustomInstructions] = useState("");
   const [newDuration, setNewDuration] = useState("30");
   const [newPassing, setNewPassing] = useState("60");
   const [newDefaultPositiveMarks, setNewDefaultPositiveMarks] = useState("1");
@@ -327,11 +590,13 @@ export default function AdminTests() {
   const [sectionsMap, setSectionsMap] = useState<Record<number, TestSection[]>>({});
   const [activeSectionByTest, setActiveSectionByTest] = useState<Record<number, number>>({});
   const [draftsBySection, setDraftsBySection] = useState<Record<string, QuestionDraftState[]>>({});
-  const [bulkImportingKey, setBulkImportingKey] = useState<string | null>(null);
+  const [exportingTestId, setExportingTestId] = useState<number | null>(null);
   const [analyticsTest, setAnalyticsTest] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<{ testId: number; question: Question } | null>(null);
   const [editDraft, setEditDraft] = useState<QuestionDraftState | null>(null);
+  const [editTestMeta, setEditTestMeta] = useState<{ id: number; title: string; examType: string } | null>(null);
+  const importTestInputRef = useRef<HTMLInputElement>(null);
 
   const [addQOpen, setAddQOpen] = useState<number | null>(null);
   const [qSectionId, setQSectionId] = useState<string>("");
@@ -382,6 +647,7 @@ export default function AdminTests() {
     if (!template) return;
     setNewExamHeader(template.examHeader ?? template.name);
     setNewExamSubheader(template.examSubheader ?? `${template.name} Mock Assessment`);
+    setNewCustomInstructions(template.customInstructions?.trim() || "");
     setNewDuration(String(template.durationMinutes));
     setNewPassing(template.passingScore == null ? "" : String(template.passingScore));
     setNewDefaultPositiveMarks(String(template.defaultPositiveMarks));
@@ -469,6 +735,8 @@ export default function AdminTests() {
       questionType,
       question: "",
       imageData: null,
+      solutionText: "",
+      solutionImageData: null,
       options: ["", "", "", ""],
       optionImages: [null, null, null, null],
       correctAnswer: 0,
@@ -510,6 +778,8 @@ export default function AdminTests() {
       questionType: question.questionType,
       question: question.question ?? "",
       imageData: question.imageData ?? null,
+      solutionText: question.solutionText ?? "",
+      solutionImageData: question.solutionImageData ?? null,
       options,
       optionImages,
       correctAnswer: question.correctAnswer ?? 0,
@@ -541,6 +811,18 @@ export default function AdminTests() {
     const used = (questionsMap[testId] ?? []).filter((question) => question.sectionId === section.id).length;
     const target = section.questionCount ?? 0;
     return Math.max(0, target - used);
+  };
+
+  const getUsedSlots = (testId: number, section: TestSection) => {
+    return (questionsMap[testId] ?? []).filter((question) => question.sectionId === section.id).length;
+  };
+
+  const getSectionMetrics = (testId: number, section: TestSection) => {
+    const used = getUsedSlots(testId, section);
+    const total = section.questionCount ?? used;
+    const left = Math.max(0, total - used);
+    const progress = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+    return { used, total, left, progress };
   };
 
   const ensureSectionDrafts = (testId: number, test: Test, section: TestSection) => {
@@ -587,23 +869,15 @@ export default function AdminTests() {
     }));
   };
 
-  const readImageAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("Failed to read image"));
-      reader.readAsDataURL(file);
-    });
-
   const handleDraftQuestionImage = async (testId: number, sectionId: number, index: number, file?: File | null) => {
     if (!file) return;
-    const dataUrl = await readImageAsDataUrl(file);
+    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1800, maxHeight: 1800, quality: 0.82 });
     updateDraft(testId, sectionId, index, { imageData: dataUrl });
   };
 
   const handleDraftOptionImage = async (testId: number, sectionId: number, index: number, optionIndex: number, file?: File | null) => {
     if (!file) return;
-    const dataUrl = await readImageAsDataUrl(file);
+    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.82 });
     const key = getBuilderKey(testId, sectionId);
     setDraftsBySection((prev) => ({
       ...prev,
@@ -641,13 +915,13 @@ export default function AdminTests() {
 
   const handleEditQuestionImage = async (file?: File | null) => {
     if (!file) return;
-    const dataUrl = await readImageAsDataUrl(file);
+    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1800, maxHeight: 1800, quality: 0.82 });
     updateEditDraft({ imageData: dataUrl });
   };
 
   const handleEditOptionImage = async (optionIndex: number, file?: File | null) => {
     if (!file) return;
-    const dataUrl = await readImageAsDataUrl(file);
+    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.82 });
     setEditDraft((prev) => {
       if (!prev) return prev;
       const nextOptionImages = [...prev.optionImages];
@@ -682,6 +956,8 @@ export default function AdminTests() {
       points: parseFloat(draft.points) || 1,
       negativeMarks: parseFloat(draft.negativeMarks) || 0,
       imageData: draft.imageData || null,
+      solutionText: draft.solutionText.trim() || null,
+      solutionImageData: draft.solutionImageData || null,
       meta: {
         examType: test.examType ?? "custom",
         chapterLinked: false,
@@ -703,170 +979,14 @@ export default function AdminTests() {
     } else {
       body.options = [];
       if (draft.integerMode === "range") {
-        body.correctAnswerMin = parseInt(draft.correctIntegerMin);
-        body.correctAnswerMax = parseInt(draft.correctIntegerMax);
+        body.correctAnswerMin = parseFloat(draft.correctIntegerMin);
+        body.correctAnswerMax = parseFloat(draft.correctIntegerMax);
       } else {
-        body.correctAnswer = parseInt(draft.correctInteger) || 0;
+        body.correctAnswer = parseFloat(draft.correctInteger) || 0;
       }
     }
 
     return body;
-  };
-
-  const buildBulkQuestionPayload = (row: BulkRowRecord, section: TestSection, test: Test, testId: number, rowIndex: number) => {
-    const preferredType = (section.meta as Record<string, unknown> | null)?.preferredQuestionType;
-    const questionType: QuestionType =
-      preferredType === "mcq" || preferredType === "multi" || preferredType === "integer" ? preferredType : "mcq";
-
-    const difficulty = parseBulkDifficulty(
-      getBulkValue(row, ["difficulty", "level"]),
-    );
-    const idealTimeMinutes = getBulkValue(row, ["ideal_time", "ideal_time_minutes", "ideal_time_min", "time"]);
-    const questionCodeBase = `${generateQuestionCode(section, testId).replace(/\d+$/, "")}${String(rowIndex + 1).padStart(2, "0")}`;
-    const question = getBulkValue(row, ["question", "question_text", "prompt"]);
-    const questionImage = getBulkValue(row, ["question_image", "question_image_url", "image", "image_url"]);
-    const chapterName = getBulkValue(row, ["chapter", "chapter_name", "chapter_label"]);
-    const topicTag = getBulkValue(row, ["topic", "topic_tag", "concept", "concept_tag"]);
-    const sourceType = getBulkValue(row, ["source_type", "source"]) || "excel";
-    const points = getBulkValue(row, ["marks", "points", "marks_per_question"]) || String(section.marksPerQuestion ?? test.defaultPositiveMarks ?? 1);
-    const negativeMarks = getBulkValue(row, ["negative_marks", "negative", "minus_marks"]) || String(section.negativeMarks ?? test.defaultNegativeMarks ?? 0);
-
-    const optionSlots = ["a", "b", "c", "d", "e", "f"].map((letter) => ({
-      text: getBulkValue(row, [`option_${letter}`, `opt_${letter}`, letter]),
-      image:
-        getBulkValue(row, [
-          `option_${letter}_image`,
-          `option_${letter.toUpperCase()}_image`,
-          `opt_${letter}_image`,
-        ]) || null,
-    }));
-    const lastFilledOptionIndex = optionSlots.reduce((lastIndex, slot, index) => (
-      slot.text || slot.image ? index : lastIndex
-    ), -1);
-    const normalizedOptionSlots = optionSlots.slice(0, Math.max(4, lastFilledOptionIndex + 1));
-    const options = normalizedOptionSlots.map((slot) => slot.text);
-    const optionImages = normalizedOptionSlots.map((slot) => slot.image);
-
-    const payload: any = {
-      question,
-      questionType,
-      sectionId: section.id,
-      questionCode: getBulkValue(row, ["question_code", "code"]) || questionCodeBase,
-      sourceType,
-      subjectLabel: section.subjectLabel ?? section.title,
-      points: parseFloat(points) || 1,
-      negativeMarks: parseFloat(negativeMarks) || 0,
-      imageData: questionImage || null,
-      meta: {
-        examType: test.examType ?? "custom",
-        chapterLinked: false,
-        difficulty,
-        chapterName: chapterName || null,
-        topicTag: topicTag || null,
-        estimatedTimeSeconds: Math.round((parseFloat(idealTimeMinutes || getIdealTimeForDifficulty(difficulty)) || 0) * 60),
-      },
-    };
-
-    if (questionType === "mcq") {
-      const validOptions = options.length > 0 ? options : ["", "", "", ""];
-      if (!validOptions.some((option, index) => option.trim() || optionImages[index])) {
-        throw new Error(`Row ${rowIndex + 2}: MCQ row me options missing hain`);
-      }
-      payload.options = validOptions;
-      if (optionImages.some(Boolean)) payload.optionImages = optionImages;
-      payload.correctAnswer = parseAnswerIndex(getBulkValue(row, ["correct_answer", "answer", "correct"]), validOptions.length);
-    } else if (questionType === "multi") {
-      const validOptions = options.length > 0 ? options : ["", "", "", ""];
-      if (!validOptions.some((option, index) => option.trim() || optionImages[index])) {
-        throw new Error(`Row ${rowIndex + 2}: Multi row me options missing hain`);
-      }
-      payload.options = validOptions;
-      if (optionImages.some(Boolean)) payload.optionImages = optionImages;
-      payload.correctAnswerMulti = parseMultiAnswerIndices(
-        getBulkValue(row, ["correct_answers", "correct_answer", "answer", "correct"]),
-        validOptions.length,
-      );
-    } else {
-      payload.options = [];
-      const rangeMin = getBulkValue(row, ["correct_min", "min_answer", "answer_min"]);
-      const rangeMax = getBulkValue(row, ["correct_max", "max_answer", "answer_max"]);
-      if (rangeMin && rangeMax) {
-        payload.correctAnswerMin = Number(rangeMin);
-        payload.correctAnswerMax = Number(rangeMax);
-      } else {
-        payload.correctAnswer = Number(getBulkValue(row, ["correct_answer", "answer", "correct"]) || 0);
-      }
-    }
-
-    return payload;
-  };
-
-  const handleBulkQuestionImport = async (test: Test, section: TestSection, file?: File | null) => {
-    if (!file) return;
-    const sectionKey = getBuilderKey(test.id, section.id);
-    const remaining = getRemainingSlots(test.id, section);
-    if (remaining <= 0) {
-      toast({ title: "Section already filled", description: "Is section ke saare slots already complete hain." });
-      return;
-    }
-
-    setBulkImportingKey(sectionKey);
-    try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const firstSheetName = workbook.SheetNames[0];
-      if (!firstSheetName) throw new Error("Sheet empty hai");
-
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheetName], { defval: "" });
-      const rows = rawRows.map(normalizeBulkRow).filter((row) => {
-        const question = getBulkValue(row, ["question", "question_text", "prompt"]);
-        const image = getBulkValue(row, ["question_image", "question_image_url", "image", "image_url"]);
-        return Boolean(question || image);
-      });
-      if (rows.length === 0) throw new Error("Excel me koi valid question row nahi mili");
-
-      const limitedRows = rows.slice(0, remaining);
-      const createdQuestions: Question[] = [];
-
-      for (let rowIndex = 0; rowIndex < limitedRows.length; rowIndex += 1) {
-        const payload = buildBulkQuestionPayload(limitedRows[rowIndex], section, test, test.id, rowIndex);
-        const response = await fetch(`${BASE}/api/tests/${test.id}/questions`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-          const message = await response.text();
-          throw new Error(`Row ${rowIndex + 2}: ${message || "Failed to import question"}`);
-        }
-        createdQuestions.push(await response.json());
-      }
-
-      setQuestionsMap((prev) => ({
-        ...prev,
-        [test.id]: [...(prev[test.id] ?? []), ...createdQuestions],
-      }));
-
-      toast({
-        title: "Excel import complete",
-        description: `${createdQuestions.length} question${createdQuestions.length === 1 ? "" : "s"} ${section.subjectLabel ?? section.title} me add ho gaye.`,
-      });
-
-      if (rows.length > remaining) {
-        toast({
-          title: "Some rows skipped",
-          description: `${rows.length - remaining} extra row slots se zyada thi, isliye import nahi hui.`,
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Excel import failed",
-        description: error instanceof Error ? error.message : "Sheet parse nahi ho payi",
-        variant: "destructive",
-      });
-    } finally {
-      setBulkImportingKey(null);
-    }
   };
 
   const difficultyTone: Record<"easy" | "moderate" | "tough", string> = {
@@ -898,7 +1018,7 @@ export default function AdminTests() {
           examType: newExamType,
           examHeader: newExamHeader.trim() || null,
           examSubheader: newExamSubheader.trim() || null,
-          instructions: null,
+          instructions: newCustomInstructions.trim() || null,
           durationMinutes: parseInt(newDuration) || 30,
           passingScore: newPassing.trim() ? parseInt(newPassing) : null,
           defaultPositiveMarks: parseFloat(newDefaultPositiveMarks) || 1,
@@ -930,10 +1050,36 @@ export default function AdminTests() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
-      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setSectionDrafts([makeSectionDraft()]);
+      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setSectionDrafts([makeSectionDraft()]);
       toast({ title: "Test created" });
     },
     onError: (error: Error) => toast({ title: "Failed to create test", description: error.message, variant: "destructive" }),
+  });
+
+  const importTestMutation = useMutation({
+    mutationFn: async (bundle: ExportedTestBundle) => {
+      const r = await fetch(`${BASE}/api/tests/import`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle),
+      });
+      if (!r.ok) {
+        const message = await r.text();
+        throw new Error(message || "Failed to import test");
+      }
+      return r.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      toast({
+        title: "Test imported",
+        description: `${data.title} is ready as a draft with ${data.sectionCount} sections and ${data.questionCount} questions.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Import failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const togglePublish = useMutation({
@@ -949,6 +1095,60 @@ export default function AdminTests() {
     mutationFn: async (id: number) => { await fetch(`${BASE}/api/tests/${id}`, { method: "DELETE", credentials: "include" }); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-tests"] }); toast({ title: "Test deleted" }); },
   });
+
+  const slugifyFilename = (value: string) =>
+    value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "test";
+
+  const handleExportTest = async (test: Test) => {
+    setExportingTestId(test.id);
+    try {
+      const response = await fetch(`${BASE}/api/tests/${test.id}/export`, { credentials: "include" });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to export test");
+      }
+      const bundle = await response.json();
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${slugifyFilename(test.title)}-test-export.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+      toast({ title: "Test exported", description: `${test.title} JSON bundle downloaded.` });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "The test bundle could not be downloaded.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingTestId(null);
+    }
+  };
+
+  const handleImportTestFile = async (file?: File | null) => {
+    if (!file) return;
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      const parsed =
+        extension === "html" || extension === "htm" || file.type.includes("html")
+          ? await parseSavedHtmlTestImport(file)
+          : (JSON.parse(await file.text()) as ExportedTestBundle);
+      if (!parsed?.test || !parsed?.test?.title || !Array.isArray(parsed?.test?.sections) || !Array.isArray(parsed?.test?.questions)) {
+        throw new Error("Invalid test export file");
+      }
+      importTestMutation.mutate(parsed);
+    } catch (error) {
+      toast({
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "The selected file could not be parsed.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const addQuestionMutation = useMutation({
     mutationFn: async ({ testId, body }: { testId: number; body: any }) => {
@@ -996,6 +1196,60 @@ export default function AdminTests() {
   const deleteQuestionMutation = useMutation({
     mutationFn: async ({ testId, qid }: { testId: number; qid: number }) => { await fetch(`${BASE}/api/tests/${testId}/questions/${qid}`, { method: "DELETE", credentials: "include" }); },
     onSuccess: (_, { testId, qid }) => { setQuestionsMap((prev) => ({ ...prev, [testId]: (prev[testId] ?? []).filter((q) => q.id !== qid) })); toast({ title: "Question removed" }); },
+  });
+
+  const updateTestMetaMutation = useMutation({
+    mutationFn: async ({ id, title, examType }: { id: number; title: string; examType: string }) => {
+      const response = await fetch(`${BASE}/api/tests/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), examType }),
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to update test");
+      }
+      return response.json();
+    },
+    onSuccess: async (updatedTest) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      if (updatedTest?.id) {
+        const shouldRefreshDetail = isHtmlImportedExamConfig(updatedTest.examConfig);
+        if (shouldRefreshDetail) {
+          const detailResponse = await fetch(`${BASE}/api/tests/${updatedTest.id}`, { credentials: "include" });
+          if (detailResponse.ok) {
+            const detail = await detailResponse.json();
+            setSectionsMap((prev) => ({ ...prev, [updatedTest.id]: detail.sections ?? [] }));
+            setQuestionsMap((prev) => ({ ...prev, [updatedTest.id]: detail.questions ?? prev[updatedTest.id] ?? [] }));
+            setActiveSectionByTest((prev) => ({
+              ...prev,
+              [updatedTest.id]: detail.sections?.[0]?.id ?? prev[updatedTest.id],
+            }));
+          } else {
+            setSectionsMap((prev) => ({ ...prev, [updatedTest.id]: updatedTest.sections ?? [] }));
+            setActiveSectionByTest((prev) => ({
+              ...prev,
+              [updatedTest.id]: updatedTest.sections?.[0]?.id ?? prev[updatedTest.id],
+            }));
+          }
+        } else {
+          setSectionsMap((prev) => ({ ...prev, [updatedTest.id]: updatedTest.sections ?? [] }));
+          setActiveSectionByTest((prev) => ({
+            ...prev,
+            [updatedTest.id]: updatedTest.sections?.[0]?.id ?? prev[updatedTest.id],
+          }));
+        }
+        setDraftsBySection((prev) =>
+          Object.fromEntries(Object.entries(prev).filter(([key]) => !key.startsWith(`${updatedTest.id}:`))),
+        );
+      }
+      setEditTestMeta(null);
+      toast({ title: "Test updated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to update test", description: error.message, variant: "destructive" });
+    },
   });
 
   const resetQuestionForm = () => {
@@ -1049,12 +1303,15 @@ export default function AdminTests() {
     ensureSectionDrafts(expandedTest, test, activeSection);
   }, [expandedTest, tests, sectionsMap, questionsMap, activeSectionByTest]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast({ title: "Image too large", description: "Max 5MB", variant: "destructive" }); return; }
-    const reader = new FileReader();
-    reader.onload = () => setQImageData(reader.result as string);
-    reader.readAsDataURL(file); e.target.value = "";
+    try {
+      setQImageData(await optimizeImageToDataUrl(file, { maxWidth: 1800, maxHeight: 1800, quality: 0.82 }));
+    } catch {
+      toast({ title: "Image upload failed", description: "Could not process image", variant: "destructive" });
+    }
+    e.target.value = "";
   };
 
   const toggleMultiOption = (i: number) => {
@@ -1067,25 +1324,27 @@ export default function AdminTests() {
     if (qType === "multi") return qOptions.every((o) => o.trim()) && qCorrectMulti.length >= 1;
     if (qType === "integer") {
       if (qIntegerMode === "range") {
-        return qCorrectIntMin.trim() !== "" && !isNaN(parseInt(qCorrectIntMin)) &&
-               qCorrectIntMax.trim() !== "" && !isNaN(parseInt(qCorrectIntMax)) &&
-               parseInt(qCorrectIntMin) <= parseInt(qCorrectIntMax);
+        return qCorrectIntMin.trim() !== "" && !isNaN(parseFloat(qCorrectIntMin)) &&
+               qCorrectIntMax.trim() !== "" && !isNaN(parseFloat(qCorrectIntMax)) &&
+               parseFloat(qCorrectIntMin) <= parseFloat(qCorrectIntMax);
       }
-      return qCorrectInt.trim() !== "" && !isNaN(parseInt(qCorrectInt));
+      return qCorrectInt.trim() !== "" && !isNaN(parseFloat(qCorrectInt));
     }
     return false;
   };
 
-  const handleOptionImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOptionImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast({ title: "Image too large", description: "Max 5MB", variant: "destructive" }); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.82 });
       const idx = activeOptIdxRef.current;
       if (idx < 0) return;
-      setQOptionImages((prev) => { const n = [...prev]; n[idx] = reader.result as string; return n; });
-    };
-    reader.readAsDataURL(file); e.target.value = "";
+      setQOptionImages((prev) => { const n = [...prev]; n[idx] = dataUrl; return n; });
+    } catch {
+      toast({ title: "Image upload failed", description: "Could not process image", variant: "destructive" });
+    }
+    e.target.value = "";
   };
 
   const activeEditTest = editingQuestion ? tests.find((test) => test.id === editingQuestion.testId) ?? null : null;
@@ -1129,11 +1388,33 @@ export default function AdminTests() {
           </div>
           <div className="rounded-3xl border border-[#E5E7EB] bg-[#FFFFFF] p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#6B7280]">Quick Launch</p>
-            <p className="mt-2 text-sm text-[#6B7280]">Create a new planner-structured test.</p>
-            <Button onClick={() => setCreateOpen(true)} className="mt-4 w-full bg-[#5B4DFF] text-white hover:bg-[#4C3FF0]" data-testid="button-create-test">
-              <Plus size={15} className="mr-2" />
-              Create Test
-            </Button>
+            <p className="mt-2 text-sm text-[#6B7280]">Create a new planner-structured test or import a saved JSON or HTML test file.</p>
+            <div className="mt-4 space-y-2">
+              <Button onClick={() => setCreateOpen(true)} className="w-full bg-[#5B4DFF] text-white hover:bg-[#4C3FF0]" data-testid="button-create-test">
+                <Plus size={15} className="mr-2" />
+                Create Test
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-[#E5E7EB] text-[#111827] hover:border-[#5B4DFF] hover:bg-[#EEF2FF] hover:text-[#5B4DFF]"
+                disabled={importTestMutation.isPending}
+                onClick={() => importTestInputRef.current?.click()}
+              >
+                <Upload size={15} className="mr-2" />
+                {importTestMutation.isPending ? "Importing..." : "Import Test"}
+              </Button>
+              <input
+                ref={importTestInputRef}
+                type="file"
+                accept="application/json,.json,text/html,.html,.htm"
+                className="hidden"
+                onChange={(event) => {
+                  handleImportTestFile(event.currentTarget.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1171,6 +1452,16 @@ export default function AdminTests() {
                       <Button size="sm" variant="ghost" className="h-8 px-2 text-xs gap-1.5 text-[#6B7280]" onClick={() => openAnalytics(test)} data-testid={`button-view-results-${test.id}`}>
                         <BarChart3 size={13} />Analytics
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs gap-1.5 text-[#3B82F6] hover:text-[#2563EB] hover:bg-[#EFF6FF]"
+                        disabled={exportingTestId === test.id}
+                        onClick={() => handleExportTest(test)}
+                      >
+                        <Download size={13} />
+                        {exportingTestId === test.id ? "Exporting..." : "Export"}
+                      </Button>
                       <Button size="sm" variant="ghost" className="h-8 px-2 text-xs gap-1.5 text-[#5B4DFF] hover:text-[#4C3FF0] hover:bg-[#EEF2FF]"
                         onClick={() => setLocation(`/admin/tests/${test.id}/analytics`)} data-testid={`button-advanced-analytics-${test.id}`}>
                         <TrendingUp size={13} />Advanced
@@ -1191,12 +1482,26 @@ export default function AdminTests() {
                     <div className="max-h-[76vh] overflow-y-auto border-t border-slate-200 bg-white p-5 space-y-5">
                       {sections.length > 0 && (
                         <div className="space-y-2">
-                          <p className="text-sm font-medium">Exam Structure</p>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">Exam Structure</p>
+                              <InfoTip content="Choose the exam name label for this test. Imported HTML sections stay unchanged." />
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1.5"
+                              onClick={() => setEditTestMeta({ id: test.id, title: test.title, examType: test.examType ?? "" })}
+                            >
+                              <PencilLine size={13} />
+                              Edit test
+                            </Button>
+                          </div>
                           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                       {sections.map((section, index) => {
                               const isActive = (activeSectionByTest[test.id] ?? sections[0]?.id) === section.id;
-                              const total = section.questionCount ?? 0;
-                              const left = getRemainingSlots(test.id, section);
+                              const { used, total, left, progress } = getSectionMetrics(test.id, section);
                               return (
                               <button
                                 key={section.id}
@@ -1205,18 +1510,26 @@ export default function AdminTests() {
                                   setActiveSectionByTest((prev) => ({ ...prev, [test.id]: section.id }));
                                   ensureSectionDrafts(test.id, test, section);
                                 }}
-                                className={`rounded-2xl border px-4 py-4 text-left text-xs shadow-sm transition ${isActive ? "border-indigo-400 bg-indigo-50/60 ring-2 ring-indigo-100" : "border-slate-200 bg-white hover:border-slate-300"}`}
+                                className={`rounded-[22px] border px-4 py-4 text-left text-xs transition ${isActive ? "border-[#5B4DFF] bg-[#F5F3FF] shadow-[0_12px_28px_rgba(91,77,255,0.10)]" : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"}`}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className="font-semibold text-sm">{index + 1}. {section.subjectLabel ?? section.title}</p>
-                                  <Badge variant="secondary">{section.subjectLabel ?? "General"}</Badge>
+                                  <p className="font-semibold text-sm text-slate-900">{index + 1}. {section.subjectLabel ?? section.title}</p>
+                                  <Badge variant="secondary" className="bg-white text-slate-700 shadow-sm">{section.subjectLabel ?? "General"}</Badge>
                                 </div>
-                                {section.description && <p className="mt-1 text-muted-foreground">{section.description}</p>}
-                                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                  <span>Questions left: {left} / Total: {total || "—"}</span>
-                                  <span>+ve: {section.marksPerQuestion ?? "—"}</span>
-                                  <span>-ve: {section.negativeMarks ?? 0}</span>
-                                  <span>Type: {String((section.meta as Record<string, unknown> | null)?.preferredQuestionType ?? "mcq").toUpperCase()}</span>
+                                <div className="mt-3 h-2 rounded-full bg-slate-100">
+                                  <div
+                                    className={`h-2 rounded-full transition-all ${isActive ? "bg-[#F97316]" : "bg-[#FDBA74]"}`}
+                                    style={{ width: `${progress}%` }}
+                                  />
+                                </div>
+                                <div className="mt-3 flex items-center justify-between gap-3 text-[11px]">
+                                  <span className="font-medium text-slate-700">{used}/{total || "—"} saved</span>
+                                  <span className={`${left > 0 ? "text-slate-500" : "text-emerald-600"} font-medium`}>{left} left</span>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                                  <span className="rounded-full bg-slate-50 px-2 py-1">+ve {section.marksPerQuestion ?? "—"}</span>
+                                  <span className="rounded-full bg-slate-50 px-2 py-1">-ve {section.negativeMarks ?? 0}</span>
+                                  <span className="rounded-full bg-slate-50 px-2 py-1">{String((section.meta as Record<string, unknown> | null)?.preferredQuestionType ?? "mcq").toUpperCase()}</span>
                                 </div>
                               </button>
                             )})}
@@ -1228,54 +1541,42 @@ export default function AdminTests() {
                         const activeSection = sections.find((section) => section.id === activeSectionId) ?? sections[0];
                         const sectionKey = activeSection ? getBuilderKey(test.id, activeSection.id) : "";
                         const sectionDrafts = sectionKey ? (draftsBySection[sectionKey] ?? []) : [];
+                        const remainingSlots = activeSection ? getRemainingSlots(test.id, activeSection) : 0;
                         return activeSection ? (
-                        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,0.06)]">
+                        <div className="rounded-[28px] border border-slate-200 bg-[#FCFCFE] p-6 shadow-[0_18px_42px_rgba(15,23,42,0.05)]">
                           <div className="space-y-5">
-                            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-900">Bulk question import</p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    Active section ke liye Excel sheet upload karo. Planner-defined type, marks aur -ve marks auto-apply honge.
-                                  </p>
-                                  <p className="mt-1 text-[11px] text-slate-400">
-                                    Columns: question, option_a, option_b, option_c, option_d, correct_answer, topic_tag, difficulty, ideal_time, question_image.
-                                  </p>
-                                </div>
-                                <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-medium text-[#111827] shadow-sm transition hover:border-[#5B4DFF] hover:text-[#5B4DFF]">
-                                  {bulkImportingKey === sectionKey ? "Importing..." : "Upload Excel"}
-                                  <input
-                                    type="file"
-                                    accept=".xlsx,.xls,.csv"
-                                    className="hidden"
-                                    disabled={bulkImportingKey === sectionKey}
-                                    onChange={(event) => {
-                                      handleBulkQuestionImport(test, activeSection, event.target.files?.[0]);
-                                      event.currentTarget.value = "";
-                                    }}
-                                  />
-                                </label>
-                              </div>
-                            </div>
                             {sectionDrafts.length === 0 ? (
-                              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                                Is section ke saare question slots fill ho chuke hain.
+                              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-6 text-sm text-emerald-700">
+                                All question slots in this section are complete.
                               </div>
                             ) : (
                               <div className="space-y-5">
-                                {sectionDrafts.map((draft, draftIndex) => (
-                                  <div key={draftIndex} className="rounded-3xl border border-slate-200 bg-slate-50/50 p-5">
-                                    <div className="mb-4 flex items-center justify-between">
-                                      <div>
-                                        <h4 className="text-lg font-semibold text-slate-900">Question {draftIndex + 1}</h4>
-                                        <p className="text-sm text-slate-500">{draft.questionCode} · {draft.subjectLabel}</p>
+                                {(() => {
+                                  const draft = sectionDrafts[0];
+                                  const draftIndex = 0;
+                                  const savedSectionCount = (questionsMap[test.id] ?? []).filter((question) => question.sectionId === activeSection.id).length;
+                                  const totalSectionQuestions = activeSection.questionCount ?? savedSectionCount + sectionDrafts.length;
+                                  const visibleQuestionNumber = Math.min(savedSectionCount + 1, totalSectionQuestions || savedSectionCount + 1);
+                                  return (
+                                  <div key={`${sectionKey}-${visibleQuestionNumber}`} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+                                    <div className="mb-5 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-4 py-4">
+                                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                        <div>
+                                          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Current slot</p>
+                                          <h4 className="mt-1 text-lg font-semibold text-slate-900">Question {visibleQuestionNumber}</h4>
+                                          <p className="mt-1 text-sm text-slate-500">{draft.questionCode} · {draft.subjectLabel}</p>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">{savedSectionCount}/{totalSectionQuestions} saved</span>
+                                          <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">{remainingSlots} left</span>
+                                          <Badge variant="outline" className="border-[#D6DAFF] bg-white text-[#5B4DFF]">{qTypeLabel[draft.questionType]}</Badge>
+                                        </div>
                                       </div>
-                                      <Badge variant="outline" className="bg-white">{qTypeLabel[draft.questionType]}</Badge>
                                     </div>
 
-                                    <div className="mt-4">
+                                    <div className="mt-4 space-y-4">
                                       <Label className="text-xs">Question</Label>
-                                      <Textarea value={draft.question} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { question: e.target.value })} rows={3} className="mt-1 resize-none bg-white" placeholder="Type your question here..." />
+                                        <Textarea value={draft.question} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { question: e.target.value })} rows={3} className="mt-1 resize-none bg-white" placeholder="Type your question here..." />
                                       <div className="mt-2 flex items-center gap-3">
                                         {draft.imageData ? (
                                           <div className="relative">
@@ -1285,29 +1586,25 @@ export default function AdminTests() {
                                               onClick={() => updateDraft(test.id, activeSection.id, draftIndex, { imageData: null })}
                                               className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white"
                                             >
-                                              <X size={10} />
-                                            </button>
-                                          </div>
-                                        ) : (
-                                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
-                                            <ImagePlus size={13} />
-                                            Add image
-                                            <input
-                                              type="file"
-                                              accept="image/*"
-                                              className="hidden"
-                                              onChange={(e) => handleDraftQuestionImage(test.id, activeSection.id, draftIndex, e.target.files?.[0])}
-                                            />
-                                          </label>
-                                        )}
-                                      </div>
-                                      <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
-                                        <Clock size={12} />
-                                        <span>Ideal time auto-fills from difficulty, but teacher can still change it above.</span>
+                                            <X size={10} />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
+                                          <ImagePlus size={13} />
+                                          Add image
+                                          <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => handleDraftQuestionImage(test.id, activeSection.id, draftIndex, e.target.files?.[0])}
+                                          />
+                                        </label>
+                                      )}
                                       </div>
                                     </div>
 
-                                    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_180px] md:items-end">
+                                    <div className="grid gap-4 rounded-2xl border border-slate-200 bg-[#FCFCFE] p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_180px] md:items-end">
                                       <div>
                                         <Label className="text-xs">Chapter Name</Label>
                                         <Input
@@ -1354,7 +1651,7 @@ export default function AdminTests() {
                                     </div>
 
                                     {(draft.questionType === "mcq" || draft.questionType === "multi") && (
-                                      <div className="mt-4 space-y-2">
+                                      <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-[#FCFCFE] p-4">
                                         <Label className="text-xs">Options</Label>
                                         {draft.options.map((option, optionIndex) => {
                                           const isSelected = draft.questionType === "mcq" ? draft.correctAnswer === optionIndex : draft.correctAnswerMulti.includes(optionIndex);
@@ -1413,7 +1710,7 @@ export default function AdminTests() {
                                     )}
 
                                     {draft.questionType === "integer" && (
-                                      <div className="mt-4 space-y-3">
+                                      <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-[#FCFCFE] p-4">
                                         <div className="flex gap-2">
                                           <button
                                             type="button"
@@ -1433,17 +1730,17 @@ export default function AdminTests() {
                                         {draft.integerMode === "exact" ? (
                                           <div>
                                             <Label className="text-xs">Correct Answer</Label>
-                                            <Input type="number" value={draft.correctInteger} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctInteger: e.target.value })} className="mt-1 w-44 bg-white" />
+                                            <Input type="number" step="any" value={draft.correctInteger} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctInteger: e.target.value })} className="mt-1 w-44 bg-white" />
                                           </div>
                                         ) : (
                                           <div className="grid gap-3 sm:grid-cols-2">
                                             <div>
                                               <Label className="text-xs">Minimum</Label>
-                                              <Input type="number" value={draft.correctIntegerMin} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctIntegerMin: e.target.value })} className="mt-1 bg-white" />
+                                              <Input type="number" step="any" value={draft.correctIntegerMin} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctIntegerMin: e.target.value })} className="mt-1 bg-white" />
                                             </div>
                                             <div>
                                               <Label className="text-xs">Maximum</Label>
-                                              <Input type="number" value={draft.correctIntegerMax} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctIntegerMax: e.target.value })} className="mt-1 bg-white" />
+                                              <Input type="number" step="any" value={draft.correctIntegerMax} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctIntegerMax: e.target.value })} className="mt-1 bg-white" />
                                             </div>
                                           </div>
                                         )}
@@ -1452,6 +1749,7 @@ export default function AdminTests() {
 
                                     <div className="mt-5 flex justify-end">
                                       <Button
+                                        className="rounded-xl bg-[#5B4DFF] px-5 text-white hover:bg-[#4C3FF0]"
                                         disabled={!canSaveDraft(draft) || addQuestionMutation.isPending}
                                         onClick={() => addQuestionMutation.mutate({
                                           testId: test.id,
@@ -1465,11 +1763,12 @@ export default function AdminTests() {
                                           },
                                         })}
                                       >
-                                        {addQuestionMutation.isPending ? "Saving..." : `Save Question ${draftIndex + 1}`}
+                                        {addQuestionMutation.isPending ? "Saving..." : `Save Question ${visibleQuestionNumber}`}
                                       </Button>
                                     </div>
                                   </div>
-                                ))}
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>
@@ -1481,19 +1780,32 @@ export default function AdminTests() {
                       ) : (
                         <div className="space-y-2">
                           {qs.map((q, idx) => (
-                            <div key={q.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid={`question-${q.id}`}>
+                            <div key={q.id} className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]" data-testid={`question-${q.id}`}>
                               <div className="flex items-start gap-2">
-                                <span className="text-xs font-semibold text-muted-foreground shrink-0 mt-0.5">Q{idx + 1}</span>
+                                <span className="mt-0.5 shrink-0 rounded-full bg-[#EEF2FF] px-2 py-1 text-xs font-semibold text-[#5B4DFF]">Q{idx + 1}</span>
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <p className="text-sm font-medium flex-1">{q.question}</p>
-                                    {q.subjectLabel && <Badge variant="outline" className="text-[10px]">{q.subjectLabel}</Badge>}
-                                    {q.questionCode && <Badge variant="secondary" className="text-[10px]">{q.questionCode}</Badge>}
-                                    <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${q.questionType === "multi" ? "bg-purple-100 text-purple-700" : q.questionType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                                  <div className="mb-2 flex items-start gap-2">
+                                    <RichQuestionContent content={q.question} className="flex-1 text-sm font-medium leading-6 text-slate-900" />
+                                    {q.subjectLabel && <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[10px] text-slate-700">{q.subjectLabel}</Badge>}
+                                    {q.questionCode && <Badge variant="secondary" className="bg-[#EEF2FF] text-[10px] text-[#5B4DFF]">{q.questionCode}</Badge>}
+                                    <span className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium shrink-0 ${q.questionType === "multi" ? "bg-purple-100 text-purple-700" : q.questionType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                                       {qTypeIcon[q.questionType ?? "mcq"]}{qTypeLabel[q.questionType ?? "mcq"]}
                                     </span>
                                   </div>
                                   {q.imageData && <div className="mt-1 mb-2"><img src={q.imageData} alt="Q visual" className="max-h-32 rounded-lg border border-border object-contain" /></div>}
+                                  {(q.solutionText || q.solutionImageData) && (
+                                    <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                                      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                                        <span>Teacher Solution</span>
+                                      </div>
+                                      {q.solutionText && <RichQuestionContent content={q.solutionText} className="mt-1 text-xs leading-6 text-emerald-900" />}
+                                      {q.solutionImageData && (
+                                        <div className="mt-2">
+                                          <img src={q.solutionImageData} alt="Solution" className="max-h-24 rounded border border-emerald-200 object-contain" />
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                   {q.questionType === "integer" ? (
                                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                                       <span className="text-xs text-muted-foreground">Correct answer:</span>
@@ -1514,7 +1826,8 @@ export default function AdminTests() {
                                           <div key={i} className={`text-xs px-2 py-1 rounded flex flex-col gap-1 ${isCorrect ? "bg-green-50 text-green-700 font-medium border border-green-200" : "bg-muted/50 text-muted-foreground"}`}>
                                             <div className="flex items-center gap-1">
                                               {isCorrect && <CheckCircle2 size={11} />}
-                                              {String.fromCharCode(65 + i)}. {opt}
+                                              <span className="shrink-0">{String.fromCharCode(65 + i)}.</span>
+                                              <RichQuestionContent content={opt} className="flex-1" />
                                             </div>
                                             {optImg && <img src={optImg} alt="" className="max-h-16 rounded object-contain border border-border/50" />}
                                           </div>
@@ -1522,7 +1835,7 @@ export default function AdminTests() {
                                       })}
                                     </div>
                                   )}
-                                  <p className="text-xs text-muted-foreground mt-1">
+                                  <p className="mt-2 text-xs text-muted-foreground">
                                     {(() => {
                                       const meta = (q.meta as Record<string, unknown> | null) ?? null;
                                       const chapterName = String(meta?.chapterName ?? "").trim();
@@ -1565,6 +1878,72 @@ export default function AdminTests() {
         </div>
       )}
 
+      <Dialog
+        open={Boolean(editTestMeta)}
+        onOpenChange={(open) => {
+          if (!open && !updateTestMetaMutation.isPending) {
+            setEditTestMeta(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit Test</DialogTitle>
+          </DialogHeader>
+          {editTestMeta ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                Update the test title and choose the planner exam name. For HTML-imported tests, the section layout stays exactly as imported.
+              </div>
+              <div>
+                <Label className="text-xs">Test Title</Label>
+                <Input
+                  value={editTestMeta.title}
+                  onChange={(e) => setEditTestMeta((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+                  className="mt-1 bg-white"
+                  placeholder="e.g. CPET 2025"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Exam Name</Label>
+                <Select
+                  value={editTestMeta.examType}
+                  onValueChange={(value) => setEditTestMeta((prev) => (prev ? { ...prev, examType: value } : prev))}
+                >
+                  <SelectTrigger className="mt-1 bg-white">
+                    <SelectValue placeholder="Select planner exam" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {examTemplates.map((template) => (
+                      <SelectItem key={template.id} value={template.key}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={updateTestMetaMutation.isPending}
+                  onClick={() => setEditTestMeta(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!editTestMeta.title.trim() || !editTestMeta.examType || updateTestMetaMutation.isPending}
+                  onClick={() => updateTestMetaMutation.mutate(editTestMeta)}
+                >
+                  {updateTestMetaMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* ─── Create Test Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1591,10 +1970,10 @@ export default function AdminTests() {
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                <p className="font-semibold">Student Visibility</p>
-                <p className="mt-1 text-sm">
-                  Ye test un students ko dikhai dega jinhone registration ya profile me <strong>{String(newExamType || "exam").toUpperCase()}</strong> select kiya hai.
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold">Student Visibility</p>
+                  <InfoTip content={`Visible to students who selected ${String(newExamType || "exam").toUpperCase()} during registration or in profile settings.`} />
+                </div>
               </div>
               <div><Label className="text-xs">Scheduled Date (optional)</Label><Input type="datetime-local" value={newScheduled} onChange={(e) => setNewScheduled(e.target.value)} className="mt-1" /></div>
             <div className="flex gap-2 justify-end pt-1">
@@ -1635,7 +2014,7 @@ export default function AdminTests() {
                   onChange={(e) => updateEditDraft({ question: e.target.value })}
                   rows={4}
                   className="mt-1 bg-white"
-                  placeholder="Question text ya diagram-based prompt"
+                  placeholder="Question text or image-based prompt"
                 />
               </div>
 
@@ -1794,17 +2173,17 @@ export default function AdminTests() {
                   {editDraft.integerMode === "exact" ? (
                     <div>
                       <Label className="text-xs">Correct Answer</Label>
-                      <Input type="number" value={editDraft.correctInteger} onChange={(e) => updateEditDraft({ correctInteger: e.target.value })} className="mt-1 w-44 bg-white" />
+                      <Input type="number" step="any" value={editDraft.correctInteger} onChange={(e) => updateEditDraft({ correctInteger: e.target.value })} className="mt-1 w-44 bg-white" />
                     </div>
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
                         <Label className="text-xs">Minimum</Label>
-                        <Input type="number" value={editDraft.correctIntegerMin} onChange={(e) => updateEditDraft({ correctIntegerMin: e.target.value })} className="mt-1 bg-white" />
+                        <Input type="number" step="any" value={editDraft.correctIntegerMin} onChange={(e) => updateEditDraft({ correctIntegerMin: e.target.value })} className="mt-1 bg-white" />
                       </div>
                       <div>
                         <Label className="text-xs">Maximum</Label>
-                        <Input type="number" value={editDraft.correctIntegerMax} onChange={(e) => updateEditDraft({ correctIntegerMax: e.target.value })} className="mt-1 bg-white" />
+                        <Input type="number" step="any" value={editDraft.correctIntegerMax} onChange={(e) => updateEditDraft({ correctIntegerMax: e.target.value })} className="mt-1 bg-white" />
                       </div>
                     </div>
                   )}
@@ -1944,7 +2323,7 @@ export default function AdminTests() {
                           <div key={q.id} className="border border-border rounded-xl overflow-hidden">
                             <div className={`px-3 py-2 flex items-start gap-2 ${q.successRate >= 70 ? "bg-green-50" : q.successRate < 40 ? "bg-red-50" : "bg-amber-50"}`}>
                               <span className="text-xs font-bold text-muted-foreground shrink-0 mt-0.5">Q{idx + 1}</span>
-                              <p className="text-xs font-medium flex-1 leading-relaxed">{q.question}</p>
+                              <RichQuestionContent content={q.question} className="text-xs font-medium flex-1 leading-relaxed" />
                               <div className="flex items-center gap-2 shrink-0">
                                 <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium ${q.questionType === "multi" ? "bg-purple-100 text-purple-700" : q.questionType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                                   {qTypeIcon[q.questionType]}{q.questionType.toUpperCase()}
@@ -1981,7 +2360,7 @@ export default function AdminTests() {
                                       <div key={i} className="flex items-center gap-2">
                                         <span className={`text-xs font-semibold w-5 shrink-0 ${isCorrect ? "text-green-700" : "text-muted-foreground"}`}>{String.fromCharCode(65 + i)}.</span>
                                         <div className={`flex-1 flex items-center gap-1.5 ${isCorrect ? "text-green-700 font-medium" : "text-muted-foreground"}`}>
-                                          <span className="text-xs">{opt}</span>
+                                          <RichQuestionContent content={opt} className="text-xs" />
                                           {optImg && <img src={optImg} alt="" className="h-6 w-6 rounded object-cover border border-border/50 shrink-0" />}
                                         </div>
                                         {isCorrect && <CheckCircle2 size={12} className="text-green-600 shrink-0" />}

@@ -15,9 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import * as pdfjs from "pdfjs-dist";
-
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+import type * as PdfJs from "pdfjs-dist";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FRAME_INTERVAL_MS = 100;
@@ -28,6 +26,20 @@ const CAM_PIP_SIZE = 150;
 const CAM_PIP_SIZE_MIN = 80;
 const CAM_PIP_SIZE_MAX = 300;
 const GRID_SIZE = 40;
+
+type PdfDocumentProxy = PdfJs.PDFDocumentProxy;
+
+let pdfJsPromise: Promise<typeof import("pdfjs-dist")> | null = null;
+
+async function loadPdfJs() {
+  if (!pdfJsPromise) {
+    pdfJsPromise = import("pdfjs-dist").then((pdfjs) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+      return pdfjs;
+    });
+  }
+  return pdfJsPromise;
+}
 
 interface Student { studentId: number; name: string; }
 interface Material { id: number; name: string; mimeType: string; uploadedAt: string; }
@@ -160,7 +172,7 @@ export default function TeacherLiveClass() {
 
   // Slide state
   const [slideMode, setSlideMode] = useState(false);
-  const [pdfDoc, setPdfDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<PdfDocumentProxy | null>(null);
   const [pdfName, setPdfName] = useState("");
   const [loadingPdf, setLoadingPdf] = useState(false);
   const [slides, setSlides] = useState<SlideItem[]>([]);
@@ -540,7 +552,7 @@ export default function TeacherLiveClass() {
   }, []);
 
   // ─── Slide rendering ──────────────────────────────────────────────────────
-  const renderSlide = useCallback(async (slide: SlideItem, doc: pdfjs.PDFDocumentProxy | null, savedAnnotation?: string) => {
+  const renderSlide = useCallback(async (slide: SlideItem, doc: PdfDocumentProxy | null, savedAnnotation?: string) => {
     const canvas = pdfCanvasRef.current; if (!canvas) return;
     canvas.width = FRAME_WIDTH; canvas.height = FRAME_HEIGHT;
     const ctx = canvas.getContext("2d")!;
@@ -571,7 +583,7 @@ export default function TeacherLiveClass() {
   }, [slideMode, slideIdx, slides.length]);
 
   // ─── Thumbnails ───────────────────────────────────────────────────────────
-  const generateThumbnails = useCallback(async (doc: pdfjs.PDFDocumentProxy, slideList: SlideItem[]) => {
+  const generateThumbnails = useCallback(async (doc: PdfDocumentProxy, slideList: SlideItem[]) => {
     const thumbs: Record<string, string> = {};
     for (const slide of slideList) {
       const key = slideKey(slide);
@@ -600,6 +612,7 @@ export default function TeacherLiveClass() {
   const loadPdf = useCallback(async (material: Material) => {
     setLoadingPdf(true);
     try {
+      const pdfjs = await loadPdfJs();
       const r = await fetch(`${BASE}/api/classes/${classId}/materials/${material.id}/download`, { credentials: "include" });
       if (!r.ok) throw new Error("Failed");
       const { fileData } = await r.json();

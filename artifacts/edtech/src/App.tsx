@@ -1,79 +1,70 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityTracker } from "@/hooks/useActivityTracker";
-import Layout from "@/components/Layout";
-import NotFound from "@/pages/not-found";
-import LandingPage from "@/pages/LandingPage";
-import LoginPage from "@/pages/LoginPage";
-import RegisterPage from "@/pages/RegisterPage";
-
-// Super Admin pages
-import SuperAdminDashboard from "@/pages/super-admin/Dashboard";
-import SuperAdminAdmins from "@/pages/super-admin/Admins";
-import SuperAdminStudents from "@/pages/super-admin/Students";
-import SuperAdminClasses from "@/pages/super-admin/Classes";
-
-// Admin pages
-import AdminDashboard from "@/pages/admin/Dashboard";
-import AdminClasses from "@/pages/admin/Classes";
-import AdminClassDetail from "@/pages/admin/ClassDetail";
-import AdminStudents from "@/pages/admin/Students";
-import AdminWhiteboard from "@/pages/admin/Whiteboard";
-import AdminLiveClass from "@/pages/admin/LiveClass";
-
-// Super Admin extra pages
-import HRDashboard from "@/pages/super-admin/HRDashboard";
-import Finance from "@/pages/super-admin/Finance";
-import SuperAdminSupport from "@/pages/super-admin/Support";
-import SendNotification from "@/pages/super-admin/SendNotification";
-import TeacherPerformance from "@/pages/super-admin/TeacherPerformance";
-
-// Admin extra pages
-import AdminProfile from "@/pages/admin/Profile";
-import AdminSupport from "@/pages/admin/Support";
-import AdminAssignments from "@/pages/admin/Assignments";
-import AdminAttendance from "@/pages/admin/Attendance";
-import AdminAnalytics from "@/pages/admin/Analytics";
-import AdminQuestionBank from "@/pages/admin/QuestionBank";
-
-// Student pages
-import PlannerCourseDetail from "@/pages/planner/CourseDetail";
-import PlannerCourses from "@/pages/planner/Courses";
-import PlannerDashboard from "@/pages/planner/Dashboard";
-import PlannerExamTemplates from "@/pages/planner/ExamTemplates";
-import StudentDashboard from "@/pages/student/Dashboard";
-import StudentClasses from "@/pages/student/Classes";
-import StudentClassDetail from "@/pages/student/ClassDetail";
-import StudentWhiteboard from "@/pages/student/Whiteboard";
-import StudentLiveClass from "@/pages/student/LiveClass";
-import StudentFeedback from "@/pages/student/Feedback";
-import StudentSupport from "@/pages/student/Support";
-import StudentAssignments from "@/pages/student/Assignments";
-import StudentProgress from "@/pages/student/Progress";
-import StudentTestAnalysis from "@/pages/student/TestAnalysis";
-import StudentQuestionBank from "@/pages/student/QuestionBank";
-import StudentProfile from "@/pages/student/Profile";
-
-// Tests pages
-import SuperAdminTests from "@/pages/super-admin/Tests";
-import AdminTests from "@/pages/admin/Tests";
-import AdminTestBuilder from "@/pages/admin/TestBuilder";
-import TestAnalytics from "@/pages/admin/TestAnalytics";
-import StudentTests from "@/pages/student/Tests";
-
-// Shared pages
-import Community from "@/pages/Community";
-import Schedule from "@/pages/Schedule";
-import SuperAdminActivity from "@/pages/super-admin/Activity";
-import SuperAdminPayments from "@/pages/super-admin/Payments";
-import AdminPayments from "@/pages/admin/Payments";
-import StudentPayments from "@/pages/student/Payments";
-import Leaderboard from "@/pages/Leaderboard";
-import ActivityFeed from "@/pages/ActivityFeed";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+
+const Layout = lazy(() => import("@/components/Layout"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
+const LoginPage = lazy(() => import("@/pages/LoginPage"));
+const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
+const SuperAdminDashboard = lazy(() => import("@/pages/super-admin/Dashboard"));
+const SuperAdminAdmins = lazy(() => import("@/pages/super-admin/Admins"));
+const SuperAdminStudents = lazy(() => import("@/pages/super-admin/Students"));
+const SuperAdminClasses = lazy(() => import("@/pages/super-admin/Classes"));
+const HRDashboard = lazy(() => import("@/pages/super-admin/HRDashboard"));
+const Finance = lazy(() => import("@/pages/super-admin/Finance"));
+const SuperAdminSupport = lazy(() => import("@/pages/super-admin/Support"));
+const SendNotification = lazy(() => import("@/pages/super-admin/SendNotification"));
+const TeacherPerformance = lazy(() => import("@/pages/super-admin/TeacherPerformance"));
+const SuperAdminTests = lazy(() => import("@/pages/super-admin/Tests"));
+const SuperAdminActivity = lazy(() => import("@/pages/super-admin/Activity"));
+const SuperAdminPayments = lazy(() => import("@/pages/super-admin/Payments"));
+const AdminDashboard = lazy(() => import("@/pages/admin/Dashboard"));
+const AdminClasses = lazy(() => import("@/pages/admin/Classes"));
+const AdminClassDetail = lazy(() => import("@/pages/admin/ClassDetail"));
+const AdminStudents = lazy(() => import("@/pages/admin/Students"));
+const AdminWhiteboard = lazy(() => import("@/pages/admin/Whiteboard"));
+const AdminLiveClass = lazy(() => import("@/pages/admin/LiveClass"));
+const AdminProfile = lazy(() => import("@/pages/admin/Profile"));
+const AdminSupport = lazy(() => import("@/pages/admin/Support"));
+const AdminAssignments = lazy(() => import("@/pages/admin/Assignments"));
+const AdminAttendance = lazy(() => import("@/pages/admin/Attendance"));
+const AdminAnalytics = lazy(() => import("@/pages/admin/Analytics"));
+const AdminQuestionBank = lazy(() => import("@/pages/admin/QuestionBank"));
+const AdminTests = lazy(() => import("@/pages/admin/Tests"));
+const AdminTestBuilder = lazy(() => import("@/pages/admin/TestBuilder"));
+const TestAnalytics = lazy(() => import("@/pages/admin/TestAnalytics"));
+const AdminPayments = lazy(() => import("@/pages/admin/Payments"));
+const PlannerCourseDetail = lazy(() => import("@/pages/planner/CourseDetail"));
+const PlannerCourses = lazy(() => import("@/pages/planner/Courses"));
+const PlannerDashboard = lazy(() => import("@/pages/planner/Dashboard"));
+const PlannerExamTemplates = lazy(() => import("@/pages/planner/ExamTemplates"));
+const PlannerQuestionBank = lazy(() => import("@/pages/planner/QuestionBank"));
+const StudentDashboard = lazy(() => import("@/pages/student/Dashboard"));
+const StudentClasses = lazy(() => import("@/pages/student/Classes"));
+const StudentClassDetail = lazy(() => import("@/pages/student/ClassDetail"));
+const StudentWhiteboard = lazy(() => import("@/pages/student/Whiteboard"));
+const StudentLiveClass = lazy(() => import("@/pages/student/LiveClass"));
+const StudentFeedback = lazy(() => import("@/pages/student/Feedback"));
+const StudentSupport = lazy(() => import("@/pages/student/Support"));
+const StudentAssignments = lazy(() => import("@/pages/student/Assignments"));
+const StudentProgress = lazy(() => import("@/pages/student/Progress"));
+const StudentTestAnalysis = lazy(() => import("@/pages/student/TestAnalysis"));
+const StudentTestSolutions = lazy(() => import("@/pages/student/TestSolutions"));
+const StudentQuestionBank = lazy(() => import("@/pages/student/QuestionBank"));
+const StudentReviewBucket = lazy(() => import("@/pages/student/ReviewBucket"));
+const StudentProfile = lazy(() => import("@/pages/student/Profile"));
+const StudentTests = lazy(() => import("@/pages/student/Tests"));
+const StudentPayments = lazy(() => import("@/pages/student/Payments"));
+const Community = lazy(() => import("@/pages/Community"));
+const Schedule = lazy(() => import("@/pages/Schedule"));
+const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
+const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -86,16 +77,20 @@ const queryClient = new QueryClient({
 
 export type ViewMode = "personal" | "comparative";
 
-function ProtectedRoute({ roles, children }: { roles: string[]; children: React.ReactNode }) {
+function AppLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
+function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <AppLoader />;
   }
 
   if (!user) {
@@ -303,6 +298,16 @@ function AppRouter() {
           <Layout><PlannerExamTemplates /></Layout>
         </ProtectedRoute>
       </Route>
+      <Route path="/planner/question-bank">
+        <ProtectedRoute roles={["planner"]}>
+          <Layout><PlannerQuestionBank /></Layout>
+        </ProtectedRoute>
+      </Route>
+      <Route path="/planner/question-bank/:id">
+        <ProtectedRoute roles={["planner"]}>
+          <Layout><PlannerCourseDetail /></Layout>
+        </ProtectedRoute>
+      </Route>
       <Route path="/planner/courses">
         <ProtectedRoute roles={["planner"]}>
           <Layout><PlannerCourses /></Layout>
@@ -355,6 +360,11 @@ function AppRouter() {
           <Layout><StudentTests /></Layout>
         </ProtectedRoute>
       </Route>
+      <Route path="/student/tests/review-bucket">
+        <ProtectedRoute roles={["student"]}>
+          <StudentReviewBucket />
+        </ProtectedRoute>
+      </Route>
       <Route path="/student/question-bank">
         <ProtectedRoute roles={["student"]}>
           <Layout><StudentQuestionBank /></Layout>
@@ -363,6 +373,11 @@ function AppRouter() {
       <Route path="/student/tests/:id/analysis">
         <ProtectedRoute roles={["student"]}>
           <StudentTestAnalysis />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/tests/:id/solutions">
+        <ProtectedRoute roles={["student"]}>
+          <StudentTestSolutions />
         </ProtectedRoute>
       </Route>
       <Route path="/student/assignments">

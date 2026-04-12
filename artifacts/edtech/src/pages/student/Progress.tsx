@@ -45,12 +45,14 @@ function GradeRing({ score, letter }: { score: number; letter: string }) {
 function StatCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: string; sub?: string; color: string }) {
   return (
     <Card className="overflow-hidden">
-      <CardContent className="p-4 flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${color}`}>{icon}</div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-xl font-bold leading-tight">{value}</p>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${color}`}>{icon}</div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium leading-none text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold leading-none tracking-tight">{value}</p>
           {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -43,6 +43,34 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("/scheduler/")) {
+            return "react-vendor";
+          }
+          if (id.includes("/@tanstack/") || id.includes("/wouter/")) {
+            return "app-vendor";
+          }
+          if (id.includes("/@radix-ui/") || id.includes("/class-variance-authority/") || id.includes("/tailwind-merge/")) {
+            return "ui-vendor";
+          }
+          if (id.includes("/recharts/") || id.includes("/victory-vendor/")) {
+            return "charts-vendor";
+          }
+          if (id.includes("/framer-motion/")) {
+            return "motion-vendor";
+          }
+          if (id.includes("/pdfjs-dist/")) {
+            return "pdf-vendor";
+          }
+          if (id.includes("/date-fns/") || id.includes("/lucide-react/")) {
+            return "common-vendor";
+          }
+        },
+      },
+    },
   },
   server: {
     port,

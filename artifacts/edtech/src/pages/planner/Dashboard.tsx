@@ -518,6 +518,11 @@ export default function PlannerDashboard() {
               {nextPlan ? ` The next session is ${format(new Date(nextPlan.scheduledAt), "EEE, MMM d · h:mm a")} for ${nextPlan.teacherName ?? "your assigned teacher"}.` : " Start by creating the first lecture plan for your teaching team."}
             </p>
             <div className="flex flex-wrap gap-2.5 mt-5">
+              <Link href="/planner/question-bank">
+                <Button size="sm" className="bg-white/14 hover:bg-white/20 border-0 text-white gap-1.5">
+                  <BookOpen size={14} /> Question Bank
+                </Button>
+              </Link>
               <Link href="/community">
                 <Button size="sm" className="bg-white/14 hover:bg-white/20 border-0 text-white gap-1.5">
                   <MessageSquare size={14} /> Open Community
@@ -749,7 +754,7 @@ export default function PlannerDashboard() {
                   Focus Mode
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Super admin ne class-related planner controls pause kiye hain. Planner abhi exam templates, community, tests, aur question workflows par focus karega.
+                  Class-side controls are paused. Planner tools are currently focused on templates, question workflows, tests, and community.
                 </p>
               </div>
               <Badge variant="outline" className="text-xs">Planner Focus Active</Badge>
@@ -758,7 +763,7 @@ export default function PlannerDashboard() {
           <CardContent className="pt-5 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border p-5">
               <p className="text-sm font-semibold">Exam Template Library</p>
-              <p className="text-xs text-muted-foreground mt-2">Default patterns aur custom templates ko yahin se manage karo.</p>
+              <p className="text-xs text-muted-foreground mt-2">Manage default patterns and custom structures here.</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {examTemplates.slice(0, 6).map((template) => (
                   <Badge key={template.id} variant="secondary">{template.name}</Badge>
@@ -766,10 +771,10 @@ export default function PlannerDashboard() {
               </div>
             </div>
             <div className="rounded-2xl border p-5">
-              <p className="text-sm font-semibold">Planner Community Actions</p>
-              <p className="text-xs text-muted-foreground mt-2">Teacher coordination aur internal planning updates community se continue kar sakte ho.</p>
+              <p className="text-sm font-semibold">Question Bank Setup</p>
+              <p className="text-xs text-muted-foreground mt-2">Create exam cards, assign subjects, and prepare the teacher upload structure.</p>
               <div className="mt-4 flex gap-2">
-                <Link href="/community"><Button size="sm">Open Community</Button></Link>
+                <Link href="/planner/question-bank"><Button size="sm">Open Question Bank</Button></Link>
               </div>
             </div>
           </CardContent>

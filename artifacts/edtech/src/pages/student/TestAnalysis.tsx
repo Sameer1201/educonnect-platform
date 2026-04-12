@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { useParams } from "wouter";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import type { ViewMode } from "@/App";
 import { setAnalysisDataset, resetAnalysisDataset } from "@/data/testData";
 import { buildAnalysisDataset } from "@/features/test-analysis/buildAnalysisDataset";
@@ -25,6 +26,24 @@ const pageTitles: Record<string, string> = {
   journey: "Question Journey",
   qsbyqs: "Qs by Qs Analysis",
 };
+
+const personalMobileTabs = [
+  "overview",
+  "performance",
+  "time",
+  "attempt",
+  "difficulty",
+  "subject",
+  "journey",
+  "qsbyqs",
+] as const;
+
+const comparativeMobileTabs = [
+  "performance",
+  "attempt",
+  "time",
+  "difficulty",
+] as const;
 
 function renderPage(activeTab: string, mode: ViewMode) {
   switch (activeTab) {
@@ -51,6 +70,7 @@ function renderPage(activeTab: string, mode: ViewMode) {
 
 export default function StudentTestAnalysis() {
   const { id } = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("overview");
   const [mode, setMode] = useState<ViewMode>("personal");
   const [datasetReady, setDatasetReady] = useState(false);
@@ -68,16 +88,20 @@ export default function StudentTestAnalysis() {
     enabled: !!id,
   });
 
+  const dataset = useMemo(() => {
+    if (!analysisQuery.data) return null;
+    return buildAnalysisDataset(analysisQuery.data);
+  }, [analysisQuery.data]);
+
   useEffect(() => {
-    if (!analysisQuery.data) {
+    if (!dataset) {
       setDatasetReady(false);
       return;
     }
-    const dataset = buildAnalysisDataset(analysisQuery.data);
     setAnalysisDataset(dataset);
     setDatasetReady(true);
     return () => resetAnalysisDataset();
-  }, [analysisQuery.data]);
+  }, [dataset]);
 
   if (analysisQuery.isLoading) {
     return (
@@ -120,13 +144,123 @@ export default function StudentTestAnalysis() {
     );
   }
 
+  const mobileTabs = mode === "comparative" ? comparativeMobileTabs : personalMobileTabs;
+  const headerSummary = dataset && analysisQuery.data ? {
+    testTitle: analysisQuery.data.test?.title ?? "Test Analysis",
+    scoreLabel: `${dataset.testData.overallScore}/${dataset.testData.maxScore}`,
+    accuracyLabel: `${dataset.testData.accuracy}%`,
+    percentileLabel: `${dataset.testData.predictedPercentile}%ile`,
+    attemptedLabel: `${dataset.testData.questionsAttempted}/${dataset.testData.totalQuestions}`,
+    timeLabel: `${dataset.testData.timeTaken} min`,
+    rankLabel:
+      analysisQuery.data.classStats?.totalSubs && analysisQuery.data.classStats.totalSubs > 0
+        ? `${analysisQuery.data.classStats.rank}/${analysisQuery.data.classStats.totalSubs}`
+        : undefined,
+    sections: (analysisQuery.data.sections ?? [])
+      .slice()
+      .sort((a: { order?: number }, b: { order?: number }) => (a.order ?? 0) - (b.order ?? 0))
+      .map((section: { id: number; title: string; subjectLabel?: string | null; questionCount?: number | null }) => ({
+        id: section.id,
+        label: section.subjectLabel ?? section.title,
+        count: section.questionCount ?? null,
+      })),
+  } : undefined;
+
   return (
-    <div className="flex min-h-screen bg-[#F5F7FB]">
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} mode={mode} onModeChange={setMode} />
-      <main className="flex-1 overflow-auto p-7">
-        <Header title={pageTitles[activeTab] || "Overview"} />
+    <div className="min-h-screen bg-[#F5F7FB]">
+      <div className="lg:flex lg:h-screen">
+        <div className="hidden lg:block">
+          <Sidebar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            mode={mode}
+            onModeChange={setMode}
+            onBack={() => setLocation("/student/tests")}
+          />
+        </div>
+        <main className="flex-1 overflow-auto p-3 sm:p-5 lg:h-full lg:overflow-y-auto lg:p-7">
+        <div className="mb-4 space-y-3 lg:hidden">
+          <div className="flex items-start justify-start">
+            <button
+              type="button"
+              onClick={() => setLocation("/student/tests")}
+              className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold text-[#475569] shadow-sm transition hover:border-[#CBD5E1] hover:bg-[#F8FAFC] hover:text-[#111827]"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+          </div>
+          <div className="rounded-3xl border border-[#E5E7EB] bg-white p-4 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6B7280]">Test Analysis</p>
+            <h1 className="mt-2 text-xl font-bold text-[#111827]">{analysisQuery.data?.test?.title ?? "Analysis"}</h1>
+            <div className="mt-3 flex rounded-full bg-[#F3F5F9] p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("personal");
+                  if (!personalMobileTabs.includes(activeTab as (typeof personalMobileTabs)[number])) {
+                    setActiveTab("overview");
+                  }
+                }}
+                className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                  mode === "personal"
+                    ? "bg-[#5B4DFF] text-white shadow-[0_4px_10px_rgba(91,77,255,0.28)]"
+                    : "text-[#4B5563]"
+                }`}
+              >
+                Personal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("comparative");
+                  if (!comparativeMobileTabs.includes(activeTab as (typeof comparativeMobileTabs)[number])) {
+                    setActiveTab("performance");
+                  }
+                }}
+                className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
+                  mode === "comparative"
+                    ? "bg-[#5B4DFF] text-white shadow-[0_4px_10px_rgba(91,77,255,0.28)]"
+                    : "text-[#4B5563]"
+                }`}
+              >
+                Comparative
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto pb-1">
+            <div className="flex gap-2">
+              {mobileTabs.map((tabId) => {
+                const active = activeTab === tabId;
+                return (
+                  <button
+                    key={tabId}
+                    type="button"
+                    onClick={() => setActiveTab(tabId)}
+                    className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-all ${
+                      active
+                        ? "border-[#1F2937] bg-[#1F2937] text-white"
+                        : "border-[#E5E7EB] bg-white text-[#1F2937]"
+                    }`}
+                  >
+                    {pageTitles[tabId]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+        <Header
+          title={pageTitles[activeTab] || "Overview"}
+          summary={headerSummary}
+          onViewSolutions={() => setLocation(`/student/tests/${id}/solutions`)}
+          viewSolutionsDisabled={!analysisQuery.data?.sections?.length}
+          compact={activeTab !== "overview"}
+        />
         {renderPage(activeTab, mode)}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
