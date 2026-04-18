@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -100,6 +101,7 @@ function buildInitialDetails(user: AuthUser): StudentProfileDetails {
 
 export default function StudentOnboardingGate() {
   const { user, login } = useAuth();
+  const [, setLocation] = useLocation();
   const authUser = user as AuthUser | null;
   const [step, setStep] = useState(0);
   const [fullName, setFullName] = useState(authUser?.fullName ?? "");
@@ -229,6 +231,7 @@ export default function StudentOnboardingGate() {
         throw new Error(payload.error ?? "Failed to save setup");
       }
       login(payload as AuthUser);
+      setLocation("/student/pending-approval");
     } catch (err: any) {
       setError(err.message ?? "Failed to save setup");
     } finally {

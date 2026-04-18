@@ -61,6 +61,26 @@ function normalizeExamKey(value: unknown): string | null {
   return compact.replace(/\s+/g, "-");
 }
 
+function getStudentExamKeys(student: { subject?: string | null; additionalExams?: unknown[] | null }) {
+  const examKeys = new Set<string>();
+  const primaryExamKey = normalizeExamKey(student.subject);
+  if (primaryExamKey) examKeys.add(primaryExamKey);
+  for (const exam of student.additionalExams ?? []) {
+    const key = normalizeExamKey(exam);
+    if (key) examKeys.add(key);
+  }
+  return examKeys;
+}
+
+function canStudentAccessTest(
+  test: { classId?: number | null; examType?: unknown },
+  access: { enrolledClassIds: Set<number>; examKeys: Set<string> },
+) {
+  if (test.classId != null && access.enrolledClassIds.has(test.classId)) return true;
+  const examKey = normalizeExamKey(test.examType);
+  return examKey ? access.examKeys.has(examKey) : false;
+}
+
 function toIsoString(value: Date | null | undefined) {
   return value?.toISOString() ?? null;
 }
@@ -210,39 +230,31 @@ router.get("/dashboard/student", async (req, res): Promise<void> => {
     .filter((cls) => !enrolledIds.has(cls.id) && (cls.status === "scheduled" || cls.status === "live"))
     .sort((a, b) => getTimeValue(a.scheduledAt) - getTimeValue(b.scheduledAt));
 
-  const studentExamKeys = new Set<string>();
-  const primaryExamKey = normalizeExamKey(student.subject);
-  if (primaryExamKey) studentExamKeys.add(primaryExamKey);
-  for (const exam of student.additionalExams ?? []) {
-    const key = normalizeExamKey(exam);
-    if (key) studentExamKeys.add(key);
-  }
+  const access = {
+    enrolledClassIds: enrolledIds,
+    examKeys: getStudentExamKeys(student),
+  };
 
-  const visibleTests = studentExamKeys.size > 0
-    ? (await db
-        .select({
-          id: testsTable.id,
-          title: testsTable.title,
-          description: testsTable.description,
-          examType: testsTable.examType,
-          durationMinutes: testsTable.durationMinutes,
-          scheduledAt: testsTable.scheduledAt,
-          classId: testsTable.classId,
-          className: classesTable.title,
-          subjectName: subjectsTable.title,
-          chapterName: chaptersTable.title,
-        })
-        .from(testsTable)
-        .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
-        .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
-        .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
-        .where(eq(testsTable.isPublished, true))
-        .orderBy(testsTable.scheduledAt))
-        .filter((test) => {
-          const examKey = normalizeExamKey(test.examType);
-          return examKey ? studentExamKeys.has(examKey) : false;
-        })
-    : [];
+  const visibleTests = (await db
+    .select({
+      id: testsTable.id,
+      title: testsTable.title,
+      description: testsTable.description,
+      examType: testsTable.examType,
+      durationMinutes: testsTable.durationMinutes,
+      scheduledAt: testsTable.scheduledAt,
+      classId: testsTable.classId,
+      className: classesTable.title,
+      subjectName: subjectsTable.title,
+      chapterName: chaptersTable.title,
+    })
+    .from(testsTable)
+    .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
+    .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
+    .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
+    .where(eq(testsTable.isPublished, true))
+    .orderBy(testsTable.scheduledAt))
+    .filter((test) => canStudentAccessTest(test, access));
 
   const submittedTestIds = new Set(studentSubmissions.map((submission) => submission.testId));
   const pendingTests = visibleTests

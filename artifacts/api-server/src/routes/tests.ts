@@ -113,6 +113,34 @@ function normalizeExamKey(value: unknown): string | null {
   return compact.replace(/\s+/g, "-");
 }
 
+function getStudentExamKeys(user: { subject?: string | null; additionalExams?: unknown[] | null }) {
+  const examKeys = new Set<string>();
+  const primaryExamKey = normalizeExamKey(user.subject);
+  if (primaryExamKey) examKeys.add(primaryExamKey);
+  for (const exam of user.additionalExams ?? []) {
+    const key = normalizeExamKey(exam);
+    if (key) examKeys.add(key);
+  }
+  return examKeys;
+}
+
+async function getStudentEnrolledClassIds(userId: number) {
+  const enrollments = await db
+    .select({ classId: enrollmentsTable.classId })
+    .from(enrollmentsTable)
+    .where(eq(enrollmentsTable.studentId, userId));
+  return new Set(enrollments.map((item) => item.classId));
+}
+
+function canStudentAccessTest(
+  test: { classId?: number | null; examType?: unknown },
+  access: { enrolledClassIds: Set<number>; examKeys: Set<string> },
+) {
+  if (test.classId != null && access.enrolledClassIds.has(test.classId)) return true;
+  const examKey = normalizeExamKey(test.examType);
+  return examKey ? access.examKeys.has(examKey) : false;
+}
+
 function safeParseJson<T>(value: unknown, fallback: T): T {
   if (value == null) return fallback;
   if (typeof value !== "string") return value as T;
@@ -1247,19 +1275,26 @@ router.get("/tests", requireAuth, async (req, res) => {
     }
 
     // Student
-    const studentExamKeys = new Set<string>();
-    const primaryExamKey = normalizeExamKey(user.subject);
-    if (primaryExamKey) studentExamKeys.add(primaryExamKey);
-    for (const exam of user.additionalExams ?? []) {
-      const key = normalizeExamKey(exam);
-      if (key) studentExamKeys.add(key);
-    }
-    if (studentExamKeys.size === 0) return res.json([]);
+    const [enrolledClassIds, submissions] = await Promise.all([
+      getStudentEnrolledClassIds(userId),
+      db.select({ testId: testSubmissionsTable.testId })
+        .from(testSubmissionsTable)
+        .where(eq(testSubmissionsTable.studentId, userId)),
+    ]);
+    const access = {
+      enrolledClassIds,
+      examKeys: getStudentExamKeys(user),
+    };
+    const submittedTestIds = new Set(submissions.map((s) => s.testId));
 
     const tests = await db.select({
       id: testsTable.id,
+      classId: testsTable.classId,
       title: testsTable.title,
+      description: testsTable.description,
       examType: testsTable.examType,
+      examHeader: testsTable.examHeader,
+      examSubheader: testsTable.examSubheader,
       durationMinutes: testsTable.durationMinutes,
       passingScore: testsTable.passingScore,
       scheduledAt: testsTable.scheduledAt,
@@ -1271,14 +1306,8 @@ router.get("/tests", requireAuth, async (req, res) => {
       .where(eq(testsTable.isPublished, true))
       .orderBy(testsTable.scheduledAt);
 
-    const visibleTests = tests.filter((test) => {
-      const examKey = normalizeExamKey(test.examType);
-      return examKey ? studentExamKeys.has(examKey) : false;
-    });
+    const visibleTests = tests.filter((test) => submittedTestIds.has(test.id) || canStudentAccessTest(test, access));
 
-    const submissions = await db.select({ testId: testSubmissionsTable.testId })
-      .from(testSubmissionsTable).where(eq(testSubmissionsTable.studentId, userId));
-    const submittedTestIds = new Set(submissions.map((s) => s.testId));
     return res.json(visibleTests.map((t) => ({ ...t, alreadySubmitted: submittedTestIds.has(t.id) })));
   } catch { return res.status(500).json({ error: "Internal server error" }); }
 });
@@ -1722,6 +1751,13 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
         .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id))
         .limit(1);
       submission = sub ?? null;
+
+      const access = {
+        enrolledClassIds: await getStudentEnrolledClassIds(userId),
+        examKeys: getStudentExamKeys(user),
+      };
+      const canAccess = submission !== null || (Boolean(test.isPublished) && canStudentAccessTest(test, access));
+      if (!canAccess) return res.status(403).json({ error: "Forbidden" });
     }
 
     const richSubmission = submission ? {
@@ -2616,27 +2652,30 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
 
     // Notify enrolled students when a test is first published
     if (updates.isPublished === true && !beforeTest?.isPublished) {
-      let studentIds: number[] = [];
-      const examKey = normalizeExamKey(test.examType);
-      if (examKey) {
-        const students = await db.select({
-          id: usersTable.id,
-          subject: usersTable.subject,
-          additionalExams: usersTable.additionalExams,
-        }).from(usersTable).where(eq(usersTable.role, "student"));
-        studentIds = students
-          .filter((student) => {
-            const keys = new Set<string>();
-            const primary = normalizeExamKey(student.subject);
-            if (primary) keys.add(primary);
-            for (const exam of student.additionalExams ?? []) {
-              const normalized = normalizeExamKey(exam);
-              if (normalized) keys.add(normalized);
-            }
-            return keys.has(examKey);
-          })
-          .map((student) => student.id);
-      }
+      const students = await db.select({
+        id: usersTable.id,
+        subject: usersTable.subject,
+        additionalExams: usersTable.additionalExams,
+      }).from(usersTable).where(eq(usersTable.role, "student"));
+      const enrolledStudentIds = test.classId != null
+        ? new Set(
+            (await db
+              .select({ studentId: enrollmentsTable.studentId })
+              .from(enrollmentsTable)
+              .where(eq(enrollmentsTable.classId, test.classId)))
+              .map((row) => row.studentId),
+          )
+        : new Set<number>();
+      const studentIds = students
+        .filter((student) =>
+          enrolledStudentIds.has(student.id) ||
+          canStudentAccessTest(test, {
+            enrolledClassIds: new Set<number>(),
+            examKeys: getStudentExamKeys(student),
+          }),
+        )
+        .map((student) => student.id);
+
       if (studentIds.length > 0) {
         await pushNotificationToMany(studentIds, {
           type: "test",
@@ -3040,6 +3079,23 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
     const user = await getUser(userId);
     if (!user || user.role !== "student") return res.status(403).json({ error: "Students only" });
 
+    const [test] = await db.select({
+      id: testsTable.id,
+      classId: testsTable.classId,
+      examType: testsTable.examType,
+      isPublished: testsTable.isPublished,
+      passingScore: testsTable.passingScore,
+    }).from(testsTable).where(eq(testsTable.id, testId));
+    if (!test) return res.status(404).json({ error: "Test not found" });
+
+    const access = {
+      enrolledClassIds: await getStudentEnrolledClassIds(userId),
+      examKeys: getStudentExamKeys(user),
+    };
+    if (!test.isPublished || !canStudentAccessTest(test, access)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
     const {
       answers,
       questionTimings,
@@ -3061,10 +3117,9 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
       }
     }
 
-    const [test] = await db.select().from(testsTable).where(eq(testsTable.id, testId));
     const normalizedScore = Number(score.toFixed(2));
     const percentage = totalPoints > 0 ? Number(((normalizedScore / totalPoints) * 100).toFixed(2)) : 0;
-    const passed = test?.passingScore == null ? true : percentage >= test.passingScore;
+    const passed = test.passingScore == null ? true : percentage >= test.passingScore;
 
     const [submission] = await db.insert(testSubmissionsTable).values({
       testId, studentId: userId,

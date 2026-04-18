@@ -250,7 +250,7 @@ export default function SendNotification() {
             <Input
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              placeholder="e.g. /schedule or /leaderboard"
+              placeholder="e.g. /leaderboard"
               data-testid="input-notif-link"
             />
           </div>

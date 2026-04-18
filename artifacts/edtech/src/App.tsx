@@ -38,8 +38,8 @@ const StudentQuestionBankChapterPage = lazy(() => import("@/pages/student/questi
 const StudentQuestionBankQuestionPage = lazy(() => import("@/pages/student/question-bank/QuestionPage"));
 const StudentReviewBucket = lazy(() => import("@/pages/student/ReviewBucket"));
 const StudentProfile = lazy(() => import("@/pages/student/Profile"));
+const StudentPendingApproval = lazy(() => import("@/pages/student/PendingApproval"));
 const StudentTests = lazy(() => import("@/pages/student/Tests"));
-const Schedule = lazy(() => import("@/pages/Schedule"));
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
 const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
 
@@ -62,9 +62,17 @@ function AppLoader() {
   );
 }
 
+function studentNeedsOnboarding(user: { role: string; onboardingComplete?: boolean }) {
+  return user.role === "student" && !user.onboardingComplete;
+}
+
+function studentAwaitingApproval(user: { role: string; onboardingComplete?: boolean; status?: string | null }) {
+  return user.role === "student" && !!user.onboardingComplete && user.status === "pending";
+}
+
 function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   if (isLoading) {
     return <AppLoader />;
@@ -80,12 +88,31 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
     return null;
   }
 
+  if (user.role === "student") {
+    if (studentNeedsOnboarding(user) && location !== "/student/profile") {
+      setLocation("/student/profile");
+      return null;
+    }
+
+    if (studentAwaitingApproval(user) && location !== "/student/pending-approval") {
+      setLocation("/student/pending-approval");
+      return null;
+    }
+
+    if (!studentNeedsOnboarding(user) && user.status === "approved" && location === "/student/pending-approval") {
+      setLocation("/student/dashboard");
+      return null;
+    }
+  }
+
   return <>{children}</>;
 }
 
-function getRoleHomePath(role: string) {
+function getRoleHomePath(role: string, user?: { onboardingComplete?: boolean; status?: string | null }) {
   if (role === "super_admin") return "/super-admin/dashboard";
   if (role === "admin") return "/admin/question-bank";
+  if (!user?.onboardingComplete) return "/student/profile";
+  if (user.status === "pending") return "/student/pending-approval";
   return "/student/dashboard";
 }
 
@@ -111,7 +138,7 @@ function AppRouter() {
             <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : user ? (
-          <RedirectTo href={getRoleHomePath(user.role)} />
+          <RedirectTo href={getRoleHomePath(user.role, user)} />
         ) : (
           <LandingPage />
         )}
@@ -274,18 +301,16 @@ function AppRouter() {
           <Layout><StudentProfile /></Layout>
         </ProtectedRoute>
       </Route>
+      <Route path="/student/pending-approval">
+        <ProtectedRoute roles={["student"]}>
+          <StudentPendingApproval />
+        </ProtectedRoute>
+      </Route>
 
       {/* Shared — accessible to all logged-in roles */}
       <Route path="/leaderboard">
         <ProtectedRoute roles={["super_admin", "admin", "student"]}>
           <Layout><Leaderboard /></Layout>
-        </ProtectedRoute>
-      </Route>
-
-      {/* Schedule — accessible to all roles */}
-      <Route path="/schedule">
-        <ProtectedRoute roles={["super_admin", "admin", "student"]}>
-          <Layout><Schedule /></Layout>
         </ProtectedRoute>
       </Route>
 

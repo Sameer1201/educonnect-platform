@@ -8,17 +8,38 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle } from "lucide-react";
 import { Link } from "wouter";
 import { BrandLogo } from "@/components/ui/brand-logo";
+import { useAuth } from "@/contexts/AuthContext";
+import { isFirebaseGoogleConfigured, signInWithFirebaseEmailPassword } from "@/lib/firebase";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
-    username: "", password: "", fullName: ""
+    fullName: "",
+    username: "",
+    email: "",
+    password: "",
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [saving, setSaving] = useState(false);
   const [, setLocation] = useLocation();
+  const { login } = useAuth();
+
+  const completeFirebaseServerLogin = async (idToken: string) => {
+    const response = await fetch(`${BASE}/api/auth/firebase-email`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Account created, but automatic sign-in failed.");
+    }
+    login(payload.user);
+    setLocation("/");
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -39,6 +60,10 @@ export default function RegisterPage() {
       setError("User ID is required");
       return;
     }
+    if (!form.email.trim()) {
+      setError("Email is required");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -46,6 +71,7 @@ export default function RegisterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          email: form.email.trim().toLowerCase(),
           username: form.username.trim(),
           password: form.password,
           fullName: form.fullName.trim(),
@@ -55,7 +81,17 @@ export default function RegisterPage() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Registration failed. Please try again.");
       }
-      setSuccess(true);
+
+      if (!isFirebaseGoogleConfigured()) {
+        setSuccess(true);
+        return;
+      }
+
+      const { idToken } = await signInWithFirebaseEmailPassword(
+        form.email.trim().toLowerCase(),
+        form.password,
+      );
+      await completeFirebaseServerLogin(idToken);
     } catch (err: any) {
       setError(err.message ?? "Registration failed. Please try again.");
     } finally {
@@ -75,7 +111,7 @@ export default function RegisterPage() {
             </div>
             <h2 className="text-2xl font-bold mb-2">Registration Submitted!</h2>
             <p className="text-muted-foreground mb-6">
-              Your account is pending approval. After your first login, we will ask you to complete your student setup and select your target exam.
+              Firebase student account create ho gaya. Ab email/password ya Google se login karke setup complete karo, phir approval ke baad portal active hoga.
             </p>
             <Button onClick={() => setLocation("/login")} data-testid="button-go-login" className="w-full">
               Go to Login
@@ -96,7 +132,7 @@ export default function RegisterPage() {
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="text-2xl">Student Registration</CardTitle>
-            <CardDescription>Create your student account. An admin will approve it.</CardDescription>
+            <CardDescription>Create your student account. Setup complete hone ke baad admin ya super admin approval required hoga.</CardDescription>
           </CardHeader>
 
           <CardContent>
@@ -128,6 +164,20 @@ export default function RegisterPage() {
                   data-testid="input-username"
                   placeholder="Choose your user ID"
                   value={form.username}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  data-testid="input-email"
+                  placeholder="Enter your email"
+                  value={form.email}
                   onChange={handleChange}
                   required
                 />

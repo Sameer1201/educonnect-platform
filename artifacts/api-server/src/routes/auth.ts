@@ -1,8 +1,18 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { db, examTemplatesTable, passwordResetRequestsTable, usersTable } from "@workspace/db";
-import { eq, or, desc } from "drizzle-orm";
+import { eq, or, desc, ilike } from "drizzle-orm";
 import { LoginBody } from "@workspace/api-zod";
+import { randomBytes } from "node:crypto";
 import { hashPassword, verifyPassword } from "../lib/auth";
+import {
+  createFirebaseEmailUser,
+  deleteFirebaseUser,
+  ensureFirebasePasswordResetUser,
+  generateFirebasePasswordResetLink,
+  isFirebaseAdminConfigured,
+  verifyFirebaseIdToken,
+} from "../lib/firebaseAdmin";
+import { isBrevoConfigured, sendPortalPasswordResetEmail } from "../lib/brevo";
 
 const router: IRouter = Router();
 
@@ -10,19 +20,64 @@ function readTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function sanitizeGoogleUsernameBase(email: string, name: string) {
+  const emailBase = email.split("@")[0] ?? "";
+  const fromName = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  const fromEmail = emailBase
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  const fallback = fromName || fromEmail || "student";
+  const compact = fallback.slice(0, 24);
+  if (compact.length >= 3) return compact;
+  return `${compact}student`.slice(0, 24);
+}
+
+async function buildUniqueGoogleUsername(email: string, name: string) {
+  const base = sanitizeGoogleUsernameBase(email, name);
+  let candidate = base;
+  let suffix = 1;
+
+  while (true) {
+    const [existing] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.username, candidate));
+    if (!existing) return candidate;
+    suffix += 1;
+    candidate = `${base}${suffix}`.slice(0, 64);
+  }
+}
+
+function readGoogleNewStudentStatus() {
+  const configured = readTrimmedString(process.env.FIREBASE_GOOGLE_NEW_STUDENT_STATUS).toLowerCase();
+  if (configured === "approved") return "approved" as const;
+  return "pending" as const;
+}
+
 function validateRegisterStudentBody(body: unknown) {
   const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const username = readTrimmedString(payload.username);
+  const email = normalizeEmail(readTrimmedString(payload.email));
   const password = typeof payload.password === "string" ? payload.password : "";
   const fullName = readTrimmedString(payload.fullName);
 
   if (username.length < 3) return { error: "User ID must be at least 3 characters" } as const;
   if (username.length > 64) return { error: "User ID is too long" } as const;
+  if (!email) return { error: "Email is required" } as const;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) return { error: "Enter a valid email address" } as const;
   if (password.length < 6) return { error: "Password must be at least 6 characters" } as const;
   if (!fullName) return { error: "Name is required" } as const;
   if (fullName.length > 120) return { error: "Name is too long" } as const;
 
-  return { data: { username, password, fullName } } as const;
+  return { data: { username, email, password, fullName } } as const;
 }
 
 function validateStudentOnboardingBody(body: unknown) {
@@ -112,6 +167,87 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
   };
 }
 
+function canUserAccessPlatform(user: typeof usersTable.$inferSelect) {
+  if (user.role === "planner") {
+    return { error: "Planner role is no longer supported on this platform", status: 403 } as const;
+  }
+
+  if (user.role === "student" && user.status === "rejected") {
+    return { error: "Your account has been rejected. Contact admin for details.", status: 401 } as const;
+  }
+
+  return null;
+}
+
+function sendSessionResponse(
+  res: Response,
+  user: typeof usersTable.$inferSelect,
+  message: string,
+) {
+  const accessError = canUserAccessPlatform(user);
+  if (accessError) {
+    if (user.role === "planner") {
+      res.clearCookie("userId");
+      res.clearCookie("userRole");
+    }
+    res.status(accessError.status).json({ error: accessError.error });
+    return false;
+  }
+
+  const cookieOpts = { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 };
+  res.cookie("userId", user.id.toString(), cookieOpts);
+  res.cookie("userRole", user.role, cookieOpts);
+  res.json({ user: serializeUser(user), message });
+  return true;
+}
+
+async function upsertFirebaseUser({
+  email,
+  fullName,
+  avatarUrl,
+}: {
+  email: string;
+  fullName: string;
+  avatarUrl: string | null;
+}) {
+  let [user] = await db
+    .select()
+    .from(usersTable)
+    .where(ilike(usersTable.email, email));
+
+  if (!user) {
+    const username = await buildUniqueGoogleUsername(email, fullName);
+    const status = readGoogleNewStudentStatus();
+    const [createdUser] = await db.insert(usersTable).values({
+      username,
+      passwordHash: hashPassword(randomBytes(24).toString("hex")),
+      fullName,
+      email,
+      phone: null,
+      subject: null,
+      avatarUrl,
+      role: "student",
+      status,
+      approvedAt: status === "approved" ? new Date() : null,
+    }).returning();
+    user = createdUser;
+  } else {
+    const updates: Partial<typeof usersTable.$inferInsert> = {};
+    if (!user.avatarUrl && avatarUrl) updates.avatarUrl = avatarUrl;
+    if (!user.fullName?.trim() && fullName) updates.fullName = fullName;
+    if (Object.keys(updates).length > 0) {
+      const [updatedUser] = await db
+        .update(usersTable)
+        .set(updates)
+        .where(eq(usersTable.id, user.id))
+        .returning();
+      user = updatedUser;
+    }
+  }
+
+  return user;
+}
+
 router.post("/auth/login", async (req, res): Promise<void> => {
   const parsed = LoginBody.safeParse(req.body);
   if (!parsed.success) {
@@ -120,11 +256,12 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 
   const { username, password } = parsed.data;
+  const normalizedIdentifier = normalizeEmail(username);
 
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.username, username));
+    .where(or(eq(usersTable.username, username), ilike(usersTable.email, normalizedIdentifier)));
 
   if (!user) {
     res.status(401).json({ error: "Invalid username or password" });
@@ -136,28 +273,96 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  if (user.role === "planner") {
-    res.clearCookie("userId");
-    res.clearCookie("userRole");
-    res.status(403).json({ error: "Planner role is no longer supported on this platform" });
+  if (user.role === "student") {
+    res.status(403).json({ error: "Students must sign in with email/password or Google via Firebase." });
     return;
   }
 
-  if (user.role === "student" && user.status === "pending") {
-    res.status(401).json({ error: "Your account is pending approval. Please wait for admin to approve." });
+  sendSessionResponse(res, user, "Login successful");
+});
+
+router.post("/auth/google", async (req, res): Promise<void> => {
+  const idToken = typeof req.body?.idToken === "string" ? req.body.idToken.trim() : "";
+  if (!idToken) {
+    res.status(400).json({ error: "Firebase Google ID token is required" });
     return;
   }
 
-  if (user.role === "student" && user.status === "rejected") {
-    res.status(401).json({ error: "Your account has been rejected. Contact admin for details." });
+  if (!isFirebaseAdminConfigured()) {
+    res.status(503).json({ error: "Firebase Google login is not configured on the server yet" });
     return;
   }
 
-  const cookieOpts = { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 };
-  res.cookie("userId", user.id.toString(), cookieOpts);
-  res.cookie("userRole", user.role, cookieOpts);
+  try {
+    const decoded = await verifyFirebaseIdToken(idToken);
+    const provider = decoded.firebase?.sign_in_provider;
+    const email = normalizeEmail(typeof decoded.email === "string" ? decoded.email : "");
+    const fullName = readTrimmedString(decoded.name) || email.split("@")[0] || "Student";
+    const avatarUrl = typeof decoded.picture === "string" ? decoded.picture : null;
 
-  res.json({ user: serializeUser(user), message: "Login successful" });
+    if (provider !== "google.com") {
+      res.status(400).json({ error: "This token is not from Firebase Google sign-in" });
+      return;
+    }
+
+    if (!decoded.email_verified || !email) {
+      res.status(400).json({ error: "A verified Google email is required to continue" });
+      return;
+    }
+
+    const user = await upsertFirebaseUser({ email, fullName, avatarUrl });
+    sendSessionResponse(res, user, "Google login successful");
+  } catch (error) {
+    res.status(401).json({
+      error: error instanceof Error ? error.message : "Firebase Google login failed",
+    });
+  }
+});
+
+router.post("/auth/firebase-email", async (req, res): Promise<void> => {
+  const idToken = typeof req.body?.idToken === "string" ? req.body.idToken.trim() : "";
+  if (!idToken) {
+    res.status(400).json({ error: "Firebase email/password ID token is required" });
+    return;
+  }
+
+  if (!isFirebaseAdminConfigured()) {
+    res.status(503).json({ error: "Firebase email/password login is not configured on the server yet" });
+    return;
+  }
+
+  try {
+    const decoded = await verifyFirebaseIdToken(idToken);
+    const provider = decoded.firebase?.sign_in_provider;
+    const email = normalizeEmail(typeof decoded.email === "string" ? decoded.email : "");
+    if (provider !== "password") {
+      res.status(400).json({ error: "This token is not from Firebase email/password sign-in" });
+      return;
+    }
+
+    if (!email) {
+      res.status(400).json({ error: "A Firebase email is required to continue" });
+      return;
+    }
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(ilike(usersTable.email, email));
+
+    if (!user) {
+      res.status(403).json({
+        error: "Account not found. Student signup is public, but teacher accounts must be created by admin.",
+      });
+      return;
+    }
+
+    sendSessionResponse(res, user, "Firebase email login successful");
+  } catch (error) {
+    res.status(401).json({
+      error: error instanceof Error ? error.message : "Firebase email/password login failed",
+    });
+  }
 });
 
 router.post("/auth/forgot-password-request", async (req, res): Promise<void> => {
@@ -172,8 +377,33 @@ router.post("/auth/forgot-password-request", async (req, res): Promise<void> => 
     .from(usersTable)
     .where(or(eq(usersTable.username, identifier), eq(usersTable.email, identifier)));
 
-  if (!user || user.role !== "student") {
+  if (!user) {
     res.json({ message: "If this student account exists, a reset request has been sent." });
+    return;
+  }
+
+  if (user.role === "student" || user.role === "admin" || user.role === "super_admin") {
+    if (isFirebaseAdminConfigured() && isBrevoConfigured()) {
+      await ensureFirebasePasswordResetUser({
+        email: user.email,
+        fullName: user.fullName,
+      });
+      const resetLink = await generateFirebasePasswordResetLink(user.email);
+      await sendPortalPasswordResetEmail({
+        accountName: user.fullName,
+        email: user.email,
+        resetLink,
+        roleLabel: user.role === "admin"
+          ? "teacher"
+          : user.role === "super_admin"
+            ? "super admin"
+            : "student",
+      });
+      res.json({ message: "Password reset link sent to your registered email." });
+      return;
+    }
+
+    res.status(503).json({ error: "Firebase password reset is not configured yet." });
     return;
   }
 
@@ -224,10 +454,13 @@ router.post("/auth/register", async (req, res): Promise<void> => {
     return;
   }
 
-  const { username, password, fullName } = parsed.data;
-  const placeholderEmail = `student+${Buffer.from(username.trim().toLowerCase()).toString("hex")}@educonnect.local`;
+  const { username, email, password, fullName } = parsed.data;
 
-  // Check if username or email already taken
+  if (!isFirebaseAdminConfigured()) {
+    res.status(503).json({ error: "Firebase student registration is not configured on the server yet" });
+    return;
+  }
+
   const [existing] = await db
     .select()
     .from(usersTable)
@@ -241,25 +474,48 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   const [existingEmail] = await db
     .select()
     .from(usersTable)
-    .where(eq(usersTable.email, placeholderEmail));
+    .where(ilike(usersTable.email, email));
 
   if (existingEmail) {
     res.status(400).json({ error: "Email already registered" });
     return;
   }
 
-  const [newUser] = await db.insert(usersTable).values({
-    username,
-    passwordHash: hashPassword(password),
-    fullName,
-    email: placeholderEmail,
-    phone: null,
-    subject: null,
-    role: "student",
-    status: "pending",
-  }).returning();
+  let firebaseUid: string | null = null;
 
-  res.status(201).json(serializeUser(newUser));
+  try {
+    const firebaseUser = await createFirebaseEmailUser({ email, password, fullName });
+    firebaseUid = firebaseUser.uid;
+
+    const [newUser] = await db.insert(usersTable).values({
+      username,
+      passwordHash: hashPassword(randomBytes(24).toString("hex")),
+      fullName,
+      email,
+      phone: null,
+      subject: null,
+      role: "student",
+      status: "pending",
+      onboardingComplete: false,
+    }).returning();
+
+    res.status(201).json(serializeUser(newUser));
+  } catch (error) {
+    if (firebaseUid) {
+      await deleteFirebaseUser(firebaseUid).catch(() => undefined);
+    }
+
+    if (error instanceof Error) {
+      if (error.message.includes("email-already-exists")) {
+        res.status(400).json({ error: "Email already registered in Firebase" });
+        return;
+      }
+      res.status(400).json({ error: error.message });
+      return;
+    }
+
+    res.status(500).json({ error: "Student registration failed" });
+  }
 });
 
 router.post("/auth/logout", async (_req, res): Promise<void> => {
@@ -353,6 +609,9 @@ router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
       fullName,
       phone,
       subject: normalizedSubject,
+      status: "pending",
+      approvedAt: null,
+      approvedById: null,
       onboardingComplete: true,
       studentProfileData: JSON.stringify({
         ...profileDetails,

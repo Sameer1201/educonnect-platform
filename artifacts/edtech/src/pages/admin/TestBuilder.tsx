@@ -38,6 +38,13 @@ type DraftIntegerMode = "exact" | "range";
 type SidebarMarksFilter = "all" | string;
 type SidebarDifficultyFilter = "all" | QuestionDifficulty;
 type SidebarQuestionTypeFilter = "all" | QuestionType;
+type TestCategory = "mock" | "subject-wise" | "multi-subject";
+
+interface MarkingScheme {
+  positive: number;
+  negative: number;
+  key: string;
+}
 
 interface TestSection {
   id: number;
@@ -219,6 +226,14 @@ function getCalculatorEnabledFromExamConfig(value: unknown) {
   return Boolean(normalizeExamConfigObject(value).calculatorEnabled);
 }
 
+function normalizeTestCategory(value: unknown): TestCategory {
+  if (typeof value !== "string") return "mock";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "subject-wise" || normalized === "subject wise" || normalized === "subject") return "subject-wise";
+  if (normalized === "multi-subject" || normalized === "multi subject" || normalized === "multi-subject-wise") return "multi-subject";
+  return "mock";
+}
+
 function formatDateTimeLocalValue(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -288,6 +303,130 @@ const IGNORED_IMPORTED_TAXONOMY_KEYS = new Set([
 
 function normalizeImportedTaxonomyKey(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function normalizeMarkingValue(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatMarkingValue(value: number) {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function formatMarkingSchemeLabel(scheme: Pick<MarkingScheme, "positive" | "negative">) {
+  return `+${formatMarkingValue(scheme.positive)} / -${formatMarkingValue(scheme.negative)}`;
+}
+
+function buildMarkingScheme(positive: number, negative: number): MarkingScheme {
+  const normalizedNegative = Math.max(0, negative);
+  return {
+    positive,
+    negative: normalizedNegative,
+    key: `${positive}|${normalizedNegative}`,
+  };
+}
+
+function getExplicitSectionMarking(section: TestSection | null | undefined, test: TestDetail | null | undefined) {
+  const sectionPositive = normalizeMarkingValue(section?.marksPerQuestion);
+  const sectionNegative = normalizeMarkingValue(section?.negativeMarks);
+
+  if (sectionPositive != null && sectionPositive > 0) {
+    return buildMarkingScheme(sectionPositive, sectionNegative ?? 0);
+  }
+
+  const defaultPositive = normalizeMarkingValue(test?.defaultPositiveMarks);
+  const defaultNegative = normalizeMarkingValue(test?.defaultNegativeMarks);
+  if (defaultPositive != null && defaultPositive > 0) {
+    return buildMarkingScheme(defaultPositive, defaultNegative ?? 0);
+  }
+
+  return null;
+}
+
+function getQuestionMarking(
+  question: Pick<Question, "points" | "negativeMarks"> | null | undefined,
+  section: TestSection | null | undefined,
+  test: TestDetail | null | undefined,
+) {
+  const positive = normalizeMarkingValue(question?.points);
+  const negative = normalizeMarkingValue(question?.negativeMarks);
+
+  if (positive != null && positive > 0) {
+    return buildMarkingScheme(positive, negative ?? 0);
+  }
+
+  return getExplicitSectionMarking(section, test);
+}
+
+function getSectionMarkingSchemes(
+  questions: Array<Pick<Question, "points" | "negativeMarks">>,
+  section: TestSection | null | undefined,
+  test: TestDetail | null | undefined,
+) {
+  const schemes = new Map<string, MarkingScheme>();
+
+  questions.forEach((question) => {
+    const scheme = getQuestionMarking(question, null, null);
+    if (!scheme) return;
+    schemes.set(scheme.key, scheme);
+  });
+
+  if (schemes.size === 0) {
+    const explicitScheme = getExplicitSectionMarking(section, test);
+    if (explicitScheme) schemes.set(explicitScheme.key, explicitScheme);
+  }
+
+  return Array.from(schemes.values()).sort((left, right) => {
+    if (left.positive !== right.positive) return left.positive - right.positive;
+    return left.negative - right.negative;
+  });
+}
+
+function getPreferredNewQuestionMarking(
+  questions: Array<Pick<Question, "points" | "negativeMarks">>,
+  section: TestSection | null | undefined,
+  test: TestDetail | null | undefined,
+) {
+  const explicitScheme = getExplicitSectionMarking(section, test);
+  if (explicitScheme) return explicitScheme;
+
+  const schemeCounts = new Map<string, { scheme: MarkingScheme; count: number }>();
+  questions.forEach((question) => {
+    const scheme = getQuestionMarking(question, null, null);
+    if (!scheme) return;
+    const existing = schemeCounts.get(scheme.key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      schemeCounts.set(scheme.key, { scheme, count: 1 });
+    }
+  });
+
+  const sortedSchemes = Array.from(schemeCounts.values()).sort((left, right) => {
+    if (left.count !== right.count) return right.count - left.count;
+    if (left.scheme.positive !== right.scheme.positive) return right.scheme.positive - left.scheme.positive;
+    return right.scheme.negative - left.scheme.negative;
+  });
+
+  if (sortedSchemes[0]) return sortedSchemes[0].scheme;
+  return buildMarkingScheme(1, 0);
+}
+
+function buildSectionBreadcrumb(subjectLabel?: string | null, sectionTitle?: string | null) {
+  const labels = [subjectLabel?.trim() ?? "", sectionTitle?.trim() ?? ""].filter(Boolean);
+  const seen = new Set<string>();
+  const uniqueLabels: string[] = [];
+
+  labels.forEach((label) => {
+    const key = normalizeImportedTaxonomyKey(label);
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    uniqueLabels.push(label);
+  });
+
+  return uniqueLabels.join(" · ");
 }
 
 function isImportedMarksTag(value: string) {
@@ -426,26 +565,6 @@ function hasQuestionSetupPending(question: Question | null | undefined) {
   return getQuestionSetupWarnings(question).length > 0;
 }
 
-function getDraftSetupWarnings(draft: QuestionDraft, question: Question | null) {
-  const warnings = new Set<string>();
-  getQuestionSetupWarnings(question).forEach((warning) => warnings.add(warning));
-  if (!question && !draft.subjectName.trim()) warnings.add("Subject name");
-  if (!question && !draft.chapterName.trim()) warnings.add("Chapter name");
-  if (!question && (!draft.idealTimeSeconds.trim() || Number(draft.idealTimeSeconds) <= 0)) warnings.add("Ideal time");
-  if (!question) {
-    if (draft.questionType === "mcq" && draft.correctAnswer < 0) warnings.add("Correct answer");
-    if (draft.questionType === "multi" && draft.correctAnswerMulti.length === 0) warnings.add("Correct answer");
-    if (draft.questionType === "integer") {
-      if (draft.integerMode === "range") {
-        if (!draft.correctIntegerMin.trim() || !draft.correctIntegerMax.trim()) warnings.add("Correct answer");
-      } else if (!draft.correctInteger.trim()) {
-        warnings.add("Correct answer");
-      }
-    }
-  }
-  return Array.from(warnings);
-}
-
 function defaultIdealTimeSeconds(difficulty: QuestionDifficulty) {
   if (difficulty === "easy") return 60;
   if (difficulty === "tough") return 180;
@@ -545,11 +664,13 @@ function canSaveDraft(draft: QuestionDraft) {
 function buildQuestionPayload({
   draft,
   activeSection,
-  test,
+  marking,
+  examType,
 }: {
   draft: QuestionDraft;
   activeSection: TestSection;
-  test: TestDetail;
+  marking: MarkingScheme;
+  examType?: string | null;
 }) {
   const subjectName = draft.subjectName.trim();
   const chapterName = draft.chapterName.trim();
@@ -576,13 +697,13 @@ function buildQuestionPayload({
     questionCode: draft.questionCode.trim() || null,
     sourceType: "manual",
     subjectLabel: activeSection.subjectLabel ?? activeSection.title,
-    points: activeSection.marksPerQuestion ?? test.defaultPositiveMarks ?? 1,
-    negativeMarks: activeSection.negativeMarks ?? test.defaultNegativeMarks ?? 0,
+    points: marking.positive,
+    negativeMarks: marking.negative,
     imageData: draft.imageData || null,
     solutionText: draft.solutionText.trim() || null,
     solutionImageData: draft.solutionImageData || null,
     meta: {
-      examType: test.examType ?? "custom",
+      examType: examType ?? "custom",
       difficulty: draft.difficulty,
       subjectName: subjectName || null,
       chapterName: chapterName || null,
@@ -680,6 +801,7 @@ export default function AdminTestBuilder() {
   const [questionTypeFilter, setQuestionTypeFilter] = useState<SidebarQuestionTypeFilter>("all");
   const [builderExamType, setBuilderExamType] = useState("");
   const [builderScheduledAt, setBuilderScheduledAt] = useState("");
+  const [builderTestCategory, setBuilderTestCategory] = useState<TestCategory>("mock");
   const [draft, setDraft] = useState<QuestionDraft | null>(null);
   const [hasAppliedDeepLink, setHasAppliedDeepLink] = useState(false);
 
@@ -716,6 +838,10 @@ export default function AdminTestBuilder() {
     () => formatDateTimeLocalValue(test?.scheduledAt ?? null),
     [test?.scheduledAt],
   );
+  const currentTestCategorySelection = useMemo(
+    () => normalizeTestCategory(normalizeExamConfigObject(test?.examConfig).testCategory),
+    [test?.examConfig],
+  );
 
   useEffect(() => {
     setBuilderExamType(currentExamTypeSelection);
@@ -724,6 +850,10 @@ export default function AdminTestBuilder() {
   useEffect(() => {
     setBuilderScheduledAt(currentScheduledSelection);
   }, [currentScheduledSelection]);
+
+  useEffect(() => {
+    setBuilderTestCategory(currentTestCategorySelection);
+  }, [currentTestCategorySelection]);
 
   useEffect(() => {
     return () => {
@@ -754,6 +884,14 @@ export default function AdminTestBuilder() {
   const activeSectionQuestions = useMemo(
     () => (activeSection ? sortQuestionsForSection(test?.questions ?? [], activeSection.id) : []),
     [activeSection, test?.questions],
+  );
+  const activeSectionMarkingSchemes = useMemo(
+    () => getSectionMarkingSchemes(activeSectionQuestions, activeSection, test),
+    [activeSectionQuestions, activeSection, test],
+  );
+  const activeSectionBreadcrumb = useMemo(
+    () => buildSectionBreadcrumb(activeSection?.subjectLabel, activeSection?.title),
+    [activeSection?.subjectLabel, activeSection?.title],
   );
   const questionsWithOpenReports = useMemo(
     () => (test?.questions ?? []).filter((question) => getQuestionOpenReportCount(question) > 0),
@@ -790,17 +928,15 @@ export default function AdminTestBuilder() {
 
   const visibleSectionQuestions = useMemo(() => {
     return activeSectionQuestions.filter((question) => {
-      const matchesMarks = marksFilter === "all" || String(Number(question.points ?? 0) || 0) === marksFilter;
+      const questionMarking = getQuestionMarking(question, activeSection, test);
+      const matchesMarks = marksFilter === "all" || questionMarking?.key === marksFilter;
       const matchesDifficulty = difficultyFilter === "all" || getQuestionDifficulty(question) === difficultyFilter;
       const matchesQuestionType = questionTypeFilter === "all" || question.questionType === questionTypeFilter;
       return matchesMarks && matchesDifficulty && matchesQuestionType;
     });
-  }, [activeSectionQuestions, marksFilter, difficultyFilter, questionTypeFilter]);
+  }, [activeSectionQuestions, marksFilter, difficultyFilter, questionTypeFilter, activeSection, test]);
 
-  const availableMarks = useMemo(
-    () => Array.from(new Set(activeSectionQuestions.map((question) => String(Number(question.points ?? 0) || 0)))).sort((left, right) => Number(left) - Number(right)),
-    [activeSectionQuestions],
-  );
+  const availableMarkingSchemes = useMemo(() => activeSectionMarkingSchemes, [activeSectionMarkingSchemes]);
 
   const availableDifficulties = useMemo(
     () => ["easy", "moderate", "tough"].filter((difficulty) => activeSectionQuestions.some((question) => getQuestionDifficulty(question) === difficulty)) as QuestionDifficulty[],
@@ -827,6 +963,14 @@ export default function AdminTestBuilder() {
       ? visibleSlotNumbers[0]
       : activeSlotNumber;
   const currentQuestion = activeSectionQuestions[selectedSlotNumber - 1] ?? null;
+  const currentQuestionMarking = useMemo(
+    () => getQuestionMarking(currentQuestion, activeSection, test),
+    [currentQuestion, activeSection, test],
+  );
+  const preferredNewQuestionMarking = useMemo(
+    () => getPreferredNewQuestionMarking(activeSectionQuestions, activeSection, test),
+    [activeSectionQuestions, activeSection, test],
+  );
   const currentQuestionReports = (currentQuestion?.reports ?? []) as QuestionReport[];
   const currentOpenReports = currentQuestionReports.filter((report) => report.status === "open");
   const latestQuestionReport = currentQuestionReports[0] ?? null;
@@ -865,8 +1009,6 @@ export default function AdminTestBuilder() {
     if (!activeSection || !test) return;
     setDraft(makeQuestionDraft(activeSection, test, selectedSlotNumber, currentQuestion));
   }, [activeSection, test, selectedSlotNumber, currentQuestion]);
-
-  const draftSetupWarnings = draft ? getDraftSetupWarnings(draft, currentQuestion) : [];
 
   useEffect(() => {
     if (hasAppliedDeepLink || !deepLinkedQuestionId || !test?.questions?.length) return;
@@ -1012,7 +1154,7 @@ export default function AdminTestBuilder() {
   });
 
   const updateTestDetailsMutation = useMutation({
-    mutationFn: async ({ examType, scheduledAt }: { examType: string; scheduledAt: string }) => {
+    mutationFn: async ({ examType, scheduledAt, testCategory }: { examType: string; scheduledAt: string; testCategory: TestCategory }) => {
       const response = await fetch(`${BASE}/api/tests/${testId}`, {
         method: "PATCH",
         credentials: "include",
@@ -1020,6 +1162,10 @@ export default function AdminTestBuilder() {
         body: JSON.stringify({
           examType,
           scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+          examConfig: {
+            ...normalizeExamConfigObject(test?.examConfig),
+            testCategory,
+          },
         }),
       });
       if (!response.ok) {
@@ -1042,27 +1188,34 @@ export default function AdminTestBuilder() {
   const queueTestDetailsAutoSave = ({
     examType,
     scheduledAt,
+    testCategory,
     delayMs,
   }: {
     examType: string;
     scheduledAt: string;
+    testCategory: TestCategory;
     delayMs: number;
   }) => {
     if (testDetailsAutoSaveTimeoutRef.current) {
       clearTimeout(testDetailsAutoSaveTimeoutRef.current);
     }
-    if (!examType || (examType === currentExamTypeSelection && scheduledAt === currentScheduledSelection)) {
+    if (!examType || (examType === currentExamTypeSelection && scheduledAt === currentScheduledSelection && testCategory === currentTestCategorySelection)) {
       return;
     }
     testDetailsAutoSaveTimeoutRef.current = setTimeout(() => {
-      updateTestDetailsMutation.mutate({ examType, scheduledAt });
+      updateTestDetailsMutation.mutate({ examType, scheduledAt, testCategory });
       testDetailsAutoSaveTimeoutRef.current = null;
     }, delayMs);
   };
 
   const handleSaveQuestion = () => {
     if (!draft || !activeSection || !test) return;
-    const body = buildQuestionPayload({ draft, activeSection, test });
+    const body = buildQuestionPayload({
+      draft,
+      activeSection,
+      marking: currentQuestionMarking ?? preferredNewQuestionMarking,
+      examType: test.examType,
+    });
     if (currentQuestion) {
       updateQuestionMutation.mutate({ questionId: currentQuestion.id, body });
     } else {
@@ -1105,7 +1258,7 @@ export default function AdminTestBuilder() {
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#fffaf2] text-slate-900" style={{ fontFamily: "\"Plus Jakarta Sans\", sans-serif" }}>
-      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-[#eadfcd] bg-white px-4 py-2">
+      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-[#eadfcd] bg-white px-3 py-2 xl:flex-nowrap">
         <button
           type="button"
           onClick={() => setLocation("/admin/tests")}
@@ -1115,7 +1268,7 @@ export default function AdminTestBuilder() {
           Back
         </button>
         <span className="h-4 w-px bg-[#e7dbca]" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="truncate text-sm font-extrabold text-slate-900">{test.title}</h1>
             <span
@@ -1135,17 +1288,17 @@ export default function AdminTestBuilder() {
           </p>
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <div className="flex items-center gap-2 rounded-full border border-[#e7dbca] bg-[#fffaf1] px-2 py-1">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Exam</span>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 xl:flex-nowrap">
+          <div className="flex items-center gap-1.5 rounded-full border border-[#e7dbca] bg-[#fffaf1] px-1.5 py-0.5">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">Exam</span>
             <Select
               value={builderExamType}
               onValueChange={(value) => {
                 setBuilderExamType(value);
-                queueTestDetailsAutoSave({ examType: value, scheduledAt: builderScheduledAt, delayMs: 0 });
+                queueTestDetailsAutoSave({ examType: value, scheduledAt: builderScheduledAt, testCategory: builderTestCategory, delayMs: 0 });
               }}
             >
-              <SelectTrigger className="h-8 min-w-[150px] border-none bg-transparent px-1 text-xs font-semibold text-slate-700 shadow-none focus:ring-0 focus:ring-offset-0">
+              <SelectTrigger className="h-7 min-w-[112px] border-none bg-transparent px-1 text-[11px] font-semibold text-slate-700 shadow-none focus:ring-0 focus:ring-offset-0">
                 <SelectValue placeholder="Part of exam" />
               </SelectTrigger>
               <SelectContent>
@@ -1158,17 +1311,38 @@ export default function AdminTestBuilder() {
             </Select>
           </div>
 
-          <div className="flex items-center gap-2 rounded-full border border-[#e7dbca] bg-[#fffaf1] px-2 py-1">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Schedule</span>
+          <div className="flex items-center gap-1.5 rounded-full border border-[#e7dbca] bg-[#fffaf1] px-1.5 py-0.5">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">Type</span>
+            <Select
+              value={builderTestCategory}
+              onValueChange={(value) => {
+                const nextValue = normalizeTestCategory(value);
+                setBuilderTestCategory(nextValue);
+                queueTestDetailsAutoSave({ examType: builderExamType, scheduledAt: builderScheduledAt, testCategory: nextValue, delayMs: 0 });
+              }}
+            >
+              <SelectTrigger className="h-7 min-w-[132px] border-none bg-transparent px-1 text-[11px] font-semibold text-slate-700 shadow-none focus:ring-0 focus:ring-offset-0">
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mock">Mock Test</SelectItem>
+                <SelectItem value="subject-wise">Subject-wise Test</SelectItem>
+                <SelectItem value="multi-subject">Multi-subject Test</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-1.5 rounded-full border border-[#e7dbca] bg-[#fffaf1] px-1.5 py-0.5">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">Schedule</span>
             <Input
               type="datetime-local"
               value={builderScheduledAt}
               onChange={(event) => {
                 const nextValue = event.target.value;
                 setBuilderScheduledAt(nextValue);
-                queueTestDetailsAutoSave({ examType: builderExamType, scheduledAt: nextValue, delayMs: 500 });
+                queueTestDetailsAutoSave({ examType: builderExamType, scheduledAt: nextValue, testCategory: builderTestCategory, delayMs: 500 });
               }}
-              className="h-8 w-[210px] border-none bg-transparent px-1 text-xs text-slate-700 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="h-7 w-[178px] border-none bg-transparent px-1 text-[11px] text-slate-700 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
 
@@ -1192,31 +1366,32 @@ export default function AdminTestBuilder() {
             type="button"
             onClick={() => toggleCalculatorMutation.mutate(!calculatorEnabled)}
             disabled={toggleCalculatorMutation.isPending}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+            aria-label={calculatorEnabled ? "Calculator enabled" : "Calculator disabled"}
+            title={calculatorEnabled ? "Calculator enabled" : "Calculator disabled"}
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
               calculatorEnabled
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                 : "border-[#f1e0be] bg-[#fff7ea] text-[#9a5b15] hover:bg-[#ffefcf]"
             } ${toggleCalculatorMutation.isPending ? "cursor-wait opacity-70" : ""}`}
           >
             <Calculator className="h-3.5 w-3.5" />
-            {toggleCalculatorMutation.isPending ? "Saving..." : calculatorEnabled ? "Calculator On" : "Calculator Off"}
           </button>
 
-          <div className="flex items-center rounded-lg border border-[#e7dbca] bg-[#fff6e8] p-0.5">
+          <div className="flex items-center rounded-full border border-[#e7dbca] bg-[#fff6e8] p-0.5">
             <button
               type="button"
               onClick={() => setViewMode("single")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${viewMode === "single" ? "border border-[#e7dbca] bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
+              className={`flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition ${viewMode === "single" ? "border border-[#e7dbca] bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
             >
-              <PenLine className="h-3.5 w-3.5" />
+              <PenLine className="h-3 w-3" />
               Single
             </button>
             <button
               type="button"
               onClick={() => setViewMode("all")}
-              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${viewMode === "all" ? "border border-[#e7dbca] bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
+              className={`flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition ${viewMode === "all" ? "border border-[#e7dbca] bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"}`}
             >
-              <List className="h-3.5 w-3.5" />
+              <List className="h-3 w-3" />
               All Questions
             </button>
           </div>
@@ -1233,10 +1408,14 @@ export default function AdminTestBuilder() {
                   <span className="rounded-md bg-[#f97316] px-2 py-0.5 text-sm font-bold text-white">
                     {showFilteredEmptyState ? "No match" : `Q${selectedSlotNumber}`}
                   </span>
-                  <span className="text-xs text-slate-400">/</span>
-                  <span className="text-xs font-medium text-slate-600">
-                    {(activeSection.subjectLabel ?? activeSection.title)} · {activeSection.title}
-                  </span>
+                  {activeSectionBreadcrumb ? (
+                    <>
+                      <span className="text-xs text-slate-400">/</span>
+                      <span className="text-xs font-medium text-slate-600">
+                        {activeSectionBreadcrumb}
+                      </span>
+                    </>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                   <span>
@@ -1630,9 +1809,11 @@ export default function AdminTestBuilder() {
                   <span className="rounded-full border border-[#eadfcd] bg-[#fff9ef] px-3 py-1">
                     {draft.questionCode}
                   </span>
-                  <span className="rounded-full border border-[#eadfcd] bg-[#fff9ef] px-3 py-1">
-                    +{activeSection.marksPerQuestion ?? test.defaultPositiveMarks ?? 1} / -{activeSection.negativeMarks ?? test.defaultNegativeMarks ?? 0}
-                  </span>
+                  {currentQuestionMarking ? (
+                    <span className="rounded-full border border-[#eadfcd] bg-[#fff9ef] px-3 py-1">
+                      +{formatMarkingValue(currentQuestionMarking.positive)} / -{formatMarkingValue(currentQuestionMarking.negative)}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {currentQuestion ? (
@@ -1899,14 +2080,6 @@ export default function AdminTestBuilder() {
             <div className="h-1.5 overflow-hidden rounded-full bg-[#efe4d2]">
               <div className="h-full rounded-full bg-[#f97316] transition-all" style={{ width: `${sectionProgress}%` }} />
             </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                +{activeSection.marksPerQuestion ?? test.defaultPositiveMarks ?? 1} mark
-              </span>
-              <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-600">
-                -{activeSection.negativeMarks ?? test.defaultNegativeMarks ?? 0} mark
-              </span>
-            </div>
           </div>
 
           <div className="border-b border-[#eadfcd]">
@@ -1933,12 +2106,12 @@ export default function AdminTestBuilder() {
                   <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Marks</p>
                   <div className="flex flex-wrap gap-1.5">
                     <FilterChip active={marksFilter === "all"} label="All" onClick={() => setMarksFilter("all")} tone="orange" />
-                    {availableMarks.map((value) => (
+                    {availableMarkingSchemes.map((scheme) => (
                       <FilterChip
-                        key={value}
-                        active={marksFilter === value}
-                        label={`${value} mark${value === "1" ? "" : "s"}`}
-                        onClick={() => setMarksFilter(value)}
+                        key={scheme.key}
+                        active={marksFilter === scheme.key}
+                        label={formatMarkingSchemeLabel(scheme)}
+                        onClick={() => setMarksFilter(scheme.key)}
                         tone="orange"
                       />
                     ))}

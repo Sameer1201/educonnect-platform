@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { useGetCurrentUser } from "@workspace/api-client-react";
 import type { AuthUser } from "@/types/auth";
+import { clearFirebaseGoogleSession } from "@/lib/firebase";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     setUser(null);
     localStorage.removeItem("educonnect_user");
+    void clearFirebaseGoogleSession();
   };
 
   return (

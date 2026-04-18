@@ -568,8 +568,8 @@ export default function StudentTestSolutions() {
 
             {currentQuestion ? (
               <>
-                <div className="flex items-center justify-between gap-3 border-b border-[#E2E8F0] bg-white px-5 py-3">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-3 border-b border-[#E2E8F0] bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm font-bold text-[#111827]">Q{currentQuestion.displayNumber}</span>
                     <span className="rounded bg-[#F1F5F9] px-2 py-0.5 text-xs font-medium uppercase tracking-[0.08em] text-[#475569]">
                       {getDifficulty(currentQuestion)}
@@ -594,20 +594,20 @@ export default function StudentTestSolutions() {
                   </button>
                 </div>
 
-                <div ref={scrollRegionRef} className="no-scrollbar flex-1 overflow-y-auto bg-white pb-28" id="test-solutions-scroll-region">
-                  <div className="px-5 py-5">
-                    <RichQuestionContent content={currentQuestion.question} className="text-xl font-medium leading-9 text-[#111827]" />
+                <div ref={scrollRegionRef} className="no-scrollbar flex-1 overflow-y-auto bg-white pb-36 sm:pb-28" id="test-solutions-scroll-region">
+                  <div className="px-4 py-5 sm:px-5">
+                    <RichQuestionContent content={currentQuestion.question} className="text-base font-medium leading-7 text-[#111827] sm:text-xl sm:leading-9" />
                   </div>
 
                   {currentQuestion.imageData ? (
-                    <div className="px-5 pb-4">
+                    <div className="px-4 pb-4 sm:px-5">
                       <div className="rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
                         <img src={currentQuestion.imageData} alt="" className="max-h-[24rem] rounded object-contain" />
                       </div>
                     </div>
                   ) : null}
 
-                  <div className="px-5 pb-4">
+                  <div className="px-4 pb-4 sm:px-5">
                     {currentQuestion.userStatus === "unattempted" ? (
                       <span className="rounded bg-[#EEF2FF] px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[#4338CA]">
                         You didn&apos;t attempt this question
@@ -624,7 +624,7 @@ export default function StudentTestSolutions() {
                   </div>
 
                   {String(currentQuestion.questionType ?? "mcq").toLowerCase() !== "integer" && currentQuestion.options?.length > 0 ? (
-                    <div className="grid gap-4 px-5 pb-6 lg:grid-cols-2">
+                    <div className="grid gap-3 px-4 pb-6 sm:gap-4 sm:px-5 lg:grid-cols-2">
                       {currentQuestion.options.map((option, optionIndex) => {
                         const correct = isCorrectOption(currentQuestion, optionIndex);
                         const chosen = isChosenOption(currentQuestion, optionIndex);
@@ -635,8 +635,8 @@ export default function StudentTestSolutions() {
                         else if (chosen && currentQuestion.userStatus === "incorrect") tone = "border-[#FECACA] bg-[#FEF2F2]";
 
                         return (
-                          <div key={`${currentQuestion.id}-${optionIndex}`} className={`relative rounded-2xl border p-4 ${tone}`}>
-                            <div className="flex items-start gap-4">
+                          <div key={`${currentQuestion.id}-${optionIndex}`} className={`relative rounded-2xl border p-3 sm:p-4 ${tone}`}>
+                            <div className="flex items-start gap-3 sm:gap-4">
                               <div
                                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
                                   correct ? "bg-[#22C55E] text-white" : "border border-[#D6DFEA] bg-white text-[#334155]"
@@ -645,7 +645,7 @@ export default function StudentTestSolutions() {
                                 {String.fromCharCode(65 + optionIndex)}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <RichQuestionContent content={option} className="text-lg leading-8 text-[#111827]" />
+                                <RichQuestionContent content={option} className="text-base leading-7 text-[#111827] sm:text-lg sm:leading-8" />
                                 <div className="mt-1 text-sm font-semibold text-[#4F46E5]">
                                   {getOptionMarkedPercentage(currentQuestion, optionIndex)}% marked this
                                 </div>
@@ -667,7 +667,7 @@ export default function StudentTestSolutions() {
                       })}
                     </div>
                   ) : (
-                    <div className="grid gap-4 px-5 pb-6 md:grid-cols-2">
+                    <div className="grid gap-4 px-4 pb-6 sm:px-5 md:grid-cols-2">
                       <div className="rounded-2xl border border-[#FECACA] bg-[#FEF2F2] p-4">
                         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#B91C1C]">Your Answer</p>
                         <p className="mt-2 text-lg font-semibold text-[#111827]">{renderUserAnswer(currentQuestion)}</p>
@@ -679,12 +679,12 @@ export default function StudentTestSolutions() {
                     </div>
                   )}
 
-                  <div className="border-t border-[#E2E8F0] px-5 py-5">
+                  <div className="border-t border-[#E2E8F0] px-4 py-5 sm:px-5">
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#64748B]">Chapter & Topic</div>
                     <div className="mt-2 text-sm font-medium text-[#111827]">{getTopicLine(currentQuestion)}</div>
                   </div>
 
-                  <div ref={solutionRef} className="border-t border-[#E2E8F0] px-5 pb-8 pt-5">
+                  <div ref={solutionRef} className="border-t border-[#E2E8F0] px-4 pb-8 pt-5 sm:px-5">
                     <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#64748B]">
                       <BookOpen className="h-4 w-4 text-[#4B8BFF]" />
                       Teacher Solution
@@ -729,13 +729,13 @@ export default function StudentTestSolutions() {
                   />
                 </div>
 
-                <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[#E2E8F0] bg-[rgba(255,255,255,0.98)] px-5 py-4 backdrop-blur-sm">
-                  <div className="mx-auto flex max-w-[34rem] items-center justify-center gap-4">
+                <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[#E2E8F0] bg-[rgba(255,255,255,0.98)] px-4 py-3 backdrop-blur-sm sm:px-5 sm:py-4">
+                  <div className="mx-auto grid max-w-[34rem] grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-center sm:gap-4">
                     <button
                       type="button"
                       onClick={() => previousQuestion && setSelectedQuestionId(previousQuestion.id)}
                       disabled={!previousQuestion}
-                      className="min-w-[9.5rem] rounded-full border border-[#D6DFEA] bg-white px-6 py-3 text-sm font-semibold text-[#6B7280] transition hover:bg-[#F8FAFC] hover:text-[#334155] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="min-w-0 rounded-full border border-[#D6DFEA] bg-white px-4 py-2.5 text-xs font-semibold text-[#6B7280] transition hover:bg-[#F8FAFC] hover:text-[#334155] disabled:cursor-not-allowed disabled:opacity-40 sm:min-w-[9.5rem] sm:px-6 sm:py-3 sm:text-sm"
                     >
                       Previous
                     </button>
@@ -748,7 +748,7 @@ export default function StudentTestSolutions() {
                         }
                         solutionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                       }}
-                      className="inline-flex min-w-[13.5rem] items-center justify-center gap-2 rounded-full border border-[#171717] bg-[#171717] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#111111]"
+                      className="col-span-2 inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-[#171717] bg-[#171717] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-[#111111] sm:min-w-[13.5rem] sm:px-6 sm:py-3 sm:text-sm"
                     >
                       {isAtSolutionSection ? "View Question" : "View Solution"}
                       {isAtSolutionSection ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -757,7 +757,7 @@ export default function StudentTestSolutions() {
                       type="button"
                       onClick={() => nextQuestion && setSelectedQuestionId(nextQuestion.id)}
                       disabled={!nextQuestion}
-                      className="min-w-[9.5rem] rounded-full border border-[#D6DFEA] bg-white px-6 py-3 text-sm font-semibold text-[#334155] transition hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-40"
+                      className="min-w-0 rounded-full border border-[#D6DFEA] bg-white px-4 py-2.5 text-xs font-semibold text-[#334155] transition hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-40 sm:min-w-[9.5rem] sm:px-6 sm:py-3 sm:text-sm"
                     >
                       Next
                     </button>

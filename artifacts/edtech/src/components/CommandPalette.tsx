@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { createPortal } from "react-dom";
 import {
   Search, LayoutDashboard, BookOpen, ClipboardList,
-  Trophy, CalendarDays,
+  Trophy,
   Users, UserCheck, Activity,
   ArrowRight, Zap,
 } from "lucide-react";
@@ -28,10 +28,8 @@ function getItems(role: string): CmdItem[] {
     nav("Students", "/super-admin/students", <Users size={15} />, "Management", "View all students"),
     nav("Question Bank", "/super-admin/question-bank", <BookOpen size={15} />, "Content", "Manage platform question banks"),
     nav("Exam Templates", "/super-admin/exam-templates", <ClipboardList size={15} />, "Content", "Manage exam blueprints"),
-    nav("Schedule", "/schedule", <CalendarDays size={15} />, "Content", "Create and manage schedule updates"),
     nav("Tests Overview", "/super-admin/tests", <ClipboardList size={15} />, "Analytics", "All tests across platform"),
     nav("User Activity", "/super-admin/activity", <Activity size={15} />, "Analytics", "Engagement and activity logs"),
-    nav("Leaderboard", "/leaderboard", <Trophy size={15} />, "Community"),
   ];
 
   if (role === "admin") return [
@@ -39,14 +37,12 @@ function getItems(role: string): CmdItem[] {
     nav("Question Bank", "/admin/question-bank", <BookOpen size={15} />, "Teaching", "Manage assigned content"),
     nav("Tests", "/admin/tests", <ClipboardList size={15} />, "Teaching", "Create and manage tests"),
     nav("Leaderboard", "/leaderboard", <Trophy size={15} />, "Community"),
-    nav("Schedule", "/schedule", <CalendarDays size={15} />, "Community"),
   ];
 
   return [
     nav("Dashboard", "/student/dashboard", <LayoutDashboard size={15} />, "Navigation", "Learning overview"),
     nav("Tests", "/student/tests", <ClipboardList size={15} />, "Learning", "Take pending tests"),
     nav("Leaderboard", "/leaderboard", <Trophy size={15} />, "Community"),
-    nav("Schedule", "/schedule", <CalendarDays size={15} />, "Community"),
   ];
 }
 

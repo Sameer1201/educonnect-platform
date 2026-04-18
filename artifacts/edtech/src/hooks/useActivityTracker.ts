@@ -27,7 +27,6 @@ const PAGE_LABELS: Record<string, string> = {
   "/super-admin/activity": "User Activity",
   "/super-admin/question-bank": "Super Admin Question Bank",
   "/super-admin/exam-templates": "Super Admin Exam Templates",
-  "/schedule": "Schedule",
 };
 
 function getPageLabel(path: string): string {

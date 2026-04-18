@@ -12,7 +12,7 @@ import { filterReviewBucketEntries, getReviewBucketRemovedQuestionIds } from "@/
 import {
   ClipboardList, Clock, CheckCircle2, AlertCircle, BookOpen,
   Calculator, PanelRightOpen,
-  ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Info, PlayCircle, X, Search, FileText
+  ChevronDown, ChevronRight, HelpCircle, Info, PlayCircle, X, Search, FileText
 } from "lucide-react";
 import { differenceInDays, format } from "date-fns";
 
@@ -22,6 +22,7 @@ const TEST_DRAFT_PREFIX = "educonnect-test-draft";
 type QuestionType = "mcq" | "multi" | "integer";
 type AnswerValue = number | number[] | string;
 type PaletteStatus = "not-visited" | "not-answered" | "answered" | "review" | "answered-review";
+type TestCategory = "mock" | "subject-wise" | "multi-subject";
 
 interface TestItem {
   id: number; title: string; description: string | null; durationMinutes: number;
@@ -86,6 +87,27 @@ interface InteractionLogEntry {
 }
 
 type TestPreviewAction = "result" | "resume" | "start";
+type MobileViewportState = {
+  isMobile: boolean;
+  isPortrait: boolean;
+};
+type ScreenWithOptionalOrientation = Screen & {
+  orientation?: {
+    lock?: (orientation: "landscape" | "portrait" | "landscape-primary" | "landscape-secondary" | "portrait-primary" | "portrait-secondary" | "natural" | "any") => Promise<void>;
+    unlock?: () => void;
+    type?: string;
+  };
+};
+
+function getMobileViewportState(): MobileViewportState {
+  if (typeof window === "undefined") {
+    return { isMobile: false, isPortrait: false };
+  }
+  return {
+    isMobile: window.matchMedia("(max-width: 1023px)").matches,
+    isPortrait: window.matchMedia("(orientation: portrait)").matches,
+  };
+}
 
 function getDefaultInstructionItems(durationMinutes: number) {
   return [
@@ -124,6 +146,83 @@ function getCalculatorEnabledFromExamConfig(value: unknown) {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   return Boolean((value as Record<string, unknown>).calculatorEnabled);
+}
+
+function normalizeExamConfigObject(value: unknown) {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function normalizeTestCategory(value: unknown): TestCategory | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "mock" || normalized === "mock-test") return "mock";
+  if (normalized === "subject-wise" || normalized === "subject wise" || normalized === "subject") return "subject-wise";
+  if (normalized === "multi-subject" || normalized === "multi subject" || normalized === "multi-subject-wise") return "multi-subject";
+  return null;
+}
+
+function getTestCategoryLabel(value: TestCategory) {
+  if (value === "subject-wise") return "Subject-wise Test";
+  if (value === "multi-subject") return "Multi-subject Test";
+  return "Mock Test";
+}
+
+function getTestCategoryTone(value: TestCategory) {
+  if (value === "subject-wise") {
+    return {
+      pill: "border-[#BAE6FD] bg-[#F0F9FF] text-[#0369A1]",
+      chip: "bg-[#E0F2FE] text-[#075985]",
+    };
+  }
+  if (value === "multi-subject") {
+    return {
+      pill: "border-[#DDD6FE] bg-[#F5F3FF] text-[#6D28D9]",
+      chip: "bg-[#EDE9FE] text-[#5B21B6]",
+    };
+  }
+  return {
+    pill: "border-[#FED7AA] bg-[#FFF7ED] text-[#C2410C]",
+    chip: "bg-[#FFEDD5] text-[#9A3412]",
+  };
+}
+
+function getResolvedTestCategory(
+  test: Pick<TestItem, "title" | "description" | "examHeader" | "examSubheader" | "subjectName" | "chapterName">,
+  detail?: Pick<TestDetail, "examConfig" | "sections"> | null,
+): TestCategory {
+  const stored = normalizeTestCategory(normalizeExamConfigObject(detail?.examConfig).testCategory);
+  if (stored) return stored;
+
+  const text = [
+    test.title,
+    test.description,
+    test.examHeader,
+    test.examSubheader,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  if (/multi[\s-]?subject|combined subject/.test(text)) return "multi-subject";
+  if (/subject[\s-]?wise|chapter[\s-]?wise|chapter test/.test(text)) return "subject-wise";
+  if (/mock|grand test|full test|full syllabus/.test(text)) return "mock";
+
+  const sectionLabels = new Set(
+    (detail?.sections ?? [])
+      .map((section) => section.subjectLabel?.trim() || section.title?.trim() || "")
+      .map((value) => value.toLowerCase().replace(/\s+/g, " ").trim())
+      .filter((value) => value && !/^section\b/.test(value)),
+  );
+
+  if (test.chapterName?.trim() || test.subjectName?.trim()) return "subject-wise";
+  if (sectionLabels.size > 1) return "multi-subject";
+  return "mock";
 }
 
 function getNumericAnswerValue(answer: AnswerValue | undefined): string {
@@ -391,17 +490,17 @@ function StudentTestsStatsBar({
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
       {cards.map((card) => (
         <div
           key={card.label}
-          className="relative w-full overflow-hidden rounded-[20px] border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
+          className="relative w-full overflow-hidden rounded-[18px] border border-[#E5E7EB] bg-white px-3 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:rounded-[20px] sm:px-4"
         >
           <div className={`absolute left-0 top-0 h-full w-1 ${card.accent}`} />
           <div className="flex items-start justify-between gap-3 pl-2">
             <div>
               <div className="flex items-center gap-2">
-                <p className="text-[13px] font-medium text-[#6B7280]">{card.label}</p>
+                <p className="text-[12px] font-medium text-[#6B7280] sm:text-[13px]">{card.label}</p>
                 {card.label === "Ongoing" && card.rawValue > 0 && (
                   <span className="relative inline-flex h-1.5 w-1.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#F59E0B] opacity-35" />
@@ -409,7 +508,7 @@ function StudentTestsStatsBar({
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-[22px] font-bold tracking-tight text-[#0F172A]">{card.value}</p>
+              <p className="mt-1 text-[19px] font-bold tracking-tight text-[#0F172A] sm:text-[22px]">{card.value}</p>
             </div>
             {renderCardGraphic(card)}
           </div>
@@ -436,6 +535,8 @@ function StudentTestSeriesCard({
 }) {
   const subject = getStudentTestSubject(test);
   const accent = getStudentTestAccent(subject);
+  const testCategory = getResolvedTestCategory(test, detail);
+  const categoryTone = getTestCategoryTone(testCategory);
   const isCompleted = status === "completed";
   const isUpcoming = status === "upcoming";
   const daysUntil = isUpcoming && test.scheduledAt
@@ -469,20 +570,23 @@ function StudentTestSeriesCard({
   return (
     <div className="group flex h-full flex-col overflow-hidden rounded-[26px] border border-[#E5E7EB] bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(15,23,42,0.10)]">
       <div className={`h-1.5 w-full ${accent.line}`} />
-      <div className="flex h-full flex-col p-6">
+      <div className="flex h-full flex-col p-4 sm:p-6">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${accent.dot}`} />
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B7280]">{subject}</span>
           </div>
+          <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${categoryTone.pill}`}>
+            {getTestCategoryLabel(testCategory)}
+          </span>
           <span className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs font-bold ${statusClass}`}>
             {!isCompleted && !isUpcoming && <span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_0_2px_rgba(245,158,11,0.14)]" />}
             {statusLabel}
           </span>
         </div>
 
-        <h3 className="line-clamp-2 text-[19px] font-bold leading-tight text-[#0F172A]">{test.title}</h3>
-        <p className="mt-2 line-clamp-2 min-h-[48px] text-[13px] leading-6 text-[#6B7280]">
+        <h3 className="line-clamp-2 text-[17px] font-bold leading-tight text-[#0F172A] sm:text-[19px]">{test.title}</h3>
+        <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[#6B7280] sm:min-h-[48px] sm:text-[13px] sm:leading-6">
           {test.description?.trim() || `${subject} practice test with exam-style timing and section flow.`}
         </p>
 
@@ -505,7 +609,7 @@ function StudentTestSeriesCard({
           <button
             type="button"
             onClick={onPrimaryAction}
-            className={`flex-1 rounded-full px-4 py-3 text-sm font-semibold transition-colors ${isCompleted ? "border border-[#E5E7EB] bg-white text-[#0F172A] hover:bg-[#F8FAFC]" : accent.button}`}
+            className={`w-full flex-1 rounded-full px-4 py-3 text-sm font-semibold transition-colors ${isCompleted ? "border border-[#E5E7EB] bg-white text-[#0F172A] hover:bg-[#F8FAFC]" : accent.button}`}
           >
             {isCompleted ? "View Result" : hasSavedDraft ? "Resume" : "Start Test"}
           </button>
@@ -647,6 +751,9 @@ export default function StudentTests() {
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
   const [interactionLog, setInteractionLog] = useState<InteractionLogEntry[]>([]);
+  const [mobileViewport, setMobileViewport] = useState<MobileViewportState>(() => getMobileViewportState());
+  const [allowPortraitTestView, setAllowPortraitTestView] = useState(false);
+  const fullscreenRequestedRef = useRef(false);
 
   const getDraftKey = (testId: number) => `${TEST_DRAFT_PREFIX}-${testId}`;
   const clearDraft = (testId: number) => localStorage.removeItem(getDraftKey(testId));
@@ -664,6 +771,48 @@ export default function StudentTests() {
     showInstructions,
     ...overrides,
   });
+  const syncMobileViewportState = () => {
+    setMobileViewport(getMobileViewportState());
+  };
+  const requestLandscapeExperience = async () => {
+    if (typeof window === "undefined") return;
+    const nextViewportState = getMobileViewportState();
+    if (!nextViewportState.isMobile) return;
+    const orientationApi = (window.screen as ScreenWithOptionalOrientation).orientation;
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      try {
+        await document.documentElement.requestFullscreen();
+        fullscreenRequestedRef.current = true;
+      } catch {
+        fullscreenRequestedRef.current = false;
+      }
+    }
+    if (orientationApi?.lock) {
+      try {
+        await orientationApi.lock("landscape");
+      } catch {
+        // Some browsers only allow lock in fullscreen/PWA modes.
+      }
+    }
+    syncMobileViewportState();
+  };
+  const releaseLandscapeExperience = async () => {
+    if (typeof window === "undefined") return;
+    const orientationApi = (window.screen as ScreenWithOptionalOrientation).orientation;
+    try {
+      orientationApi?.unlock?.();
+    } catch {
+      // Ignore browsers without unlock support.
+    }
+    if (fullscreenRequestedRef.current && document.fullscreenElement && document.exitFullscreen) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        // Ignore browsers that reject exit during teardown.
+      }
+    }
+    fullscreenRequestedRef.current = false;
+  };
 
   const getQuestionSectionLabel = (test: TestDetail, questionId: number) => {
     const question = test.questions.find((entry) => entry.id === questionId);
@@ -798,6 +947,7 @@ export default function StudentTests() {
         : "start"
     : null;
   const previewQuestionCount = previewTest ? questionCountByTestId[previewTest.id] ?? null : null;
+  const previewTestCategory = previewTest ? getResolvedTestCategory(previewTest, previewDetail) : null;
   const previewAnsweredCount = (() => {
     if (!previewDetail?.submission?.answers) return 0;
     try {
@@ -841,6 +991,38 @@ export default function StudentTests() {
       window.removeEventListener("storage", syncRemovedReviewBucketIds);
     };
   }, []);
+
+  useEffect(() => {
+    syncMobileViewportState();
+    window.addEventListener("resize", syncMobileViewportState);
+    window.addEventListener("orientationchange", syncMobileViewportState);
+    document.addEventListener("fullscreenchange", syncMobileViewportState);
+
+    return () => {
+      window.removeEventListener("resize", syncMobileViewportState);
+      window.removeEventListener("orientationchange", syncMobileViewportState);
+      document.removeEventListener("fullscreenchange", syncMobileViewportState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mobileViewport.isPortrait) {
+      setAllowPortraitTestView(false);
+    }
+  }, [mobileViewport.isPortrait]);
+
+  useEffect(() => {
+    if (!activeTest) {
+      void releaseLandscapeExperience();
+      return;
+    }
+    setAllowPortraitTestView(false);
+    void requestLandscapeExperience();
+
+    return () => {
+      void releaseLandscapeExperience();
+    };
+  }, [activeTest]);
 
   const launchTestAttempt = (data: TestDetail, allowDraftResume = true) => {
     const rawDraft = localStorage.getItem(getDraftKey(data.id));
@@ -1303,6 +1485,7 @@ export default function StudentTests() {
   const defaultInstructionItems = getDefaultInstructionItems(activeTest?.durationMinutes ?? 30);
   const additionalInstructionItems = extractAdditionalInstructionItems(activeTest?.instructions, activeTest?.durationMinutes ?? 30);
   const calculatorEnabled = getCalculatorEnabledFromExamConfig(activeTest?.examConfig);
+  const showRotateOverlay = Boolean(activeTest && mobileViewport.isMobile && mobileViewport.isPortrait && !allowPortraitTestView);
 
   const applyIntegerEdit = (transform: (value: string, start: number, end: number) => { value: string; caret: number }) => {
     if (!currentQuestion || currentQuestion.questionType !== "integer") return;
@@ -1367,7 +1550,7 @@ export default function StudentTests() {
 
           <Button
             variant="outline"
-            className="relative overflow-visible self-start rounded-full border-[#E5E7EB] bg-white px-5 py-3 text-sm font-semibold text-[#111827] shadow-[0_8px_30px_rgba(15,23,42,0.04)] hover:bg-[#F8FAFC] md:self-auto"
+            className="relative w-full overflow-visible self-start rounded-full border-[#E5E7EB] bg-white px-5 py-3 text-sm font-semibold text-[#111827] shadow-[0_8px_30px_rgba(15,23,42,0.04)] hover:bg-[#F8FAFC] sm:w-auto md:self-auto"
             onClick={() => setLocation("/student/tests/review-bucket")}
             data-testid="button-top-wrong-bucket"
           >
@@ -1389,8 +1572,8 @@ export default function StudentTests() {
           averageScore={averageCompletedScore}
         />
 
-        <div className="flex flex-col gap-2.5 rounded-[28px] border border-[#E5E7EB] bg-white px-4 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-3 rounded-[24px] border border-[#E5E7EB] bg-white px-3 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:px-4 md:flex-row md:items-center md:justify-between">
+          <div className="-mx-1 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
             {[
               { id: "all", label: "All" },
               { id: "upcoming", label: "Upcoming" },
@@ -1407,7 +1590,7 @@ export default function StudentTests() {
                     isActive
                       ? "chip-orange-solid"
                       : "text-[#64748B] hover:text-[#0F172A]"
-                  }`}
+                  } snap-start whitespace-nowrap`}
                 >
                   {tab.label}
                 </button>
@@ -1415,8 +1598,8 @@ export default function StudentTests() {
             })}
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative min-w-[220px]">
+          <div className="flex w-full items-center gap-3 md:w-auto">
+            <div className="relative w-full md:min-w-[220px]">
               <select
                 value={subjectFilter}
                 onChange={(event) => setSubjectFilter(event.target.value)}
@@ -1487,21 +1670,26 @@ export default function StudentTests() {
       <Dialog open={previewTest !== null} onOpenChange={(open) => !open && setPreviewTestId(null)}>
         <DialogContent
           hideClose
-          className="max-w-[820px] rounded-[28px] border border-[#D8DEEF] bg-white p-0 shadow-[0_20px_56px_rgba(15,23,42,0.16)]"
+          className="max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[24px] border border-[#D8DEEF] bg-white p-0 shadow-[0_20px_56px_rgba(15,23,42,0.16)] sm:max-h-[44rem] sm:max-w-[820px] sm:rounded-[28px]"
         >
           {previewTest && (
-            <div className="overflow-hidden rounded-[28px] bg-white">
-              <div className="flex items-start justify-between gap-4 border-b border-[#ECEEF8] px-8 pb-7 pt-6">
+            <div className="max-h-[calc(100dvh-1rem)] overflow-y-auto bg-white sm:max-h-[44rem]">
+              <div className="flex flex-col gap-4 border-b border-[#ECEEF8] px-4 pb-5 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-8 sm:pb-7 sm:pt-6">
                 <div>
                   <div className="inline-flex rounded-full border border-[#1F2937] px-3.5 py-1 text-sm font-semibold text-[#1F2937]">
                     {getStudentTestSubject(previewTest)}
                   </div>
-                  <h2 className="mt-5 max-w-[540px] text-[24px] font-bold tracking-tight text-[#111827]">{previewTest.title}</h2>
-                  <p className="mt-4 text-[15px] text-[#6B7280]">
+                  {previewTestCategory ? (
+                    <div className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getTestCategoryTone(previewTestCategory).chip}`}>
+                      {getTestCategoryLabel(previewTestCategory)}
+                    </div>
+                  ) : null}
+                  <h2 className="mt-4 max-w-[540px] text-[20px] font-bold tracking-tight text-[#111827] sm:mt-5 sm:text-[24px]">{previewTest.title}</h2>
+                  <p className="mt-3 text-[14px] text-[#6B7280] sm:mt-4 sm:text-[15px]">
                     {previewTest.description?.trim() || `${getStudentTestSubject(previewTest)} practice test with exam-style timing and section flow.`}
                   </p>
                 </div>
-                <div className="flex items-start gap-3">
+                <div className="flex items-start justify-between gap-3 sm:justify-end">
                   <div
                     className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-semibold ${
                       previewAction === "result"
@@ -1540,7 +1728,7 @@ export default function StudentTests() {
                 </div>
               </div>
 
-              <div className="border-b border-[#ECEEF8] bg-[#F8F9FF] px-8 py-6">
+              <div className="border-b border-[#ECEEF8] bg-[#F8F9FF] px-4 py-5 sm:px-8 sm:py-6">
                 <div className="grid gap-6 md:grid-cols-2">
                   <div className="flex items-center gap-5">
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#EEF2FF] text-[#6366F1]">
@@ -1563,10 +1751,10 @@ export default function StudentTests() {
                 </div>
               </div>
 
-              <div className="px-8 py-4">
+              <div className="px-4 py-4 sm:px-8">
                 <div className="grid gap-4 border-b border-[#ECEEF8] py-5 md:grid-cols-[220px_1fr]">
                   <p className="text-[16px] text-[#6B7280]">Scheduled Date</p>
-                  <p className="text-right text-[17px] font-semibold text-[#111827]">
+                  <p className="text-left text-[16px] font-semibold text-[#111827] md:text-right md:text-[17px]">
                     {previewTest.scheduledAt ? format(new Date(previewTest.scheduledAt), "MMMM do, yyyy 'at' h:mm aa") : "Available now"}
                   </p>
                 </div>
@@ -1575,7 +1763,7 @@ export default function StudentTests() {
                   <>
                     <div className="grid gap-4 border-b border-[#ECEEF8] py-5 md:grid-cols-[220px_1fr]">
                       <p className="text-[16px] text-[#6B7280]">Completed Date</p>
-                      <p className="text-right text-[17px] font-semibold text-[#111827]">
+                      <p className="text-left text-[16px] font-semibold text-[#111827] md:text-right md:text-[17px]">
                         {format(new Date(previewDetail.submission.submittedAt), "MMMM do, yyyy 'at' h:mm aa")}
                       </p>
                     </div>
@@ -1602,11 +1790,11 @@ export default function StudentTests() {
                 )}
               </div>
 
-                <div className="flex items-center justify-end gap-4 px-8 pb-7 pt-2">
+                <div className="flex flex-col-reverse gap-3 px-4 pb-5 pt-2 sm:flex-row sm:items-center sm:justify-end sm:gap-4 sm:px-8 sm:pb-7">
                   <button
                     type="button"
                     onClick={() => setPreviewTestId(null)}
-                    className="rounded-[18px] border-2 border-[#1F2937] px-7 py-2.5 text-[16px] font-semibold text-[#1F2937] transition hover:bg-[#F8FAFC]"
+                    className="w-full rounded-[18px] border-2 border-[#1F2937] px-7 py-2.5 text-[15px] font-semibold text-[#1F2937] transition hover:bg-[#F8FAFC] sm:w-auto sm:text-[16px]"
                   >
                     Close
                   </button>
@@ -1623,7 +1811,7 @@ export default function StudentTests() {
                     }
                     await openTestWithMode(currentTest.id, currentAction === "resume" ? "resume" : "fresh");
                   }}
-                  className="rounded-[18px] bg-[#6366F1] px-7 py-2.5 text-[16px] font-semibold text-white transition hover:bg-[#5558E8]"
+                  className="w-full rounded-[18px] bg-[#6366F1] px-7 py-2.5 text-[15px] font-semibold text-white transition hover:bg-[#5558E8] sm:w-auto sm:text-[16px]"
                 >
                   {previewAction === "result" ? "Full Analysis" : previewAction === "resume" ? "Resume Test" : "Start Test"}
                 </button>
@@ -1644,7 +1832,35 @@ export default function StudentTests() {
         >
           {activeTest && (
             <>
-              <div className="flex h-full min-h-0 flex-col bg-white text-black [color-scheme:light]">
+              <div className="relative flex h-full min-h-0 flex-col bg-white text-black [color-scheme:light]">
+                {showRotateOverlay && (
+                  <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 px-4 md:hidden">
+                    <div className="w-full max-w-sm rounded-[28px] bg-white p-5 text-center shadow-[0_24px_70px_rgba(15,23,42,0.32)]">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#D97706]">Best On Landscape</p>
+                      <h2 className="mt-2 text-xl font-bold text-[#111827]">Phone ko horizontal rotate karo</h2>
+                      <p className="mt-2 text-sm leading-6 text-[#64748B]">
+                        Test dene ke time landscape view zyada stable rahega. Hum auto-rotate try kar rahe hain, lekin kuch browsers permission maang sakte hain.
+                      </p>
+                      <div className="mt-5 space-y-2">
+                        <Button
+                          className="chip-orange-solid w-full rounded-full px-4 py-3 text-sm font-semibold"
+                          onClick={() => {
+                            void requestLandscapeExperience();
+                          }}
+                        >
+                          Rotate Now
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="w-full rounded-full border-[#D6DFEA] px-4 py-3 text-sm font-semibold text-[#334155]"
+                          onClick={() => setAllowPortraitTestView(true)}
+                        >
+                          Continue In Portrait
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="border-b border-[#7f7f7f] bg-white text-black">
                   <div className="flex items-center justify-between border-b border-[#a76d1c] px-3 py-2 sm:px-4">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[10px] font-bold text-[#57438f] sm:h-10 sm:w-10">EC</div>
@@ -1654,10 +1870,10 @@ export default function StudentTests() {
                     </div>
                     <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[10px] font-bold text-[#d58a00] sm:h-10 sm:w-10">QB</div>
                   </div>
-                  <div className="flex items-center justify-between gap-2 bg-[#d7edf6] px-3 py-2 sm:px-4">
+                  <div className="flex flex-col items-start gap-2 bg-[#d7edf6] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                     <p className="min-w-0 truncate text-[14px] font-bold text-[#4d4d4d] sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
                     {!showInstructions && (
-                      <div className="flex items-center gap-2 md:hidden">
+                      <div className="flex w-full items-center justify-between gap-2 md:hidden">
                         {calculatorEnabled ? (
                           <button
                             type="button"
@@ -1850,7 +2066,6 @@ export default function StudentTests() {
                             <div className="flex min-w-max items-center gap-2 text-xs font-medium">
                               {sectionGroups.map((section) => {
                                 const isActiveSection = currentSection?.id === section.id;
-                                const isInfoOpen = openSectionInfoId === section.id;
                                 return (
                                   <div key={section.id} className="relative shrink-0">
                                     <button
@@ -1914,7 +2129,7 @@ export default function StudentTests() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between border-b border-slate-300 bg-white px-2 py-2">
+                      <div className="flex flex-col gap-2 border-b border-slate-300 bg-white px-2 py-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-[13px] font-bold text-black">Question Type: {currentQuestion.questionType.toUpperCase()}</span>
@@ -1931,7 +2146,7 @@ export default function StudentTests() {
                         </button>
                       </div>
 
-                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-3 py-2 sm:px-4 sm:py-3">
+                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-2.5 py-2 pb-32 sm:px-4 sm:py-3 sm:pb-6">
                         <div className="relative mx-auto max-w-none overflow-hidden">
                           {questionWatermarkLines.length > 0 && (
                             <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -1955,7 +2170,7 @@ export default function StudentTests() {
                             <div className="text-[12px] font-semibold text-black sm:text-[13px]">
                               Question No. {currentSectionQuestionNumber}
                             </div>
-                            <RichQuestionContent content={currentQuestion.question} className="text-[15px] leading-7 text-slate-900 sm:text-base" />
+                            <RichQuestionContent content={currentQuestion.question} className="text-[14px] leading-6 text-slate-900 sm:text-base sm:leading-7" />
                             {currentQuestion.imageData && <img src={currentQuestion.imageData} alt="" className="max-h-[420px] w-full rounded-xl border border-slate-200 object-contain bg-white" />}
 
                             {(currentQuestion.questionType === "mcq" || currentQuestion.questionType === "multi") && (
@@ -1973,31 +2188,31 @@ export default function StudentTests() {
                                       className="relative w-full border-0 bg-transparent px-1 py-2 text-left"
                                       data-testid={`option-${currentQuestion.id}-${i}`}
                                     >
-                                      <div className="flex items-start gap-4">
+                                      <div className="flex items-start gap-3 sm:gap-4">
                                         {currentQuestion.questionType === "multi" ? (
                                           <span
-                                            className={`mt-[6px] flex h-7 w-7 shrink-0 items-center justify-center border-[2px] ${
+                                            className={`mt-[6px] flex h-6 w-6 shrink-0 items-center justify-center border-[2px] sm:h-7 sm:w-7 ${
                                               selected ? "border-[#1f7aff] bg-[#1f7aff]" : "border-[#9ca3af] bg-white"
                                             }`}
                                             aria-hidden="true"
                                           >
-                                            {selected ? <span className="text-[16px] font-bold leading-none text-white">✓</span> : null}
+                                            {selected ? <span className="text-[14px] font-bold leading-none text-white sm:text-[16px]">✓</span> : null}
                                           </span>
                                         ) : (
                                           <span
-                                            className={`relative mt-[5px] h-7 w-7 shrink-0 rounded-full border-[3px] ${
+                                            className={`relative mt-[5px] h-6 w-6 shrink-0 rounded-full border-[3px] sm:h-7 sm:w-7 ${
                                               selected ? "border-[#1677ff]" : "border-[#a8adb4]"
                                             } bg-white`}
                                             aria-hidden="true"
                                           >
                                             {selected ? (
-                                              <span className="absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1677ff]" />
+                                              <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1677ff] sm:h-3.5 sm:w-3.5" />
                                             ) : null}
                                           </span>
                                         )}
                                         <div className="min-w-0 flex-1">
                                           <div
-                                            className="pt-[1px] text-[21px] leading-[1.45] text-[#161616] sm:text-[24px]"
+                                            className="pt-[1px] text-[17px] leading-[1.4] text-[#161616] sm:text-[24px] sm:leading-[1.45]"
                                             style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}
                                           >
                                             <RichQuestionContent
@@ -2087,28 +2302,28 @@ export default function StudentTests() {
                       <div className="border-t border-slate-300 bg-white px-2 py-3 md:hidden">
                         <div className="space-y-2 md:hidden">
                           <div className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
+                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
                               Exit
                             </Button>
-                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
+                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
                               Previous
                             </Button>
-                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
+                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
                               Clear Response
                             </Button>
                             <Button
                               variant="outline"
-                              className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]"
+                              className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]"
                               onClick={() => setMobilePaletteOpen(true)}
                             >
                               Palette
                             </Button>
                           </div>
                           <div className="grid grid-cols-1 gap-2">
-                            <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
+                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
                             </Button>
-                            <Button className="rounded-none border border-[#6d9cc8] bg-[#4a8ac5] text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
+                            <Button className="rounded-lg border border-[#6d9cc8] bg-[#4a8ac5] px-3 py-2 text-xs text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Save Response" : "Save & Next"}
                             </Button>
                           </div>
@@ -2136,7 +2351,7 @@ export default function StudentTests() {
                               Close
                             </button>
                           </div>
-                          <div className="no-scrollbar max-h-[calc(78vh-57px)] overflow-y-auto">
+                          <div className="no-scrollbar max-h-[calc(82vh-57px)] overflow-y-auto">
                             <div className="border-b border-[#c8c8c8] bg-white px-3 py-3">
                               <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-[11px]">
                                 <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionAnsweredCount, "answered", "sm")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
@@ -2152,7 +2367,7 @@ export default function StudentTests() {
                               <p className="px-4 py-3 text-[13px] font-semibold text-black">Choose a Question</p>
                             </div>
 
-                            <div className="grid grid-cols-5 gap-2 px-4 pb-4">
+                            <div className="grid grid-cols-4 gap-2 px-4 pb-4 sm:grid-cols-5">
                               {currentSectionQuestions.map(({ question, globalIndex }, index) => {
                                 const status = getPaletteStatus(question);
                                 const isCurrent = currentQuestion.id === question.id;

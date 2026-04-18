@@ -278,17 +278,17 @@ function DailyGoalTracker({
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl px-6 py-4 shadow-sm"
+      className="relative overflow-hidden rounded-2xl px-4 py-4 shadow-sm sm:px-6"
       style={{
         background: "linear-gradient(135deg, #6d28d9 0%, #4f46e5 45%, #0ea5e9 100%)",
       }}
     >
-      <div className="relative flex items-center gap-6">
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           <Flame className="h-4 w-4 text-orange-300" />
           <span className="text-white font-semibold text-sm">Your Daily Goal</span>
           {isEditing ? (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-white/80 text-sm">
                 (<span className="text-white font-bold">{solved}</span>/
               </span>
@@ -324,7 +324,7 @@ function DailyGoalTracker({
           )}
         </div>
 
-        <div className="relative flex-1 h-3 rounded-full bg-white/20 overflow-visible mx-4">
+        <div className="relative h-3 w-full flex-1 overflow-visible rounded-full bg-white/20 sm:mx-4">
           <div
             className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
             style={{
@@ -353,7 +353,7 @@ function DailyGoalTracker({
           })}
         </div>
 
-        <div className="flex items-center gap-4 shrink-0 text-white">
+        <div className="flex w-full items-center justify-between gap-4 text-white sm:w-auto sm:shrink-0 sm:justify-start">
           <div className="text-center">
             <p className="text-white/60 text-[10px] uppercase tracking-wide">Streak</p>
             <p className="font-bold text-sm">{streak} 🔥</p>
@@ -716,7 +716,7 @@ export default function Dashboard() {
       <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
         <div className="h-12 w-56 bg-muted rounded animate-pulse" />
         <div className="h-20 rounded-2xl bg-muted animate-pulse" />
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />)}
         </div>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
@@ -775,7 +775,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Dashboard</h1>
         <p className="text-muted-foreground mt-1">Welcome back. Here is your preparation summary.</p>
       </div>
 
@@ -795,7 +795,7 @@ export default function Dashboard() {
         isSaving={isSavingDailyGoal}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card className="hover-elevate transition-all border-l-4 border-l-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Tests Taken</CardTitle>
@@ -861,7 +861,7 @@ export default function Dashboard() {
             <CardDescription>Your mock test scores over time</CardDescription>
           </CardHeader>
           <CardContent className="px-2">
-            <div className="h-[300px] w-full">
+            <div className="h-[240px] w-full sm:h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={performanceData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
@@ -915,7 +915,7 @@ export default function Dashboard() {
             <CardDescription>Your accuracy vs peer average</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] w-full">
+            <div className="h-[240px] w-full sm:h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={subjectData} margin={{ top: 10, right: 10, left: 0, bottom: 36 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -966,7 +966,7 @@ export default function Dashboard() {
             <CardDescription>Performance by question level</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center justify-center">
-            <div className="h-[250px] w-full">
+            <div className="h-[220px] w-full sm:h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -993,7 +993,7 @@ export default function Dashboard() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 w-full mt-4">
+            <div className="mt-4 grid w-full grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
               {difficultyData.map((item, index) => (
                 <div key={index} className="flex items-center gap-2 text-xs">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
@@ -1010,7 +1010,7 @@ export default function Dashboard() {
             <CardDescription>Time spent per subject across recent tests</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[250px] w-full">
+            <div className="h-[220px] w-full sm:h-[250px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={timeData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -1060,7 +1060,43 @@ export default function Dashboard() {
             <CardTitle>Recent Tests</CardTitle>
             <CardDescription>Your latest mock attempts and performance</CardDescription>
           </CardHeader>
-          <div className="overflow-x-auto">
+          <div className="space-y-3 px-4 pb-4 md:hidden">
+            {recentTests.length === 0 ? (
+              <div className="rounded-xl border border-border/60 bg-background px-4 py-8 text-center text-sm text-muted-foreground">
+                No submitted tests yet. Start a test to populate your dashboard.
+              </div>
+            ) : (
+              recentTests.map((test) => (
+                <div key={test.id} className="rounded-2xl border border-border/60 bg-background px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-foreground">{test.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{test.date}</p>
+                    </div>
+                    <span className="shrink-0 text-sm font-semibold text-foreground">{test.score}</span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Accuracy</span>
+                        <span>{test.accuracy}</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary" style={{ width: test.accuracy }} />
+                      </div>
+                    </div>
+                    <button
+                      className="shrink-0 text-xs font-semibold text-primary transition-colors hover:text-primary/80"
+                      onClick={() => setLocation(`/student/tests/${test.id}/analysis`)}
+                    >
+                      Analysis
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-muted-foreground bg-muted/20">
                 <tr>
@@ -1151,7 +1187,7 @@ export default function Dashboard() {
           <CardDescription>Questions you solved each day this week</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-[180px] w-full">
+          <div className="h-[160px] w-full sm:h-[180px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={weeklyData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }} barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />

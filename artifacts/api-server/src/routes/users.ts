@@ -16,12 +16,14 @@ import {
   directMessagesTable,
   communityPostsTable,
   questionBankSavedQuestionsTable,
+  questionBankQuestionProgressTable,
   questionBankReportsTable,
   passwordResetRequestsTable,
   notificationsTable,
   notificationPreferencesTable,
   userActivityLogs,
   userSessions,
+  testsTable,
 } from "@workspace/db";
 import { desc, eq, or } from "drizzle-orm";
 import {
@@ -36,6 +38,8 @@ import {
 } from "@workspace/api-zod";
 import { hashPassword } from "../lib/auth";
 import { autoEnrollStudentIntoMatchingClasses } from "../lib/batchAssignment";
+import { queueStudentApprovedEmail } from "../lib/brevo";
+import { createFirebaseEmailUser, deleteFirebaseUser, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
 
 const router: IRouter = Router();
 
@@ -43,6 +47,25 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash, ...rest } = user;
   void passwordHash;
   return rest;
+}
+
+function parseStudentProfileData(raw: string | null) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function toDateValue(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function requireAuth(req: any, res: any): number | null {
@@ -130,17 +153,33 @@ router.post("/users", async (req, res): Promise<void> => {
     return;
   }
 
-  const [newAdmin] = await db.insert(usersTable).values({
-    username,
-    passwordHash: hashPassword(password),
-    fullName,
-    email,
-    subject: role === "admin" ? subject ?? null : null,
-    role,
-    status: "active",
-  }).returning();
+  let firebaseUid: string | null = null;
 
-  res.status(201).json(serializeUser(newAdmin));
+  try {
+    if (isFirebaseAdminConfigured()) {
+      const firebaseUser = await createFirebaseEmailUser({ email, password, fullName });
+      firebaseUid = firebaseUser.uid;
+    }
+
+    const [newAdmin] = await db.insert(usersTable).values({
+      username,
+      passwordHash: hashPassword(password),
+      fullName,
+      email,
+      subject: role === "admin" ? subject ?? null : null,
+      role,
+      status: "active",
+    }).returning();
+
+    res.status(201).json(serializeUser(newAdmin));
+  } catch (error) {
+    if (firebaseUid) {
+      await deleteFirebaseUser(firebaseUid).catch(() => {});
+    }
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to create teacher account",
+    });
+  }
 });
 
 router.get("/users/:id", async (req, res): Promise<void> => {
@@ -161,6 +200,274 @@ router.get("/users/:id", async (req, res): Promise<void> => {
   }
 
   res.json(serializeUser(user));
+});
+
+router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["super_admin", "admin"]);
+  if (!callerRole) return;
+
+  const params = GetUserParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, params.data.id));
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.role !== "student") {
+    res.status(400).json({ error: "Insights are only available for student accounts" });
+    return;
+  }
+
+  const [approver, submissions, savedQuestions, practiceProgress, activityLogs, sessions] = await Promise.all([
+    user.approvedById
+      ? db
+        .select({ fullName: usersTable.fullName })
+        .from(usersTable)
+        .where(eq(usersTable.id, user.approvedById))
+        .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    db
+      .select({
+        id: testSubmissionsTable.id,
+        testId: testSubmissionsTable.testId,
+        score: testSubmissionsTable.score,
+        totalPoints: testSubmissionsTable.totalPoints,
+        percentage: testSubmissionsTable.percentage,
+        passed: testSubmissionsTable.passed,
+        submittedAt: testSubmissionsTable.submittedAt,
+        testTitle: testsTable.title,
+      })
+      .from(testSubmissionsTable)
+      .leftJoin(testsTable, eq(testSubmissionsTable.testId, testsTable.id))
+      .where(eq(testSubmissionsTable.studentId, user.id))
+      .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id)),
+    db
+      .select({ id: questionBankSavedQuestionsTable.id })
+      .from(questionBankSavedQuestionsTable)
+      .where(eq(questionBankSavedQuestionsTable.studentId, user.id)),
+    db
+      .select()
+      .from(questionBankQuestionProgressTable)
+      .where(eq(questionBankQuestionProgressTable.studentId, user.id)),
+    db
+      .select()
+      .from(userActivityLogs)
+      .where(eq(userActivityLogs.userId, user.id))
+      .orderBy(desc(userActivityLogs.createdAt))
+      .limit(80),
+    db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.userId, user.id))
+      .orderBy(desc(userSessions.lastActiveAt))
+      .limit(20),
+  ]);
+
+  const profileDetails = parseStudentProfileData(user.studentProfileData ?? null);
+  const address = (profileDetails?.address && typeof profileDetails.address === "object"
+    ? profileDetails.address
+    : {}) as Record<string, unknown>;
+  const preparation = (profileDetails?.preparation && typeof profileDetails.preparation === "object"
+    ? profileDetails.preparation
+    : {}) as Record<string, unknown>;
+  const learningMode = (profileDetails?.learningMode && typeof profileDetails.learningMode === "object"
+    ? profileDetails.learningMode
+    : {}) as Record<string, unknown>;
+
+  const completionSteps = [
+    {
+      key: "personal",
+      label: "Personal details",
+      complete: Boolean(user.fullName?.trim() && user.phone?.trim() && profileDetails?.dateOfBirth),
+    },
+    {
+      key: "address",
+      label: "Address",
+      complete: Boolean(address.country && address.state && address.city && address.pincode),
+    },
+    {
+      key: "preparation",
+      label: "Schooling & target",
+      complete: Boolean(preparation.classLevel && preparation.board && preparation.targetYear && preparation.targetExam),
+    },
+    {
+      key: "learning",
+      label: "Learning mode",
+      complete: Boolean(learningMode.mode),
+    },
+    {
+      key: "discovery",
+      label: "Source",
+      complete: Boolean(profileDetails?.hearAboutUs),
+    },
+  ];
+
+  const completedSteps = completionSteps.filter((step) => step.complete).length;
+  const completionPercent = Math.round((completedSteps / completionSteps.length) * 100);
+
+  const accountCreatedAt = toDateValue(user.createdAt);
+  const latestActivityDate = [
+    toDateValue(activityLogs[0]?.createdAt),
+    toDateValue(sessions[0]?.lastActiveAt),
+    toDateValue(submissions[0]?.submittedAt),
+  ]
+    .filter((value): value is Date => Boolean(value))
+    .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+
+  const testsAttempted = submissions.length;
+  const averageScore = testsAttempted > 0
+    ? roundMetric(submissions.reduce((sum, submission) => sum + Number(submission.percentage ?? 0), 0) / testsAttempted)
+    : 0;
+  const bestScore = testsAttempted > 0
+    ? roundMetric(Math.max(...submissions.map((submission) => Number(submission.percentage ?? 0))))
+    : 0;
+  const latestScore = testsAttempted > 0 ? roundMetric(Number(submissions[0]?.percentage ?? 0)) : 0;
+  const passRate = testsAttempted > 0
+    ? roundMetric((submissions.filter((submission) => submission.passed).length / testsAttempted) * 100)
+    : 0;
+
+  const totalPracticeAttempts = practiceProgress.reduce((sum, item) => sum + item.attemptCount, 0);
+  const correctPracticeAttempts = practiceProgress.reduce((sum, item) => sum + item.correctCount, 0);
+  const solvedQuestions = practiceProgress.filter((item) => Boolean(item.solvedAt) || item.lastIsCorrect).length;
+  const practiceAccuracy = totalPracticeAttempts > 0
+    ? roundMetric((correctPracticeAttempts / totalPracticeAttempts) * 100)
+    : 0;
+
+  const today = new Date();
+  const activityTrend = Array.from({ length: 7 }, (_, index) => {
+    const current = new Date(today);
+    current.setHours(0, 0, 0, 0);
+    current.setDate(today.getDate() - (6 - index));
+    const next = new Date(current);
+    next.setDate(current.getDate() + 1);
+    const count = activityLogs.filter((entry) => {
+      const createdAt = toDateValue(entry.createdAt);
+      return createdAt ? createdAt >= current && createdAt < next : false;
+    }).length;
+    return {
+      label: current.toLocaleDateString("en-US", { weekday: "short" }),
+      count,
+      date: current.toISOString(),
+    };
+  });
+
+  const activityBuckets = activityLogs.reduce<Record<string, number>>((acc, entry) => {
+    const page = (entry.page ?? "").toLowerCase();
+    const action = (entry.action ?? "").toLowerCase();
+    const bucket = page.includes("question-bank") || action.includes("question")
+      ? "Question Bank"
+      : page.includes("/student/tests") || action.includes("test")
+        ? "Tests"
+        : page.includes("analysis")
+          ? "Analysis"
+          : "Other";
+    acc[bucket] = (acc[bucket] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const activityBreakdown = [
+    { name: "Tests", value: activityBuckets.Tests ?? 0 },
+    { name: "Question Bank", value: activityBuckets["Question Bank"] ?? 0 },
+    { name: "Analysis", value: activityBuckets.Analysis ?? 0 },
+    { name: "Other", value: activityBuckets.Other ?? 0 },
+  ].filter((item) => item.value > 0);
+
+  const recentActivity = activityLogs.slice(0, 8).map((entry) => ({
+    id: entry.id,
+    action: entry.action,
+    page: entry.page,
+    detail: entry.detail,
+    createdAt: entry.createdAt,
+  }));
+
+  const scoreTrend = submissions
+    .slice(0, 8)
+    .reverse()
+    .map((submission, index) => ({
+      label: `T${index + 1}`,
+      title: submission.testTitle ?? `Test #${submission.testId}`,
+      percentage: roundMetric(Number(submission.percentage ?? 0)),
+      score: roundMetric(Number(submission.score ?? 0)),
+      totalPoints: submission.totalPoints,
+      submittedAt: submission.submittedAt,
+      passed: submission.passed,
+    }));
+
+  res.json({
+    student: {
+      id: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      status: user.status,
+      subject: user.subject,
+      additionalExams: user.additionalExams ?? [],
+      avatarUrl: user.avatarUrl,
+      onboardingComplete: user.onboardingComplete,
+      approvedAt: user.approvedAt,
+      approverName: approver?.fullName ?? null,
+      createdAt: user.createdAt,
+      profileDetails,
+    },
+    overview: {
+      testsAttempted,
+      averageScore,
+      bestScore,
+      latestScore,
+      passRate,
+      savedQuestions: savedQuestions.length,
+      solvedQuestions,
+      trackedPracticeQuestions: practiceProgress.length,
+      practiceAccuracy,
+      totalPracticeAttempts,
+      activeDaysLast7: activityTrend.filter((item) => item.count > 0).length,
+      accountAgeDays: accountCreatedAt
+        ? Math.max(1, Math.ceil((today.getTime() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24)))
+        : 0,
+      lastActiveAt: latestActivityDate?.toISOString() ?? null,
+    },
+    profileCompletion: {
+      percent: completionPercent,
+      completedSteps,
+      totalSteps: completionSteps.length,
+      steps: completionSteps,
+    },
+    scoreTrend,
+    activityTrend,
+    activityBreakdown,
+    recentActivity,
+    preparationSnapshot: {
+      dateOfBirth: profileDetails?.dateOfBirth ?? null,
+      whatsappOnSameNumber: profileDetails?.whatsappOnSameNumber === true,
+      address: {
+        country: typeof address.country === "string" ? address.country : "",
+        state: typeof address.state === "string" ? address.state : "",
+        city: typeof address.city === "string" ? address.city : "",
+        pincode: typeof address.pincode === "string" ? address.pincode : "",
+      },
+      preparation: {
+        classLevel: typeof preparation.classLevel === "string" ? preparation.classLevel : "",
+        board: typeof preparation.board === "string" ? preparation.board : "",
+        targetYear: typeof preparation.targetYear === "string" ? preparation.targetYear : "",
+        targetExam: typeof preparation.targetExam === "string" ? preparation.targetExam : "",
+      },
+      learningMode: {
+        mode: typeof learningMode.mode === "string" ? learningMode.mode : "",
+        provider: typeof learningMode.provider === "string" ? learningMode.provider : "",
+      },
+      hearAboutUs: typeof profileDetails?.hearAboutUs === "string" ? profileDetails.hearAboutUs : "",
+    },
+  });
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {
@@ -362,6 +669,12 @@ router.patch("/users/:id/approve", async (req, res): Promise<void> => {
 
   if (newStatus === "approved") {
     await autoEnrollStudentIntoMatchingClasses(updated);
+    if (updated.role === "student" && updated.email) {
+      queueStudentApprovedEmail({
+        studentName: updated.fullName,
+        email: updated.email,
+      });
+    }
   }
 
   res.json(serializeUser(updated));

@@ -75,14 +75,14 @@ export default function Header({
       <div className="mb-5 rounded-[28px] border border-[#E5E7EB] bg-white p-4 shadow-sm sm:mb-6 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h2 className="text-[2rem] font-bold leading-none tracking-[-0.03em] text-[#111827]">{title}</h2>
+            <h2 className="text-[1.55rem] font-bold leading-none tracking-[-0.03em] text-[#111827] sm:text-[2rem]">{title}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             {technicalButton}
             <button
               onClick={onViewSolutions}
               disabled={viewSolutionsDisabled}
-              className="chip-orange-solid inline-flex items-center justify-center gap-2 self-start rounded-full px-6 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:self-auto"
+              className="chip-orange-solid inline-flex w-full items-center justify-center gap-2 self-start rounded-full px-6 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:w-auto sm:self-auto"
             >
               View Solution
               <ArrowRight className="h-4 w-4" />

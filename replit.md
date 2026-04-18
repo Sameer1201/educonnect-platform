@@ -41,6 +41,13 @@ A 3-level EdTech platform built with React + Vite.
 
 **Authentication:** HTTP-only cookie (`userId`), cookie-parser + CORS with credentials
 
+**Firebase Google Login Setup:**
+- Frontend envs in `artifacts/edtech/.env.local`: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`
+- Optional frontend envs: `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MEASUREMENT_ID`
+- Backend envs in `artifacts/api-server/.env.local`: either `GOOGLE_APPLICATION_CREDENTIALS`, or `FIREBASE_PROJECT_ID` + `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY`, or `FIREBASE_SERVICE_ACCOUNT_JSON`
+- Optional backend env: `FIREBASE_GOOGLE_NEW_STUDENT_STATUS=approved|pending`
+- Google sign-in button only appears when frontend Firebase envs are present
+
 **Pages Built:**
 - `/` — Login page (redirects to role dashboard if logged in)
 - `/register` — Student self-registration (pending approval workflow)

@@ -3,13 +3,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuestionBankTargetAlerts } from "@/hooks/useQuestionBankTargetAlerts";
-import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import StudentOnboardingGate from "@/components/student/StudentOnboardingGate";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import {
   LayoutDashboard, Users, BookOpen,
   LogOut, Menu, X, UserCheck,
-  ClipboardList, CalendarDays, Activity,
+  ClipboardList, Activity,
   ChevronLeft, ChevronRight,
   Bell, Medal,
 } from "lucide-react";
@@ -53,7 +52,6 @@ function getSuperAdminGroups(): NavGroup[] {
     { label: "Content", items: [
       { label: "Question Bank", href: "/super-admin/question-bank", icon: <BookOpen size={17} /> },
       { label: "Exam Templates", href: "/super-admin/exam-templates", icon: <ClipboardList size={17} /> },
-      { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
     { label: "Analytics", items: [
       { label: "Teacher Performance", href: "/super-admin/teacher-performance", icon: <Medal size={17} /> },
@@ -72,7 +70,6 @@ function getAdminGroups(): NavGroup[] {
       { label: "Students", href: "/admin/students", icon: <Users size={17} /> },
       { label: "Question Bank", href: "/admin/question-bank", icon: <BookOpen size={17} /> },
       { label: "Tests", href: "/admin/tests", icon: <ClipboardList size={17} /> },
-      { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
   ];
 }
@@ -83,7 +80,6 @@ function getStudentGroups(): NavGroup[] {
     { label: "Learning", items: [
       { label: "Question Bank", href: "/student/question-bank", icon: <BookOpen size={17} /> },
       { label: "Tests", href: "/student/tests", icon: <ClipboardList size={17} /> },
-      { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
   ];
 }
@@ -129,7 +125,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   });
   const queryClient = useQueryClient();
   const logoutMutation = useLogout();
-  const { data: platformSettings } = usePlatformSettings(!!user);
 
   useEffect(() => {
     try { localStorage.setItem("sidebar-collapsed", String(collapsed)); } catch {}
@@ -177,7 +172,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const userRole = user?.role;
-  const showLeaderboardShortcut = userRole !== "admin";
+  const showLeaderboardShortcut = userRole === "student";
   const {
     alerts: questionBankAlerts,
     show: showQuestionBankPopup,
@@ -191,15 +186,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     user.role === "admin" ? getAdminGroups() :
     getStudentGroups();
 
-  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
-  const navGroups = (user.role === "admin" || user.role === "student") && !learningAccessEnabled
-    ? baseNavGroups.map((group) => ({
-        ...group,
-        items: group.items.filter((item) => ![
-          "/schedule",
-        ].includes(item.href)),
-      })).filter((group) => group.items.length > 0)
-    : baseNavGroups;
+  const navGroups = baseNavGroups;
 
   const roleConfig = getRoleConfig(user.role);
   const initials = getInitials(user.fullName ?? user.username ?? "?");

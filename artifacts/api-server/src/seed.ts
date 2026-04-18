@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { ensureFirebaseEmailUser, isFirebaseAdminConfigured } from "./lib/firebaseAdmin";
 
 function hashPassword(password: string) {
   return crypto.createHash("sha256").update(password + "edtech_salt_2024").digest("hex");
@@ -51,6 +52,16 @@ export async function seedDefaultUsers() {
         status: u.status,
       });
       console.log(`[seed] Created user: ${u.username} (${u.role})`);
+    }
+
+    if (isFirebaseAdminConfigured()) {
+      await ensureFirebaseEmailUser({
+        email: u.email,
+        password: u.password,
+        fullName: u.fullName,
+      }).catch((error) => {
+        console.warn(`[seed] Failed to sync Firebase student ${u.email}:`, error);
+      });
     }
   }
 }

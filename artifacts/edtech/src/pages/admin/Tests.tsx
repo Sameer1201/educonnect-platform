@@ -11,11 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
 import { looksLikeRichHtmlContent, sanitizeRichHtml, stripRichHtmlToText } from "@/lib/richContent";
 import {
-  ClipboardList, Plus, Trash2, CheckCircle2, XCircle, ChevronDown,
+  ClipboardList, Plus, Trash2, CheckCircle2, ChevronDown,
   ToggleLeft, ToggleRight, Clock, Hash,
   Calculator, Flag,
   TrendingUp, PencilLine, Download, Upload, FileText, X
@@ -26,8 +25,8 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type QuestionType = "mcq" | "multi" | "integer";
 type ExamType = string;
-type QuestionDifficulty = "easy" | "moderate" | "tough";
 type QuestionBulkImportMode = "metadata" | "answers";
+type TestCategory = "mock" | "subject-wise" | "multi-subject";
 
 function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
   const safeName = templateName.trim() || "the examination";
@@ -168,6 +167,57 @@ function normalizeExamConfigObject(value: unknown) {
 
 function getCalculatorEnabledFromExamConfig(value: unknown) {
   return Boolean(normalizeExamConfigObject(value).calculatorEnabled);
+}
+
+function normalizeTestCategory(value: unknown): TestCategory | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "mock" || normalized === "mock-test") return "mock";
+  if (normalized === "subject-wise" || normalized === "subject wise" || normalized === "subject") return "subject-wise";
+  if (normalized === "multi-subject" || normalized === "multi subject" || normalized === "multi-subject-wise") return "multi-subject";
+  return null;
+}
+
+function getTestCategoryLabel(value: TestCategory) {
+  if (value === "subject-wise") return "Subject-wise Test";
+  if (value === "multi-subject") return "Multi-subject Test";
+  return "Mock Test";
+}
+
+function getTestCategoryTone(value: TestCategory) {
+  if (value === "subject-wise") return "border-sky-200 bg-sky-50 text-sky-700";
+  if (value === "multi-subject") return "border-violet-200 bg-violet-50 text-violet-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function getResolvedTestCategory(
+  test: Pick<Test, "title" | "description" | "examHeader" | "examSubheader" | "subjectName" | "chapterName" | "examConfig">,
+  sections: Array<Pick<TestSection, "title" | "subjectLabel">> = [],
+): TestCategory {
+  const stored = normalizeTestCategory(normalizeExamConfigObject(test.examConfig).testCategory);
+  if (stored) return stored;
+
+  const text = [
+    test.title,
+    test.description,
+    test.examHeader,
+    test.examSubheader,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  if (/multi[\s-]?subject|combined subject/.test(text)) return "multi-subject";
+  if (/subject[\s-]?wise|chapter[\s-]?wise|chapter test/.test(text)) return "subject-wise";
+  if (/mock|grand test|full test|full syllabus/.test(text)) return "mock";
+
+  const sectionLabels = new Set(
+    sections
+      .map((section) => section.subjectLabel?.trim() || section.title?.trim() || "")
+      .map((value) => value.toLowerCase().replace(/\s+/g, " ").trim())
+      .filter((value) => value && !/^section\b/.test(value)),
+  );
+
+  if (test.chapterName?.trim() || test.subjectName?.trim()) return "subject-wise";
+  if (sectionLabels.size > 1) return "multi-subject";
+  return "mock";
 }
 interface ExportedTestBundle {
   version: number;
@@ -844,6 +894,7 @@ export default function AdminTests() {
   const [newDefaultPositiveMarks, setNewDefaultPositiveMarks] = useState("1");
   const [newDefaultNegativeMarks, setNewDefaultNegativeMarks] = useState("0");
   const [newScheduled, setNewScheduled] = useState("");
+  const [newTestCategory, setNewTestCategory] = useState<TestCategory>("mock");
   const [newCalculatorEnabled, setNewCalculatorEnabled] = useState(false);
   const [sectionDrafts, setSectionDrafts] = useState<SectionDraft[]>([makeSectionDraft()]);
   const [importOpen, setImportOpen] = useState(false);
@@ -1047,6 +1098,7 @@ export default function AdminTests() {
             bulkSupported: true,
             sectionCount: sectionDrafts.filter((section) => (section.subjectLabel.trim() || section.title.trim())).length,
             sourceModes: ["manual", "bulk", "ai"],
+            testCategory: newTestCategory,
             calculatorEnabled: newCalculatorEnabled,
           },
           scheduledAt: newScheduled || null,
@@ -1071,7 +1123,7 @@ export default function AdminTests() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
-      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setNewCalculatorEnabled(false); setSectionDrafts([makeSectionDraft()]);
+      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setNewTestCategory("mock"); setNewCalculatorEnabled(false); setSectionDrafts([makeSectionDraft()]);
       toast({ title: "Test created" });
     },
     onError: (error: Error) => toast({ title: "Failed to create test", description: error.message, variant: "destructive" }),
@@ -1457,6 +1509,7 @@ export default function AdminTests() {
             const isJsonExporting = exportingTestId === test.id;
             const isPdfExporting = exportingTestPdfId === test.id;
             const calculatorEnabled = getCalculatorEnabledFromExamConfig(test.examConfig);
+            const testCategory = getResolvedTestCategory(test, sections);
             const reportedQuestions = qs.filter((question) => getOpenReportCount(question) > 0);
             const openReportedQuestionCount = reportedQuestions.length;
             const totalOpenReports = reportedQuestions.reduce((sum, question) => sum + getOpenReportCount(question), 0);
@@ -1495,6 +1548,9 @@ export default function AdminTests() {
                             {test.subjectName}
                           </span>
                         ) : null}
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getTestCategoryTone(testCategory)}`}>
+                          {getTestCategoryLabel(testCategory)}
+                        </span>
                         {calculatorEnabled ? (
                           <span
                             aria-label="Calculator enabled"
@@ -1729,6 +1785,22 @@ export default function AdminTests() {
                 <div className="flex items-center gap-2">
                   <p className="font-semibold">Student Visibility</p>
                   <InfoTip content={`Visible to students who selected ${String(newExamType || "exam").toUpperCase()} during registration or in profile settings.`} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <Label className="text-sm font-medium text-slate-900">Test category</Label>
+                <p className="mt-1 text-xs text-slate-500">Student side par isi label ke saath badge show hoga.</p>
+                <div className="mt-3">
+                  <Select value={newTestCategory} onValueChange={(value) => setNewTestCategory(value as TestCategory)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mock">Mock Test</SelectItem>
+                      <SelectItem value="subject-wise">Subject-wise Test</SelectItem>
+                      <SelectItem value="multi-subject">Multi-subject Test</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">

@@ -52,7 +52,7 @@ export default function LandingPage() {
   const openContactEmail = () => {
     const subject = encodeURIComponent("RankPulse inquiry");
     const body = encodeURIComponent("Hi RankPulse team,\n\nI want help with:\n");
-    window.location.href = `mailto:support@rankpulse.in?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:sameermajhi339@gmail.com?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -329,7 +329,7 @@ export default function LandingPage() {
                     <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 shrink-0">
                       <Mail className="h-4 w-4" />
                     </div>
-                    <span>support@rankpulse.in</span>
+                    <span>sameermajhi339@gmail.com</span>
                   </div>
                 </div>
               </motion.div>
@@ -355,7 +355,7 @@ export default function LandingPage() {
                         <Mail className="h-4 w-4" />
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">support@rankpulse.in</p>
+                        <p className="text-sm font-semibold text-gray-900">sameermajhi339@gmail.com</p>
                         <p className="mt-1 text-sm text-gray-500">
                           Best for access issues, billing help, test flow questions, or product feedback.
                         </p>

@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { useGetSuperAdminDashboard, useApproveStudent, getListUsersQueryKey } from "@workspace/api-client-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCountUp } from "@/hooks/useCountUp";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
-import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { APP_NAME } from "@/lib/brand";
 import {
   AreaChart, Area,
@@ -132,40 +130,12 @@ function TeacherRow({ teacher, rank }: {
 /* ─── Main Dashboard ─── */
 export default function SuperAdminDashboard() {
   const { data, isLoading, isError, error, refetch } = useGetSuperAdminDashboard();
-  const { data: platformSettings } = usePlatformSettings();
   const approveStudent = useApproveStudent();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [greeting] = useState(getGreeting());
   const [time, setTime] = useState(new Date());
   const [approvingId, setApprovingId] = useState<number | null>(null);
-  const updatePlatformSettings = useMutation({
-    mutationFn: async (learningAccessEnabled: boolean) => {
-      const response = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/platform-settings`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ learningAccessEnabled }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? "Failed to update platform settings");
-      }
-      return response.json();
-    },
-    onSuccess: (updated) => {
-      queryClient.setQueryData(["platform-settings"], updated);
-      toast({
-        title: updated.learningAccessEnabled ? "Learning access enabled" : "Focus mode enabled",
-        description: updated.learningAccessEnabled
-          ? "The legacy learning access flag is enabled again."
-          : "The platform is now focused on question bank and tests.",
-      });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Could not update access", description: err.message, variant: "destructive" });
-    },
-  });
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 60000);
@@ -341,32 +311,6 @@ export default function SuperAdminDashboard() {
           </div>
         </div>
       </div>
-
-      <TiltCard>
-      <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
-        <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-semibold">Teacher + Student Learning Access</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Turn off legacy learning flows for teachers and students so current focus stays on question bank and tests.
-            </p>
-          </div>
-          <div className="flex items-center gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Mode</p>
-              <p className="text-sm font-semibold">
-                {platformSettings?.learningAccessEnabled ?? true ? "Learning Access On" : "Focus Mode On"}
-              </p>
-            </div>
-            <Switch
-              checked={platformSettings?.learningAccessEnabled ?? true}
-              onCheckedChange={(checked) => updatePlatformSettings.mutate(checked)}
-              disabled={updatePlatformSettings.isPending}
-            />
-          </div>
-        </CardContent>
-      </Card>
-      </TiltCard>
 
       {/* ── KPI tiles ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">

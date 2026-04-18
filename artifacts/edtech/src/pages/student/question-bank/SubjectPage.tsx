@@ -45,14 +45,14 @@ export default function StudentQuestionBankSubjectPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <Link to={`/student/question-bank/exam/${examId}`}>
           <button className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary">
             <ArrowLeft className="h-3.5 w-3.5" />
             Back
           </button>
         </Link>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <Link to="/student/question-bank" className="hover:text-primary">Dashboard</Link>
           <span>/</span>
           <Link to={`/student/question-bank/exam/${examId}`} className="hover:text-primary">{exam.label}</Link>
@@ -61,8 +61,8 @@ export default function StudentQuestionBankSubjectPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <div
@@ -81,14 +81,14 @@ export default function StudentQuestionBankSubjectPage() {
               </div>
             </div>
           </div>
-          <div className="flex gap-4 text-center">
+          <div className="grid w-full grid-cols-3 gap-3 text-center sm:w-auto sm:flex sm:gap-4">
             {[
               { label: "Chapters", value: subjectChapters.length },
               { label: "Questions", value: allSubjectQuestions.length },
               { label: "Attempted", value: attempted },
             ].map(({ label, value }) => (
               <div key={label}>
-                <div className="text-2xl font-bold text-foreground">{value}</div>
+                <div className="text-xl font-bold text-foreground sm:text-2xl">{value}</div>
                 <div className="text-xs text-muted-foreground">{label}</div>
               </div>
             ))}
@@ -97,9 +97,9 @@ export default function StudentQuestionBankSubjectPage() {
       </div>
 
       <div>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <h2 className="text-base font-semibold text-foreground">Chapters</h2>
-          <div className="flex items-center gap-1.5">
+          <div className="-mx-1 flex w-full items-center gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:pb-0">
             <Filter className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="mr-1 text-xs text-muted-foreground">Difficulty:</span>
             {(["All", "Easy", "Medium", "Hard"] as const).map((difficulty) => (

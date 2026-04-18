@@ -10,9 +10,9 @@ import { format, isSameDay, startOfDay, subDays } from "date-fns";
 import {
   Activity,
   Ban,
-  Calendar,
   CheckCircle2,
   Clock,
+  Eye,
   GraduationCap,
   KeyRound,
   Mail,
@@ -53,6 +53,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { StudentProfileInsightsPanel, type StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -132,7 +133,24 @@ function renderLoadingCard() {
 export default function AdminStudents() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStudent, setSelectedStudent] = useState<StudentViewModel | null>(null);
+  const [resetDialog, setResetDialog] = useState<PasswordResetRequest | null>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   const { data: studentRecords = [], isLoading } = useListUsers({ role: "student" });
+  const studentInsightsQuery = useQuery<StudentProfileInsights>({
+    queryKey: ["admin-student-insights", selectedStudent?.id],
+    enabled: !!selectedStudent,
+    queryFn: async () => {
+      const response = await fetch(`${BASE}/api/users/${selectedStudent?.id}/profile-insights`, { credentials: "include" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to load student profile");
+      }
+      return response.json();
+    },
+    staleTime: 30_000,
+  });
   const { data: resetRequests = [], isLoading: isResetLoading } = useQuery<PasswordResetRequest[]>({
     queryKey: ["admin-password-reset-requests"],
     queryFn: async () => {
@@ -182,11 +200,6 @@ export default function AdminStudents() {
     },
   });
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedStudent, setSelectedStudent] = useState<StudentViewModel | null>(null);
-  const [resetDialog, setResetDialog] = useState<PasswordResetRequest | null>(null);
-  const [temporaryPassword, setTemporaryPassword] = useState("");
-
   const students = studentRecords.map(buildStudentViewModel);
   const pendingApprovals = students.filter((student) => student.status === "pending");
   const managedStudents = students.filter((student) => student.status !== "pending");
@@ -216,6 +229,7 @@ export default function AdminStudents() {
 
   const refreshStudentData = () => {
     void queryClient.invalidateQueries({ queryKey: getListUsersQueryKey({ role: "student" }) });
+    void queryClient.invalidateQueries({ queryKey: ["admin-student-insights"] });
   };
 
   const handleStudentStatusChange = (
@@ -406,6 +420,15 @@ export default function AdminStudents() {
                       </span>
                     </div>
                     <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs border-amber-200 text-amber-700 hover:bg-amber-50"
+                        onClick={() => setSelectedStudent(student)}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1" />
+                        Review details
+                      </Button>
                       <Button
                         size="sm"
                         variant="outline"
@@ -905,152 +928,38 @@ export default function AdminStudents() {
       </div>
 
       <Dialog open={!!selectedStudent} onOpenChange={(open) => !open && setSelectedStudent(null)}>
-        <DialogContent className="rounded-2xl border-slate-100 shadow-2xl max-w-sm mx-4 p-0 overflow-hidden">
+        <DialogContent className="max-w-6xl overflow-hidden p-0">
           {selectedStudent ? (
             <>
-              <div
-                className={`px-6 pt-8 pb-6 text-center ${
-                  selectedStudent.status === "revoked" ? "bg-slate-100" : "bg-gradient-to-br from-indigo-500 to-violet-600"
-                }`}
-              >
-                <Avatar className="h-16 w-16 mx-auto ring-4 ring-white/30 ring-offset-0 mb-3">
-                  <AvatarFallback
-                    className={`text-xl font-black ${
-                      selectedStudent.status === "revoked" ? "bg-slate-200 text-slate-500" : "bg-white/20 text-white"
-                    }`}
-                  >
-                    {selectedStudent.avatarInitials}
-                  </AvatarFallback>
-                </Avatar>
-                <DialogHeader>
-                  <DialogTitle
-                    className={`text-base font-bold ${
-                      selectedStudent.status === "revoked" ? "text-slate-700" : "text-white"
-                    }`}
-                  >
-                    {selectedStudent.name}
-                  </DialogTitle>
-                </DialogHeader>
-                <p
-                  className={`text-xs mt-0.5 font-mono ${
-                    selectedStudent.status === "revoked" ? "text-slate-400" : "text-indigo-200"
-                  }`}
-                >
-                  {selectedStudent.username}
-                </p>
-                <div className="mt-3">
-                  {selectedStudent.status === "approved" ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-semibold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs bg-rose-500 text-white px-3 py-1 rounded-full font-semibold">
-                      <ShieldOff className="w-3 h-3" />
-                      Revoked
-                    </span>
-                  )}
-                </div>
-              </div>
+              <DialogHeader className="border-b bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5">
+                <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
+                  <span>Student verification profile</span>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-sm font-medium text-amber-700 shadow-sm">
+                    {selectedStudent.username}
+                  </span>
+                </DialogTitle>
+              </DialogHeader>
 
-              <div className="px-6 py-5 space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
-                    <Mail className="w-3.5 h-3.5 text-indigo-500" />
+              <div className="max-h-[80vh] overflow-y-auto px-6 py-6">
+                {studentInsightsQuery.isLoading ? (
+                  <div className="space-y-4">
+                    <div className="h-52 animate-pulse rounded-3xl bg-muted" />
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <div className="h-72 animate-pulse rounded-3xl bg-muted" />
+                      <div className="h-72 animate-pulse rounded-3xl bg-muted" />
+                    </div>
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <div className="h-80 animate-pulse rounded-3xl bg-muted" />
+                      <div className="h-80 animate-pulse rounded-3xl bg-muted" />
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-slate-400 font-medium">Email</p>
-                    <p className="text-sm text-slate-800 font-semibold break-all">{selectedStudent.email}</p>
+                ) : studentInsightsQuery.isError ? (
+                  <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-muted-foreground">
+                    {studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile."}
                   </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
-                    <GraduationCap className="w-3.5 h-3.5 text-violet-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400 font-medium">Target Exam</p>
-                    <p className="text-sm text-slate-800 font-semibold">{selectedStudent.targetExam}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
-                    <Calendar className="w-3.5 h-3.5 text-emerald-500" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400 font-medium">Joined</p>
-                    <p className="text-sm text-slate-800 font-semibold">{selectedStudent.joinedAt}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 pb-6 flex gap-2">
-                {selectedStudent.status === "approved" ? (
-                  <Button
-                    variant="outline"
-                    className="flex-1 h-9 text-xs border-orange-200 text-orange-600 hover:bg-orange-50 rounded-xl"
-                    onClick={() => {
-                      handleStudentStatusChange(
-                        selectedStudent,
-                        "rejected",
-                        "Access revoked",
-                        `${selectedStudent.name} can no longer log in.`,
-                      );
-                      setSelectedStudent(null);
-                    }}
-                  >
-                    <Ban className="mr-1 h-3.5 w-3.5" />
-                    Revoke Access
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    className="flex-1 h-9 text-xs border-emerald-200 text-emerald-600 hover:bg-emerald-50 rounded-xl"
-                    onClick={() => {
-                      handleStudentStatusChange(
-                        selectedStudent,
-                        "approved",
-                        "Access restored",
-                        `${selectedStudent.name} can log in again.`,
-                      );
-                      setSelectedStudent(null);
-                    }}
-                  >
-                    <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                    Restore Access
-                  </Button>
-                )}
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="flex-1 h-9 text-xs border-red-200 text-red-500 hover:bg-red-50 rounded-xl"
-                    >
-                      <Trash2 className="mr-1 h-3.5 w-3.5" />
-                      Delete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-2xl mx-4">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="text-center">Delete student?</AlertDialogTitle>
-                      <AlertDialogDescription className="text-center text-sm">
-                        Permanently removes <span className="font-semibold text-slate-700">{selectedStudent.name}</span>
-                        {" "}and all data.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="flex-row gap-2">
-                      <AlertDialogCancel className="flex-1 rounded-xl">Cancel</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => {
-                          handleDeleteStudent(selectedStudent);
-                          setSelectedStudent(null);
-                        }}
-                        className="flex-1 rounded-xl bg-red-600 hover:bg-red-700"
-                      >
-                        Delete All Data
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                ) : studentInsightsQuery.data ? (
+                  <StudentProfileInsightsPanel insights={studentInsightsQuery.data} viewerLabel="Admin review" />
+                ) : null}
               </div>
             </>
           ) : null}

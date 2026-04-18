@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useGetCurrentUser } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { changeFirebasePassword } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -154,9 +155,22 @@ export default function StudentProfile() {
   };
 
   const handlePasswordChange = async () => {
+    if (!user) return;
+    const activeUser = user;
     setPasswordError("");
     setPasswordSaving(true);
     try {
+      if (activeUser.role === "student") {
+        if (!activeUser.email) {
+          throw new Error("Student email is missing. Please contact support.");
+        }
+        await changeFirebasePassword(currentPassword, newPassword);
+        setCurrentPassword("");
+        setNewPassword("");
+        toast({ title: "Password updated", description: "Your Firebase password has been changed successfully." });
+        return;
+      }
+
       const response = await fetch(`${BASE}/api/auth/change-password`, {
         method: "POST",
         credentials: "include",

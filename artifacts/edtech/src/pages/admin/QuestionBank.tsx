@@ -175,19 +175,6 @@ interface EditorState {
   points: string;
 }
 
-type BulkRowRecord = Record<string, string | number | boolean | null | undefined>;
-
-interface QuestionBankTransferBundle {
-  version?: number;
-  exportedAt?: string;
-  chapter?: {
-    id?: number;
-    title?: string;
-    description?: string | null;
-  };
-  questions?: Array<Record<string, unknown>>;
-}
-
 interface QuestionBankExamTransferBundle {
   version?: number;
   exportedAt?: string;
@@ -456,132 +443,6 @@ function canSaveEditor(editor: EditorState) {
   return editor.correctAnswerInt.trim().length > 0 && Number.isFinite(Number(editor.correctAnswerInt));
 }
 
-function normalizeBulkKey(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-}
-
-function normalizeBulkRow(row: Record<string, unknown>): BulkRowRecord {
-  return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => {
-      if (typeof value === "string") return [normalizeBulkKey(key), value.trim()];
-      if (value == null) return [normalizeBulkKey(key), ""];
-      return [normalizeBulkKey(key), value];
-    }),
-  ) as BulkRowRecord;
-}
-
-function getBulkValue(row: BulkRowRecord, keys: string[]) {
-  for (const key of keys) {
-    const value = row[normalizeBulkKey(key)];
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  }
-  return "";
-}
-
-function parseAnswerIndex(value: string, optionsLength: number) {
-  const cleaned = value.trim().toUpperCase();
-  if (!cleaned) return 0;
-  const numeric = Number(cleaned);
-  if (Number.isFinite(numeric) && numeric > 0) return Math.max(0, Math.min(optionsLength - 1, numeric - 1));
-  const alpha = cleaned.replace(/OPTION\s*/g, "");
-  const code = alpha.charCodeAt(0);
-  if (code >= 65 && code <= 90) return Math.max(0, Math.min(optionsLength - 1, code - 65));
-  return 0;
-}
-
-function parseMultiAnswerIndices(value: string, optionsLength: number) {
-  return value
-    .split(/[,\s/|;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => parseAnswerIndex(item, optionsLength))
-    .filter((item, index, list) => list.indexOf(item) === index);
-}
-
-function parseBulkDifficulty(value: string): "easy" | "medium" | "hard" {
-  const cleaned = value.trim().toLowerCase();
-  if (cleaned.startsWith("e")) return "easy";
-  if (cleaned.startsWith("h") || cleaned.startsWith("t")) return "hard";
-  return "medium";
-}
-
-function parseQuestionType(value: string): QuestionType {
-  const cleaned = value.trim().toLowerCase();
-  if (cleaned.startsWith("mul")) return "multi";
-  if (cleaned.startsWith("int") || cleaned.startsWith("nat")) return "integer";
-  return "mcq";
-}
-
-function buildBulkQuestionPayload(row: BulkRowRecord, rowIndex: number) {
-  const questionType = parseQuestionType(getBulkValue(row, ["question_type", "type", "format"]));
-  const question = getBulkValue(row, ["question", "question_text", "prompt"]);
-  const imageData = getBulkValue(row, ["question_image", "question_image_url", "image", "image_url"]) || null;
-  const difficulty = parseBulkDifficulty(getBulkValue(row, ["difficulty", "level"]));
-  const explanation = getBulkValue(row, ["explanation", "solution", "note"]) || undefined;
-  const topicTag = getBulkValue(row, ["topic_tag", "topic", "topic_name", "concept", "concept_tag"]) || undefined;
-  const points = getBulkValue(row, ["marks", "points", "score"]) || "1";
-
-  if (!question && !imageData) {
-    throw new Error(`Row ${rowIndex + 2}: question text or a question image is required`);
-  }
-
-  const optionSlots = ["a", "b", "c", "d", "e", "f"].map((letter) => ({
-    text: getBulkValue(row, [`option_${letter}`, `opt_${letter}`, letter]),
-    image: getBulkValue(row, [`option_${letter}_image`, `opt_${letter}_image`, `${letter}_image`]) || null,
-  }));
-  const lastFilledOptionIndex = optionSlots.reduce((lastIndex, slot, index) => (
-    slot.text || slot.image ? index : lastIndex
-  ), -1);
-  const normalizedOptionSlots = optionSlots.slice(0, Math.max(4, lastFilledOptionIndex + 1));
-  const options = normalizedOptionSlots.map((slot) => slot.text);
-  const optionImages = normalizedOptionSlots.map((slot) => slot.image);
-
-  const payload: Record<string, unknown> = {
-    question,
-    questionType,
-    topicTag,
-    difficulty,
-    explanation,
-    points: parseFloat(points) || 1,
-    imageData,
-  };
-
-  if (questionType === "mcq") {
-    if (!options.some((option, index) => option.trim() || optionImages[index])) {
-      throw new Error(`Row ${rowIndex + 2}: MCQ options missing hain`);
-    }
-    payload.options = options;
-    if (optionImages.some(Boolean)) payload.optionImages = optionImages;
-    payload.correctAnswer = parseAnswerIndex(getBulkValue(row, ["correct_answer", "answer", "correct"]), options.length);
-    return payload;
-  }
-
-  if (questionType === "multi") {
-    if (!options.some((option, index) => option.trim() || optionImages[index])) {
-      throw new Error(`Row ${rowIndex + 2}: Multi-select options missing hain`);
-    }
-    payload.options = options;
-    if (optionImages.some(Boolean)) payload.optionImages = optionImages;
-    payload.correctAnswerMulti = parseMultiAnswerIndices(
-      getBulkValue(row, ["correct_answers", "correct_answer", "answer", "correct"]),
-      options.length,
-    );
-    return payload;
-  }
-
-  payload.options = [];
-  const rangeMin = getBulkValue(row, ["correct_min", "min_answer", "answer_min"]);
-  const rangeMax = getBulkValue(row, ["correct_max", "max_answer", "answer_max"]);
-  if (rangeMin && rangeMax) {
-    payload.correctAnswerMin = Number(rangeMin);
-    payload.correctAnswerMax = Number(rangeMax);
-  } else {
-    payload.correctAnswer = Number(getBulkValue(row, ["correct_answer", "answer", "correct"]) || 0);
-  }
-  return payload;
-}
-
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -775,10 +636,6 @@ export default function AdminQuestionBank() {
   const [editorByChapter, setEditorByChapter] = useState<Record<number, EditorState>>({});
   const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
   const [editingState, setEditingState] = useState<EditorState>(emptyEditor());
-  const [bulkImportingChapterId, setBulkImportingChapterId] = useState<number | null>(null);
-  const [exportingChapterId, setExportingChapterId] = useState<number | null>(null);
-  const [exportingChapterPdfId, setExportingChapterPdfId] = useState<number | null>(null);
-  const [importingChapterId, setImportingChapterId] = useState<number | null>(null);
   const [exportingExamKey, setExportingExamKey] = useState<string | null>(null);
   const [exportingExamPdfKey, setExportingExamPdfKey] = useState<string | null>(null);
   const [importingExamKey, setImportingExamKey] = useState<string | null>(null);
@@ -794,8 +651,6 @@ export default function AdminQuestionBank() {
   const [focusedViewMode, setFocusedViewMode] = useState<"single" | "all">("single");
   const [focusedAddSubjectName, setFocusedAddSubjectName] = useState("");
   const [focusedAddChapterName, setFocusedAddChapterName] = useState("");
-  const excelInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-  const chapterImportInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const examImportInputRef = useRef<HTMLInputElement | null>(null);
   const subjectImportInputRef = useRef<HTMLInputElement | null>(null);
   const focusedQuestionCardRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -1176,10 +1031,6 @@ export default function AdminQuestionBank() {
     },
   ], [activeChapter, activeChapterStats.pending, activeChapterStats.topics, dashboardStats.easy, dashboardStats.hard, dashboardStats.medium]);
 
-  const openReportQueue = useMemo(
-    () => reports.filter((item) => item.status === "open"),
-    [reports],
-  );
   const activeChapterOpenReports = useMemo(
     () => (activeChapter?.questions ?? []).flatMap((question) =>
       question.reports
@@ -1394,160 +1245,6 @@ export default function AdminQuestionBank() {
 
   const setChapterEditor = (chapterId: number, updater: (prev: EditorState) => EditorState) => {
     setEditorByChapter((prev) => ({ ...prev, [chapterId]: updater(prev[chapterId] ?? emptyEditor()) }));
-  };
-
-  const handleExcelImport = async (chapter: ChapterItem, file?: File | null) => {
-    if (!file) return;
-    setBulkImportingChapterId(chapter.id);
-    try {
-      const XLSX = await import("xlsx");
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const firstSheetName = workbook.SheetNames[0];
-      if (!firstSheetName) throw new Error("The sheet is empty.");
-
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheetName], { defval: "" });
-      const rows = rawRows
-        .map(normalizeBulkRow)
-        .filter((row) => Boolean(getBulkValue(row, ["question", "question_text", "prompt", "question_image", "question_image_url", "image", "image_url"])));
-
-      if (rows.length === 0) throw new Error("No valid question rows were found in the spreadsheet.");
-
-      const payload = rows.map((row, rowIndex) => buildBulkQuestionPayload(row, rowIndex));
-      const response = await fetch(`${BASE}/api/chapters/${chapter.id}/question-bank-questions/bulk`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questions: payload }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(result.error ?? "Failed to import questions");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank", selectedExamKey] });
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
-      toast({
-        title: "Excel import complete",
-        description: `${result.createdCount ?? 0} questions added${result.duplicateCount ? `, ${result.duplicateCount} duplicates skipped` : ""} in ${chapter.title}.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Bulk import failed",
-        description: error instanceof Error ? error.message : "Could not import the Excel file",
-        variant: "destructive",
-      });
-    } finally {
-      setBulkImportingChapterId(null);
-    }
-  };
-
-  const handleChapterExport = async (chapter: ChapterItem) => {
-    setExportingChapterId(chapter.id);
-    try {
-      const response = await fetch(`${BASE}/api/question-bank/chapters/${chapter.id}/export`, {
-        credentials: "include",
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error((payload as { error?: string }).error ?? "Failed to export chapter");
-      }
-      const filename = `${chapter.title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || `chapter-${chapter.id}`}-question-bank.json`;
-      downloadJson(filename, payload);
-      toast({ title: "Chapter exported", description: `${chapter.title} is ready to download.` });
-    } catch (error) {
-      toast({
-        title: "Export failed",
-        description: error instanceof Error ? error.message : "Could not export chapter",
-        variant: "destructive",
-      });
-    } finally {
-      setExportingChapterId(null);
-    }
-  };
-
-  const handleChapterPdfExport = async (chapter: ChapterItem, subjectTitle?: string) => {
-    if (chapter.questions.length === 0) {
-      toast({
-        title: "Nothing to export",
-        description: `${chapter.title} does not have any questions yet.`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setExportingChapterPdfId(chapter.id);
-    try {
-      const { skippedImageCount } = await exportQuestionsPdf({
-        title: subjectTitle ? `${subjectTitle} - ${chapter.title}` : chapter.title,
-        filename: `${slugifyFilename(chapter.title, `chapter-${chapter.id}`)}-questions.pdf`,
-        questions: chapter.questions.map((question) => ({
-          question: question.question,
-          imageData: question.imageData ?? null,
-          subjectTitle,
-          chapterTitle: chapter.title,
-        })),
-      });
-
-      toast({
-        title: "Chapter PDF exported",
-        description: skippedImageCount > 0
-          ? `${chapter.title} downloaded. ${skippedImageCount} question image${skippedImageCount === 1 ? "" : "s"} could not be included.`
-          : `${chapter.title} questions are ready in PDF format.`,
-      });
-    } catch (error) {
-      toast({
-        title: "PDF export failed",
-        description: error instanceof Error ? error.message : "Could not export the chapter PDF",
-        variant: "destructive",
-      });
-    } finally {
-      setExportingChapterPdfId(null);
-    }
-  };
-
-  const handleChapterImport = async (chapter: ChapterItem, file?: File | null) => {
-    if (!file) return;
-    setImportingChapterId(chapter.id);
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as QuestionBankTransferBundle | Array<Record<string, unknown>>;
-      const questions = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed.questions)
-          ? parsed.questions
-          : [];
-
-      if (questions.length === 0) {
-        throw new Error("No questions were found in the JSON bundle.");
-      }
-
-      const response = await fetch(`${BASE}/api/question-bank/chapters/${chapter.id}/import`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ questions }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error((payload as { error?: string }).error ?? "Failed to import chapter bundle");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank", selectedExamKey] });
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
-      const result = payload as { createdCount?: number; duplicateCount?: number };
-      toast({
-        title: "Questions imported",
-        description: `${result.createdCount ?? 0} questions imported${result.duplicateCount ? `, ${result.duplicateCount} duplicates skipped` : ""} in ${chapter.title}.`,
-      });
-    } catch (error) {
-      toast({
-        title: "Import failed",
-        description: error instanceof Error ? error.message : "Could not import the JSON bundle",
-        variant: "destructive",
-      });
-    } finally {
-      setImportingChapterId(null);
-    }
   };
 
   const handleExamExport = async () => {

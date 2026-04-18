@@ -269,9 +269,17 @@ export default function StudentTestAnalysis() {
                 Comparative
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setLocation(`/student/tests/${id}/solutions`)}
+              disabled={!analysisQuery.data?.sections?.length}
+              className="chip-orange-solid mt-3 inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              View Solution
+            </button>
           </div>
 
-          <div className="overflow-x-auto pb-1">
+          <div className="-mx-1 overflow-x-auto px-1 pb-1">
             <div className="flex gap-2">
               {mobileTabs.map((tabId) => {
                 const active = activeTab === tabId;
@@ -284,7 +292,7 @@ export default function StudentTestAnalysis() {
                       active
                         ? "border-[#1F2937] bg-[#1F2937] text-white"
                         : "border-[#E5E7EB] bg-white text-[#1F2937]"
-                    }`}
+                    } snap-start`}
                   >
                     {pageTitles[tabId]}
                   </button>
@@ -293,16 +301,18 @@ export default function StudentTestAnalysis() {
             </div>
           </div>
         </div>
-        <Header
-          title={pageTitles[activeTab] || "Overview"}
-          summary={headerSummary}
-          onViewSolutions={() => setLocation(`/student/tests/${id}/solutions`)}
-          viewSolutionsDisabled={!analysisQuery.data?.sections?.length}
-          compact={activeTab !== "overview"}
-          showExpandTechnical={isGateExam && hasTechnicalSections}
-          expandTechnical={expandTechnical}
-          onExpandTechnicalChange={setExpandTechnical}
-        />
+        <div className="hidden lg:block">
+          <Header
+            title={pageTitles[activeTab] || "Overview"}
+            summary={headerSummary}
+            onViewSolutions={() => setLocation(`/student/tests/${id}/solutions`)}
+            viewSolutionsDisabled={!analysisQuery.data?.sections?.length}
+            compact={activeTab !== "overview"}
+            showExpandTechnical={isGateExam && hasTechnicalSections}
+            expandTechnical={expandTechnical}
+            onExpandTechnicalChange={setExpandTechnical}
+          />
+        </div>
         <div key={`${activeTab}-${mode}-${datasetVersion}-${expandTechnical ? "expanded" : "collapsed"}`}>
           {renderPage(activeTab, mode)}
         </div>

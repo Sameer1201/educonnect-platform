@@ -27,7 +27,7 @@ export default function StudentQuestionBankDashboard() {
         <p className="mt-1 text-sm text-muted-foreground">Browse exams, subjects and chapters to practise questions.</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Active Exams" value={totalExams} icon={<BookOpen className="h-4 w-4" />} color="text-primary" bg="bg-primary/10" />
         <StatCard label="Total Questions" value={totalQuestions} icon={<Target className="h-4 w-4" />} color="text-amber-600" bg="bg-amber-50" />
         <StatCard label="Attempted" value={attemptedQuestions} icon={<CheckCircle className="h-4 w-4" />} color="text-emerald-600" bg="bg-emerald-50" />
@@ -52,7 +52,7 @@ export default function StudentQuestionBankDashboard() {
 
             return (
               <Link key={exam.key} to={`/student/question-bank/exam/${exam.key}`}>
-                <div className="group cursor-pointer rounded-xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md">
+                <div className="group cursor-pointer rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md sm:p-5">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
@@ -69,15 +69,15 @@ export default function StudentQuestionBankDashboard() {
                   </div>
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                     <div>
-                      <div className="text-lg font-bold text-foreground">{exam.subjectCount}</div>
+                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.subjectCount}</div>
                       <div className="text-[10px] text-muted-foreground">Subjects</div>
                     </div>
                     <div>
-                      <div className="text-lg font-bold text-foreground">{exam.chapterCount}</div>
+                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.chapterCount}</div>
                       <div className="text-[10px] text-muted-foreground">Chapters</div>
                     </div>
                     <div>
-                      <div className="text-lg font-bold text-foreground">{exam.questionCount}</div>
+                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.questionCount}</div>
                       <div className="text-[10px] text-muted-foreground">Questions</div>
                     </div>
                   </div>
@@ -115,11 +115,11 @@ function StatCard({
   bg: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4">
       <div className={`inline-flex items-center justify-center rounded-lg p-2 ${bg}`}>
         <span className={color}>{icon}</span>
       </div>
-      <div className="mt-3 text-2xl font-bold text-foreground">{value}</div>
+      <div className="mt-3 text-xl font-bold text-foreground sm:text-2xl">{value}</div>
       <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
     </div>
   );

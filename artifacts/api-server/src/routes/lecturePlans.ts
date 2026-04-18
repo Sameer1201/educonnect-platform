@@ -127,7 +127,7 @@ router.post("/lecture-plans", async (req, res): Promise<void> => {
     type: "system",
     title: `New schedule update: ${title.trim()}`,
     message: `A schedule update was created for ${subject.trim()} on ${scheduledAt}.`,
-    link: "/schedule",
+    link: "/activity",
   });
 
   res.status(201).json((await serializePlans([created]))[0]);
@@ -224,7 +224,7 @@ router.patch("/lecture-plans/:id", async (req, res): Promise<void> => {
       type: "system",
       title: `Schedule updated: ${updated.title}`,
       message: changedSchedule,
-      link: "/schedule",
+      link: "/activity",
     });
   }
 
