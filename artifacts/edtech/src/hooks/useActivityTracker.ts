@@ -14,29 +14,19 @@ function getSessionToken(): string {
 }
 
 const PAGE_LABELS: Record<string, string> = {
-  "/": "Dashboard",
-  "/admin/dashboard": "Admin Dashboard",
-  "/admin/classes": "Admin Classes",
+  "/": "Home",
   "/admin/students": "Admin Students",
+  "/admin/question-bank": "Admin Question Bank",
   "/admin/tests": "Admin Tests",
-  "/admin/support": "Admin Support",
   "/student/dashboard": "Student Dashboard",
-  "/student/classes": "Student Classes",
   "/student/tests": "Student Tests",
-  "/student/feedback": "Student Feedback",
-  "/student/support": "Student Support",
   "/super-admin/dashboard": "Super Admin Dashboard",
   "/super-admin/admins": "Manage Admins",
   "/super-admin/students": "All Students",
-  "/super-admin/classes": "All Classes",
-  "/super-admin/hr": "HR Dashboard",
-  "/super-admin/finance": "Finance",
-  "/super-admin/support": "Support Tickets",
   "/super-admin/tests": "Tests Overview",
   "/super-admin/activity": "User Activity",
-  "/planner/dashboard": "Planner Dashboard",
-  "/planner/courses": "Planner Courses",
-  "/community": "Community",
+  "/super-admin/question-bank": "Super Admin Question Bank",
+  "/super-admin/exam-templates": "Super Admin Exam Templates",
   "/schedule": "Schedule",
 };
 
@@ -44,13 +34,6 @@ function getPageLabel(path: string): string {
   // Check exact match first
   if (PAGE_LABELS[path]) return PAGE_LABELS[path];
   // Dynamic routes
-  if (path.startsWith("/admin/class/")) return "Class Detail";
-  if (path.startsWith("/admin/live-class/")) return "Live Class (Teacher)";
-  if (path.startsWith("/admin/whiteboard/")) return "Whiteboard";
-  if (path.startsWith("/planner/courses/")) return "Planner Course Detail";
-  if (path.startsWith("/student/class/")) return "Class Detail";
-  if (path.startsWith("/student/live-class/")) return "Live Class (Student)";
-  if (path.startsWith("/student/whiteboard/")) return "Whiteboard";
   return path;
 }
 

@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { APP_NAME } from "@/lib/brand";
 import { BrandLogo } from "@/components/ui/brand-logo";
 
 function IllustrationScene() {
@@ -49,8 +48,7 @@ export default function LoginPage() {
           const role = data.user.role;
           if ((data.user as any).mustChangePassword && role === "student") setLocation("/student/profile");
           else if (role === "super_admin") setLocation("/super-admin/dashboard");
-          else if (role === "admin") setLocation("/admin/dashboard");
-          else if (role === "planner") setLocation("/planner/dashboard");
+          else if (role === "admin") setLocation("/admin/question-bank");
           else setLocation("/student/dashboard");
         },
         onError: (err: any) => {

@@ -9,7 +9,7 @@ import {
   questionBankQuestionsTable,
   questionBankReportsTable,
 } from "@workspace/db";
-import { eq, desc, and, gte, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, sql, inArray } from "drizzle-orm";
 
 const router = Router();
 
@@ -120,7 +120,7 @@ router.post("/session/end", requireAuth, async (req, res) => {
 });
 
 // GET /api/activity/overview — super admin: all users with activity summary
-router.get("/overview", requireSuperAdmin, async (req, res) => {
+router.get("/overview", requireSuperAdmin, async (_req, res) => {
   try {
     const users = await db.select().from(usersTable).orderBy(usersTable.fullName);
 

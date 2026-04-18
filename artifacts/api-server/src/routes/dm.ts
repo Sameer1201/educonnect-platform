@@ -34,17 +34,27 @@ function requireSuperAdmin(req: any, res: any): { userId: number; role: string }
 }
 
 /* ── Determine which roles a given role can DM ─────────────────── */
-function allowedPeerRoles(myRole: string): string[] | null {
+function allowedPeerRoles(myRole: string): string[] {
   if (myRole === "student") return ["student"];
-  if (myRole === "admin") return ["admin"];
-  return null; // null = no restriction (super_admin)
+  if (myRole === "admin") return ["super_admin"];
+  if (myRole === "super_admin") return ["admin"];
+  return [];
+}
+
+function canDirectMessage(senderRole: string, receiverRole: string): boolean {
+  return allowedPeerRoles(senderRole).includes(receiverRole);
+}
+
+function isSupportedDmPair(roleA: string | null | undefined, roleB: string | null | undefined): boolean {
+  if (!roleA || !roleB) return false;
+  return canDirectMessage(roleA, roleB) || canDirectMessage(roleB, roleA);
 }
 
 /* ── GET /api/dm/peers ─────────────────────────────────────────
    Returns users the current user is allowed to message:
    - student  → only other students
-   - admin    → only other admins (teachers)
-   - super_admin → everyone
+   - admin    → super admins only
+   - super_admin → teachers only
 ───────────────────────────────────────────────────────────────── */
 router.get("/dm/peers", async (req, res): Promise<void> => {
   const auth = requireAuth(req, res);
@@ -57,11 +67,7 @@ router.get("/dm/peers", async (req, res): Promise<void> => {
     .orderBy(usersTable.fullName);
 
   const allowed = allowedPeerRoles(auth.role);
-  const peers = all.filter((u) => {
-    if (u.id === auth.userId) return false;
-    if (allowed === null) return true;
-    return allowed.includes(u.role);
-  });
+  const peers = all.filter((u) => u.id !== auth.userId && allowed.includes(u.role));
 
   res.json(peers);
 });
@@ -84,29 +90,32 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
     )
     .orderBy(desc(directMessagesTable.createdAt));
 
-  const seen = new Set<number>();
-  const conversations: Array<{
+  const conversationMap = new Map<number, {
     peerId: number;
     lastMessage: string;
     lastAt: string;
     reportedCount: number;
-  }> = [];
+  }>();
 
   for (const m of messages) {
     const peerId = m.senderId === auth.userId ? m.receiverId : m.senderId;
-    if (seen.has(peerId)) continue;
-    seen.add(peerId);
-    const reportedCount = messages.filter(
-      (x) => (x.senderId === peerId || x.receiverId === peerId) && x.isReported,
-    ).length;
-    conversations.push({
-      peerId,
-      lastMessage: m.content.slice(0, 60) + (m.content.length > 60 ? "…" : ""),
-      lastAt: m.createdAt.toISOString(),
-      reportedCount,
-    });
+    const existing = conversationMap.get(peerId);
+    if (!existing) {
+      conversationMap.set(peerId, {
+        peerId,
+        lastMessage: m.content.slice(0, 60) + (m.content.length > 60 ? "…" : ""),
+        lastAt: m.createdAt.toISOString(),
+        reportedCount: m.isReported ? 1 : 0,
+      });
+      continue;
+    }
+
+    if (m.isReported) {
+      existing.reportedCount += 1;
+    }
   }
 
+  const conversations = Array.from(conversationMap.values());
   const peerIds = conversations.map((c) => c.peerId);
   if (peerIds.length === 0) { res.json([]); return; }
 
@@ -121,7 +130,7 @@ router.get("/dm/conversations", async (req, res): Promise<void> => {
     conversations.map((c) => ({
       ...c,
       peer: peerMap.get(c.peerId) ?? null,
-    })).filter((c) => c.peer),
+    })).filter((c) => c.peer && canDirectMessage(auth.role, c.peer.role)),
   );
 });
 
@@ -134,6 +143,17 @@ router.get("/dm/:peerId", async (req, res): Promise<void> => {
 
   const peerId = parseInt(req.params.peerId, 10);
   if (isNaN(peerId)) { res.status(400).json({ error: "Invalid peer ID" }); return; }
+
+  const [peer] = await db
+    .select({ id: usersTable.id, role: usersTable.role })
+    .from(usersTable)
+    .where(eq(usersTable.id, peerId));
+
+  if (!peer) { res.status(404).json({ error: "Peer not found" }); return; }
+  if (!canDirectMessage(auth.role, peer.role)) {
+    res.status(403).json({ error: "You are not allowed to message this user" });
+    return;
+  }
 
   const messages = await db
     .select()
@@ -152,8 +172,8 @@ router.get("/dm/:peerId", async (req, res): Promise<void> => {
 /* ── POST /api/dm/:peerId ──────────────────────────────────────
    Send a message to peerId. Role restrictions enforced:
    - student  → student only
-   - admin    → admin only
-   - super_admin → anyone
+   - admin    → super admin only
+   - super_admin → teacher only
 ───────────────────────────────────────────────────────────────── */
 router.post("/dm/:peerId", async (req, res): Promise<void> => {
   const auth = requireAuth(req, res);
@@ -176,9 +196,8 @@ router.post("/dm/:peerId", async (req, res): Promise<void> => {
   if (peerId === auth.userId) { res.status(400).json({ error: "Cannot message yourself" }); return; }
 
   // Role-based restriction
-  const allowed = allowedPeerRoles(auth.role);
-  if (allowed !== null && !allowed.includes(peer.role)) {
-    res.status(403).json({ error: "You can only message users with the same role" }); return;
+  if (!canDirectMessage(auth.role, peer.role)) {
+    res.status(403).json({ error: "You are not allowed to message this user" }); return;
   }
 
   const [msg] = await db.insert(directMessagesTable).values({
@@ -234,7 +253,7 @@ router.post("/dm/message/:messageId/report", async (req, res): Promise<void> => 
 
 /* ── GET /api/dm/admin/conversations ──────────────────────────
    Admin: only student↔student conversations.
-   Super admin: all conversations.
+   Super admin: all supported conversations.
 ───────────────────────────────────────────────────────────────── */
 router.get("/dm/admin/conversations", async (req, res): Promise<void> => {
   const auth = requireAdmin(req, res);
@@ -285,11 +304,12 @@ router.get("/dm/admin/conversations", async (req, res): Promise<void> => {
       user2: userMap.get(p.user2Id) ?? null,
     }))
     .filter((p) => {
-      // Admin: only student↔student conversations visible
-      // Super admin: all conversations
-      if (auth.role === "super_admin") return true;
       const r1 = p.user1?.role;
       const r2 = p.user2?.role;
+      if (!isSupportedDmPair(r1, r2)) return false;
+      // Admin: only student↔student conversations visible
+      // Super admin: all supported conversations
+      if (auth.role === "super_admin") return true;
       return r1 === "student" && r2 === "student";
     });
 
@@ -298,7 +318,7 @@ router.get("/dm/admin/conversations", async (req, res): Promise<void> => {
 
 /* ── GET /api/dm/admin/history/:user1Id/:user2Id ───────────────
    Admin: can view student↔student history only.
-   Super admin: can view any pair.
+   Super admin: can view any supported pair.
 ───────────────────────────────────────────────────────────────── */
 router.get("/dm/admin/history/:user1Id/:user2Id", async (req, res): Promise<void> => {
   const auth = requireAdmin(req, res);
@@ -316,6 +336,11 @@ router.get("/dm/admin/history/:user1Id/:user2Id", async (req, res): Promise<void
   const userMap = new Map(users.map((u) => [u.id, u]));
   const u1 = userMap.get(user1Id);
   const u2 = userMap.get(user2Id);
+
+  if (!isSupportedDmPair(u1?.role, u2?.role)) {
+    res.status(404).json({ error: "Conversation not available for moderation" });
+    return;
+  }
 
   // Admin cannot view admin↔admin conversations
   if (auth.role !== "super_admin") {
@@ -345,7 +370,7 @@ router.get("/dm/admin/history/:user1Id/:user2Id", async (req, res): Promise<void
 
 /* ── GET /api/dm/admin/reported ────────────────────────────────
    Admin: reported messages from student conversations only.
-   Super admin: all reported messages.
+   Super admin: all reported messages for supported DM pairs.
 ───────────────────────────────────────────────────────────────── */
 router.get("/dm/admin/reported", async (req, res): Promise<void> => {
   const auth = requireAdmin(req, res);
@@ -374,6 +399,7 @@ router.get("/dm/admin/reported", async (req, res): Promise<void> => {
       receiver: userMap.get(m.receiverId) ?? null,
     }))
     .filter((m) => {
+      if (!isSupportedDmPair(m.sender?.role, m.receiver?.role)) return false;
       if (auth.role === "super_admin") return true;
       // Admin: only student↔student reports
       return m.sender?.role === "student" && m.receiver?.role === "student";

@@ -24,7 +24,7 @@ interface StaffUser {
   fullName: string;
   username: string;
   email: string;
-  role: "admin" | "planner";
+  role: "admin";
   subject?: string | null;
   phone?: string | null;
   status: string;
@@ -47,7 +47,7 @@ interface CreateForm {
   fullName: string;
   email: string;
   subject: string;
-  role: "admin" | "planner";
+  role: "admin";
 }
 
 function getInitials(name: string) {
@@ -55,11 +55,11 @@ function getInitials(name: string) {
 }
 
 function roleLabel(role: StaffUser["role"]) {
-  return role === "planner" ? "Planner" : "Teacher";
+  return role === "admin" ? "Teacher" : "Teacher";
 }
 
 function roleBadgeClass(role: StaffUser["role"]) {
-  return role === "planner" ? "bg-emerald-100 text-emerald-700" : "";
+  return role === "admin" ? "" : "";
 }
 
 interface ActivityLog {
@@ -135,7 +135,7 @@ function StaffProfileDialog({ staff }: { staff: StaffUser }) {
           {staff.avatarUrl ? (
             <img src={staff.avatarUrl} alt={staff.fullName} className="h-10 w-10 rounded-full object-cover border border-border" />
           ) : (
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold ${staff.role === "planner" ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-blue-500 to-cyan-600"}`}>
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-cyan-600 text-sm font-bold text-white">
               {getInitials(staff.fullName)}
             </div>
           )}
@@ -152,7 +152,7 @@ function StaffProfileDialog({ staff }: { staff: StaffUser }) {
                 {profile.avatarUrl ? (
                   <img src={profile.avatarUrl} alt={profile.fullName} className="h-16 w-16 rounded-2xl object-cover border border-border" />
                 ) : (
-                  <div className={`h-16 w-16 rounded-2xl flex items-center justify-center text-white text-lg font-bold ${profile.role === "planner" ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-blue-500 to-cyan-600"}`}>
+                  <div className="h-16 w-16 rounded-2xl flex items-center justify-center bg-gradient-to-br from-blue-500 to-cyan-600 text-lg font-bold text-white">
                     {getInitials(profile.fullName)}
                   </div>
                 )}
@@ -170,7 +170,7 @@ function StaffProfileDialog({ staff }: { staff: StaffUser }) {
               <div className="space-y-2 text-sm">
                 <div className="flex items-start gap-2"><Mail size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.email || "No email added"}</span></div>
                 <div className="flex items-start gap-2"><Phone size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.phone || "No phone added"}</span></div>
-                <div className="flex items-start gap-2"><BookOpen size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.subject || (profile.role === "planner" ? "Planning / Coordination" : "No subject assigned")}</span></div>
+                <div className="flex items-start gap-2"><BookOpen size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.subject || "No subject assigned"}</span></div>
                 <div className="flex items-start gap-2"><CalendarDays size={14} className="mt-0.5 text-muted-foreground" /><span>Joined {profile.createdAt ? format(new Date(profile.createdAt), "MMM d, yyyy") : "Unknown"}</span></div>
                 <div className="flex items-start gap-2"><KeyRound size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.mustChangePassword ? "Password reset pending" : "Password active"}</span></div>
               </div>
@@ -356,7 +356,7 @@ function EditStaffDialog({ staff, onUpdated }: { staff: StaffUser; onUpdated: ()
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5">
-            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${staff.role === "planner" ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-blue-500 to-cyan-600"}`}>
+            <div className="w-9 h-9 rounded-full flex shrink-0 items-center justify-center bg-gradient-to-br from-blue-500 to-cyan-600 text-sm font-bold text-white">
               {getInitials(staff.fullName)}
             </div>
             <div>
@@ -386,7 +386,7 @@ function EditStaffDialog({ staff, onUpdated }: { staff: StaffUser; onUpdated: ()
 
           <div className="space-y-1.5">
             <Label className="text-sm flex items-center gap-1.5"><BookOpen size={13} /> Subject / Department <span className="text-muted-foreground text-xs">(optional)</span></Label>
-            <Input name="subject" value={form.subject} onChange={handleChange} placeholder={staff.role === "planner" ? "Planning, Coordination" : "e.g. Mathematics"} />
+            <Input name="subject" value={form.subject} onChange={handleChange} placeholder="e.g. Mathematics" />
           </div>
 
           <div className="space-y-1.5">
@@ -451,9 +451,9 @@ export default function SuperAdminAdmins() {
   const [showCreatePwd, setShowCreatePwd] = useState(false);
   const [search, setSearch] = useState("");
 
-  const staffUsers = (users as StaffUser[]).filter((user) => user.role === "admin" || user.role === "planner");
-  const teacherCount = staffUsers.filter((user) => user.role === "admin").length;
-  const plannerCount = staffUsers.filter((user) => user.role === "planner").length;
+  const staffUsers = (users as StaffUser[]).filter((user) => user.role === "admin");
+  const teacherCount = staffUsers.length;
+  const activeTeacherCount = staffUsers.filter((user) => user.status === "active").length;
 
   const filtered = staffUsers.filter((user) =>
     !search.trim() ||
@@ -463,8 +463,7 @@ export default function SuperAdminAdmins() {
     user.subject?.toLowerCase().includes(search.toLowerCase()) ||
     roleLabel(user.role).toLowerCase().includes(search.toLowerCase())
   );
-  const filteredTeachers = filtered.filter((user) => user.role === "admin");
-  const filteredPlanners = filtered.filter((user) => user.role === "planner");
+  const filteredTeachers = filtered;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -485,8 +484,8 @@ export default function SuperAdminAdmins() {
           password: form.password,
           fullName: form.fullName.trim(),
           email: form.email.trim(),
-          subject: form.role === "admin" ? form.subject || undefined : undefined,
-          role: form.role,
+          subject: form.subject || undefined,
+          role: "admin",
         },
       },
       {
@@ -540,8 +539,8 @@ export default function SuperAdminAdmins() {
             <div className="flex items-center gap-2 text-white/70 text-sm mb-1">
               <GraduationCap size={14} /> Staff Accounts
             </div>
-            <h1 className="text-2xl font-bold">Teachers & Planners</h1>
-            <p className="text-white/70 text-sm mt-1">Super admins can create and manage both teacher accounts and planner logins from one place.</p>
+            <h1 className="text-2xl font-bold">Teachers</h1>
+            <p className="text-white/70 text-sm mt-1">Super admins can create and manage teacher accounts from one place.</p>
           </div>
           <div className="grid grid-cols-2 gap-2 shrink-0">
             <div className="bg-white/10 rounded-xl px-4 py-2.5 min-w-[110px]">
@@ -555,10 +554,10 @@ export default function SuperAdminAdmins() {
             </div>
             <div className="bg-white/10 rounded-xl px-4 py-2.5 min-w-[110px]">
               <div className="flex items-center gap-2">
-                <CalendarDays size={16} className="text-white/80" />
+                <CheckCircle size={16} className="text-white/80" />
                 <div>
-                  <p className="text-lg font-bold leading-tight">{plannerCount}</p>
-                  <p className="text-xs text-white/70">Planners</p>
+                  <p className="text-lg font-bold leading-tight">{activeTeacherCount}</p>
+                  <p className="text-xs text-white/70">Active</p>
                 </div>
               </div>
             </div>
@@ -588,24 +587,11 @@ export default function SuperAdminAdmins() {
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Create Teacher or Planner</DialogTitle>
+              <DialogTitle>Create Teacher Account</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4 mt-2">
               {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-
-              <div className="space-y-1.5">
-                <Label className="text-sm">Role</Label>
-                <select
-                  name="role"
-                  value={form.role}
-                  onChange={handleChange}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  <option value="admin">Teacher</option>
-                  <option value="planner">Planner</option>
-                </select>
-              </div>
 
               <div className="space-y-1.5">
                 <Label className="text-sm flex items-center gap-1.5"><User size={13} /> Full Name</Label>
@@ -647,7 +633,7 @@ export default function SuperAdminAdmins() {
                 <Label className="text-sm flex items-center gap-1.5"><BookOpen size={13} /> Subject / Department <span className="text-muted-foreground text-xs">(optional)</span></Label>
                 <Input
                   name="subject"
-                  placeholder={form.role === "planner" ? "Planning, Coordination" : "e.g. Mathematics"}
+                  placeholder="e.g. Mathematics"
                   value={form.subject}
                   onChange={handleChange}
                 />
@@ -675,67 +661,60 @@ export default function SuperAdminAdmins() {
         <Card>
           <CardContent className="flex flex-col items-center py-10 text-muted-foreground">
             <UserCheck size={32} className="opacity-20 mb-2" />
-            <p className="text-sm">{search ? "No staff accounts match your search." : "No teacher or planner accounts created yet."}</p>
+            <p className="text-sm">{search ? "No staff accounts match your search." : "No teacher accounts created yet."}</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-5 xl:grid-cols-2">
-          {[
-            { title: "Teachers", count: filteredTeachers.length, icon: <GraduationCap size={15} className="text-blue-500" />, items: filteredTeachers },
-            { title: "Planners", count: filteredPlanners.length, icon: <CalendarDays size={15} className="text-emerald-500" />, items: filteredPlanners },
-          ].map((section) => (
-            <Card key={section.title}>
-              <CardHeader className="pb-3 border-b bg-muted/30">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  {section.icon}
-                  {section.title}
-                  <span className="text-muted-foreground font-normal">({section.count})</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-4">
-                {section.items.length === 0 ? (
-                  <div className="flex flex-col items-center py-10 text-muted-foreground">
-                    <UserCheck size={28} className="opacity-20 mb-2" />
-                    <p className="text-sm">No {section.title.toLowerCase()} found.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {section.items.map((staff) => (
-                      <div
-                        key={staff.id}
-                        className="flex items-center gap-4 p-3.5 rounded-xl border border-border/60 bg-card hover:border-border hover:shadow-sm transition-all duration-150"
-                      >
-                        <StaffProfileDialog staff={staff} />
+        <Card>
+          <CardHeader className="border-b bg-muted/30 pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <GraduationCap size={15} className="text-blue-500" />
+              Teachers
+              <span className="text-muted-foreground font-normal">({filteredTeachers.length})</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            {filteredTeachers.length === 0 ? (
+              <div className="flex flex-col items-center py-10 text-muted-foreground">
+                <UserCheck size={28} className="opacity-20 mb-2" />
+                <p className="text-sm">No teachers found.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredTeachers.map((staff) => (
+                  <div
+                    key={staff.id}
+                    className="flex items-center gap-4 rounded-xl border border-border/60 bg-card p-3.5 transition-all duration-150 hover:border-border hover:shadow-sm"
+                  >
+                    <StaffProfileDialog staff={staff} />
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-semibold">{staff.fullName}</p>
-                            <Badge variant="secondary" className={`text-[10px] shrink-0 ${roleBadgeClass(staff.role)}`}>
-                              {roleLabel(staff.role)}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                            <span className="text-xs text-muted-foreground">@{staff.username}</span>
-                            {staff.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail size={10} />{staff.email}</span>}
-                            {staff.subject && <span className="text-xs text-muted-foreground flex items-center gap-1"><BookOpen size={10} />{staff.subject}</span>}
-                            {staff.phone && <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone size={10} />{staff.phone}</span>}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <EditStaffDialog staff={staff} onUpdated={refresh} />
-                          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive gap-1.5" onClick={() => handleDelete(staff)}>
-                            <Trash2 size={14} /> Delete
-                          </Button>
-                        </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold">{staff.fullName}</p>
+                        <Badge variant="secondary" className={`text-[10px] shrink-0 ${roleBadgeClass(staff.role)}`}>
+                          {roleLabel(staff.role)}
+                        </Badge>
                       </div>
-                    ))}
+                      <div className="mt-0.5 flex items-center gap-3 flex-wrap">
+                        <span className="text-xs text-muted-foreground">@{staff.username}</span>
+                        {staff.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail size={10} />{staff.email}</span>}
+                        {staff.subject && <span className="text-xs text-muted-foreground flex items-center gap-1"><BookOpen size={10} />{staff.subject}</span>}
+                        {staff.phone && <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone size={10} />{staff.phone}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <EditStaffDialog staff={staff} onUpdated={refresh} />
+                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive gap-1.5" onClick={() => handleDelete(staff)}>
+                        <Trash2 size={14} /> Delete
+                      </Button>
+                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

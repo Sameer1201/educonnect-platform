@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import {
   Bell, BookOpen, GraduationCap, FlaskConical, Users, Megaphone,
   MessageCircle, Trash2, CheckCheck, Check, Filter, RefreshCw, BarChart3
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow, isToday, isYesterday, isThisWeek } from "date-fns";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";

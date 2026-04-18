@@ -8,6 +8,7 @@ import { buildAnalysisDataset } from "@/features/test-analysis/buildAnalysisData
 import Sidebar from "@/features/test-analysis/components/Sidebar";
 import Header from "@/features/test-analysis/components/Header";
 import Overview from "@/features/test-analysis/pages/Overview";
+import AdvancedInsights from "@/features/test-analysis/pages/AdvancedInsights";
 import PerformanceAnalysis from "@/features/test-analysis/pages/PerformanceAnalysis";
 import TimeAnalysis from "@/features/test-analysis/pages/TimeAnalysis";
 import AttemptAnalysis from "@/features/test-analysis/pages/AttemptAnalysis";
@@ -18,6 +19,7 @@ import QsByQsAnalysis from "@/features/test-analysis/pages/QsByQsAnalysis";
 
 const pageTitles: Record<string, string> = {
   overview: "Overview",
+  advanced: "Advanced Insights",
   performance: "Performance Analysis",
   time: "Time Analysis",
   attempt: "Attempt Analysis",
@@ -29,6 +31,7 @@ const pageTitles: Record<string, string> = {
 
 const personalMobileTabs = [
   "overview",
+  "advanced",
   "performance",
   "time",
   "attempt",
@@ -45,10 +48,34 @@ const comparativeMobileTabs = [
   "difficulty",
 ] as const;
 
+function isGateExamTest(test: {
+  examType?: string | null;
+  examHeader?: string | null;
+  examSubheader?: string | null;
+  title?: string | null;
+  description?: string | null;
+} | null | undefined) {
+  const values = [
+    test?.examType,
+    test?.examHeader,
+    test?.examSubheader,
+    test?.title,
+    test?.description,
+  ]
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean);
+
+  return values.some((value) =>
+    value.includes("gate") || value.includes("graduate aptitude test in engineering"),
+  );
+}
+
 function renderPage(activeTab: string, mode: ViewMode) {
   switch (activeTab) {
     case "overview":
       return <Overview mode={mode} />;
+    case "advanced":
+      return <AdvancedInsights />;
     case "performance":
       return <PerformanceAnalysis mode={mode} />;
     case "time":
@@ -74,6 +101,8 @@ export default function StudentTestAnalysis() {
   const [activeTab, setActiveTab] = useState("overview");
   const [mode, setMode] = useState<ViewMode>("personal");
   const [datasetReady, setDatasetReady] = useState(false);
+  const [datasetVersion, setDatasetVersion] = useState(0);
+  const [expandTechnical, setExpandTechnical] = useState(false);
 
   const analysisQuery = useQuery({
     queryKey: ["student-analysis", id],
@@ -90,8 +119,29 @@ export default function StudentTestAnalysis() {
 
   const dataset = useMemo(() => {
     if (!analysisQuery.data) return null;
-    return buildAnalysisDataset(analysisQuery.data);
-  }, [analysisQuery.data]);
+    const gateExam = isGateExamTest(analysisQuery.data.test);
+    return buildAnalysisDataset(analysisQuery.data, { expandTechnical: gateExam && expandTechnical });
+  }, [analysisQuery.data, expandTechnical]);
+
+  const isGateExam = useMemo(() => isGateExamTest(analysisQuery.data?.test), [analysisQuery.data]);
+
+  const hasTechnicalSections = useMemo(
+    () =>
+      Boolean(
+        (analysisQuery.data?.sections ?? []).some((section: { title?: string | null; subjectLabel?: string | null }) =>
+          String(section.subjectLabel ?? section.title ?? "").trim().toLowerCase().includes("technical"),
+        ),
+      ),
+    [analysisQuery.data],
+  );
+
+  useEffect(() => () => resetAnalysisDataset(), []);
+
+  useEffect(() => {
+    if (!isGateExam && expandTechnical) {
+      setExpandTechnical(false);
+    }
+  }, [expandTechnical, isGateExam]);
 
   useEffect(() => {
     if (!dataset) {
@@ -100,14 +150,14 @@ export default function StudentTestAnalysis() {
     }
     setAnalysisDataset(dataset);
     setDatasetReady(true);
-    return () => resetAnalysisDataset();
+    setDatasetVersion((version) => version + 1);
   }, [dataset]);
 
   if (analysisQuery.isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB]">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#5B4DFF] border-t-transparent" />
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#D97706] border-t-transparent" />
           <p className="text-sm text-[#6B7280]">Loading test analysis...</p>
         </div>
       </div>
@@ -124,7 +174,7 @@ export default function StudentTestAnalysis() {
           </p>
           <button
             onClick={() => analysisQuery.refetch()}
-            className="mt-4 rounded-full bg-[#5B4DFF] px-5 py-2 text-sm font-semibold text-white shadow-[0_6px_18px_rgba(91,77,255,0.25)]"
+            className="chip-orange-solid mt-4 rounded-full px-5 py-2 text-sm font-semibold"
           >
             Retry
           </button>
@@ -137,7 +187,7 @@ export default function StudentTestAnalysis() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB]">
         <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#5B4DFF] border-t-transparent" />
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-[#D97706] border-t-transparent" />
           <p className="text-sm text-[#6B7280]">Preparing analysis dataset...</p>
         </div>
       </div>
@@ -156,14 +206,6 @@ export default function StudentTestAnalysis() {
       analysisQuery.data.classStats?.totalSubs && analysisQuery.data.classStats.totalSubs > 0
         ? `${analysisQuery.data.classStats.rank}/${analysisQuery.data.classStats.totalSubs}`
         : undefined,
-    sections: (analysisQuery.data.sections ?? [])
-      .slice()
-      .sort((a: { order?: number }, b: { order?: number }) => (a.order ?? 0) - (b.order ?? 0))
-      .map((section: { id: number; title: string; subjectLabel?: string | null; questionCount?: number | null }) => ({
-        id: section.id,
-        label: section.subjectLabel ?? section.title,
-        count: section.questionCount ?? null,
-      })),
   } : undefined;
 
   return (
@@ -204,7 +246,7 @@ export default function StudentTestAnalysis() {
                 }}
                 className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
                   mode === "personal"
-                    ? "bg-[#5B4DFF] text-white shadow-[0_4px_10px_rgba(91,77,255,0.28)]"
+                    ? "chip-orange-solid"
                     : "text-[#4B5563]"
                 }`}
               >
@@ -220,7 +262,7 @@ export default function StudentTestAnalysis() {
                 }}
                 className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-all ${
                   mode === "comparative"
-                    ? "bg-[#5B4DFF] text-white shadow-[0_4px_10px_rgba(91,77,255,0.28)]"
+                    ? "chip-orange-solid"
                     : "text-[#4B5563]"
                 }`}
               >
@@ -257,8 +299,13 @@ export default function StudentTestAnalysis() {
           onViewSolutions={() => setLocation(`/student/tests/${id}/solutions`)}
           viewSolutionsDisabled={!analysisQuery.data?.sections?.length}
           compact={activeTab !== "overview"}
+          showExpandTechnical={isGateExam && hasTechnicalSections}
+          expandTechnical={expandTechnical}
+          onExpandTechnicalChange={setExpandTechnical}
         />
-        {renderPage(activeTab, mode)}
+        <div key={`${activeTab}-${mode}-${datasetVersion}-${expandTechnical ? "expanded" : "collapsed"}`}>
+          {renderPage(activeTab, mode)}
+        </div>
         </main>
       </div>
     </div>

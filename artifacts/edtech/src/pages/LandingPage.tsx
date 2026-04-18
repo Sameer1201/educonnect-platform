@@ -1,21 +1,18 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ArrowRight,
   BarChart3,
   BookOpen,
   CheckCircle2,
-  FileText,
   Mail,
   MessageSquare,
   ShieldCheck,
   Timer,
-  User,
   Zap,
   LineChart,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useToast } from "@/hooks/use-toast";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { RankPulseLandingPreview } from "@/components/marketing/RankPulseLandingPreview";
 
@@ -47,48 +44,15 @@ const features = [
 ];
 
 export default function LandingPage() {
-  const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [contactName, setContactName] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [contactSubject, setContactSubject] = useState("");
-  const [contactMessage, setContactMessage] = useState("");
-  const [submittingContact, setSubmittingContact] = useState(false);
   const analysisRef = useRef<HTMLElement | null>(null);
   const contactRef = useRef<HTMLElement | null>(null);
   const featuresRef = useRef<HTMLElement | null>(null);
 
-  const submitContactForm = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSubmittingContact(true);
-    try {
-      const response = await fetch(`${BASE}/api/support/contact`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: contactName,
-          email: contactEmail,
-          subject: contactSubject,
-          message: contactMessage,
-        }),
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Could not send message");
-      }
-
-      setContactName("");
-      setContactEmail("");
-      setContactSubject("");
-      setContactMessage("");
-      toast({ title: "Message sent", description: "Your message has been sent to the super admin team." });
-    } catch (error: any) {
-      toast({ title: "Submission failed", description: error.message ?? "Please try again.", variant: "destructive" });
-    } finally {
-      setSubmittingContact(false);
-    }
+  const openContactEmail = () => {
+    const subject = encodeURIComponent("RankPulse inquiry");
+    const body = encodeURIComponent("Hi RankPulse team,\n\nI want help with:\n");
+    window.location.href = `mailto:support@rankpulse.in?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -377,73 +341,44 @@ export default function LandingPage() {
                 transition={{ duration: 0.5 }}
                 className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm"
               >
-                <form onSubmit={submitContactForm} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="mb-1.5 block text-sm font-semibold text-gray-700">Name</label>
-                      <div className="relative">
-                        <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="text"
-                          placeholder="Your name"
-                          value={contactName}
-                          onChange={(e) => setContactName(e.target.value)}
-                          required
-                          className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                        />
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Reach the team directly</p>
+                    <p className="mt-1 text-sm leading-relaxed text-gray-500">
+                      We removed the old in-platform support workflow, so the cleanest contact path is direct email.
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 shadow-sm">
+                        <Mail className="h-4 w-4" />
                       </div>
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-sm font-semibold text-gray-700">Email</label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="email"
-                          placeholder="you@example.com"
-                          value={contactEmail}
-                          onChange={(e) => setContactEmail(e.target.value)}
-                          required
-                          className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                        />
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">support@rankpulse.in</p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Best for access issues, billing help, test flow questions, or product feedback.
+                        </p>
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-gray-700">Subject</label>
-                    <div className="relative">
-                      <FileText className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="What do you want to discuss?"
-                        value={contactSubject}
-                        onChange={(e) => setContactSubject(e.target.value)}
-                        required
-                        className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                      />
-                    </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {["Access setup", "Billing questions", "Product feedback"].map((item) => (
+                      <div key={item} className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-700">
+                        {item}
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="mb-1.5 block text-sm font-semibold text-gray-700">Message</label>
-                    <div className="relative">
-                      <MessageSquare className="absolute left-3 top-3.5 h-4 w-4 text-gray-400" />
-                      <textarea
-                        rows={5}
-                        placeholder="Tell us what you need help with."
-                        value={contactMessage}
-                        onChange={(e) => setContactMessage(e.target.value)}
-                        required
-                        className="w-full resize-none rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-9 pr-3 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                      />
-                    </div>
-                  </div>
+
                   <button
-                    type="submit"
-                    disabled={submittingContact}
-                    className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-70"
+                    type="button"
+                    className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                    onClick={openContactEmail}
                   >
-                    {submittingContact ? "Sending..." : "Send Message"}
+                    Email the Team
                   </button>
-                </form>
+                </div>
               </motion.div>
             </div>
           </div>

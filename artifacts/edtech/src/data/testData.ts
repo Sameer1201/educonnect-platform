@@ -162,6 +162,7 @@ export interface QsSubject {
 }
 
 export interface QuestionVisit {
+  questionId?: number;
   questionNo: number;
   status: "correct" | "wrong" | "skipped" | "markedReview" | "unmarkedReview";
   quality: "perfect" | "wasted" | "overtime" | "confused" | "skipped";
@@ -194,6 +195,100 @@ export interface SubjectMovementRow {
   timeSpent: string;
 }
 
+export interface QuestionHistoryEvent {
+  atSeconds: number;
+  atLabel: string;
+  action: "open" | "answer" | "clear" | "review" | "save";
+  title: string;
+  answerLabel: string | null;
+  reviewState?: "marked" | "removed";
+}
+
+export interface QuestionHistoryOption {
+  key: string;
+  content: string;
+  image?: string | null;
+  isSelected: boolean;
+  isCorrect: boolean;
+}
+
+export interface QuestionHistoryItem {
+  questionId: number;
+  questionNo: number;
+  subject: string;
+  chapter: string;
+  topic: string;
+  question: string;
+  questionType: "MCQ" | "Multi Select" | "Integer";
+  status: "correct" | "wrong" | "skipped" | "markedReview" | "unmarkedReview";
+  quality: "perfect" | "wasted" | "overtime" | "confused" | "skipped";
+  finalAnswerLabel: string;
+  correctAnswerLabel: string;
+  reviewActive: boolean;
+  openedCount: number;
+  totalTimeLabel: string;
+  options: QuestionHistoryOption[];
+  events: QuestionHistoryEvent[];
+}
+
+export interface MasteryMapRow {
+  label: string;
+  currentAccuracy: number;
+  baselineAccuracy: number | null;
+  trend: number | null;
+  attempted: number;
+  avgSecondsPerAttempt: number;
+  status: "strong" | "building" | "recovering" | "slipping" | "fragile";
+  signal: string;
+}
+
+export interface ForgettingCurveRow {
+  label: string;
+  subject: string;
+  previousAccuracy: number;
+  currentAccuracy: number;
+  drop: number;
+  retentionPct: number;
+  lastSeenDays: number | null;
+}
+
+export interface SpeedAccuracyRow {
+  label: string;
+  accuracy: number;
+  avgSecondsPerAttempt: number;
+  baselineAccuracy: number | null;
+  baselineSecondsPerAttempt: number | null;
+  zone: "fast-accurate" | "fast-fragile" | "slow-solid" | "drag-zone";
+  insight: string;
+}
+
+export interface ErrorRecurrenceRow {
+  label: string;
+  category: "Topic" | "Difficulty" | "Question Type";
+  currentWrong: number;
+  previousWrong: number;
+  testsHit: number;
+  severity: "high" | "medium";
+  signal: string;
+}
+
+export interface RevisionRoadmapRow {
+  title: string;
+  priority: "High" | "Medium";
+  focusArea: string;
+  reason: string;
+  actions: string[];
+}
+
+export interface AdvancedInsightsDataShape {
+  historyDepth: number;
+  masteryMap: MasteryMapRow[];
+  forgettingCurve: ForgettingCurveRow[];
+  speedVsAccuracy: SpeedAccuracyRow[];
+  errorRecurrence: ErrorRecurrenceRow[];
+  revisionRoadmap: RevisionRoadmapRow[];
+}
+
 export interface AnalysisDataset {
   testData: TestDataShape;
   timeData: TimeDataShape;
@@ -205,8 +300,10 @@ export interface AnalysisDataset {
   comparativeDifficultyData: ComparativeDifficultyDataShape;
   qsByQsData: QsSubject[];
   questionJourneyData: JourneyInterval[];
+  questionHistoryData: QuestionHistoryItem[];
   completeBreakdownData: BreakdownRow[];
   subjectMovementData: SubjectMovementRow[];
+  advancedInsightsData: AdvancedInsightsDataShape;
 }
 
 const emptyDataset: AnalysisDataset = {
@@ -261,8 +358,17 @@ const emptyDataset: AnalysisDataset = {
   comparativeDifficultyData: { levels: [] },
   qsByQsData: [],
   questionJourneyData: [],
+  questionHistoryData: [],
   completeBreakdownData: [],
   subjectMovementData: [],
+  advancedInsightsData: {
+    historyDepth: 0,
+    masteryMap: [],
+    forgettingCurve: [],
+    speedVsAccuracy: [],
+    errorRecurrence: [],
+    revisionRoadmap: [],
+  },
 };
 
 export let testData = emptyDataset.testData;
@@ -275,8 +381,10 @@ export let comparativeTimeData = emptyDataset.comparativeTimeData;
 export let comparativeDifficultyData = emptyDataset.comparativeDifficultyData;
 export let qsByQsData = emptyDataset.qsByQsData;
 export let questionJourneyData = emptyDataset.questionJourneyData;
+export let questionHistoryData = emptyDataset.questionHistoryData;
 export let completeBreakdownData = emptyDataset.completeBreakdownData;
 export let subjectMovementData = emptyDataset.subjectMovementData;
+export let advancedInsightsData = emptyDataset.advancedInsightsData;
 
 export function setAnalysisDataset(dataset: AnalysisDataset) {
   testData = dataset.testData;
@@ -289,8 +397,10 @@ export function setAnalysisDataset(dataset: AnalysisDataset) {
   comparativeDifficultyData = dataset.comparativeDifficultyData;
   qsByQsData = dataset.qsByQsData;
   questionJourneyData = dataset.questionJourneyData;
+  questionHistoryData = dataset.questionHistoryData;
   completeBreakdownData = dataset.completeBreakdownData;
   subjectMovementData = dataset.subjectMovementData;
+  advancedInsightsData = dataset.advancedInsightsData;
 }
 
 export function resetAnalysisDataset() {

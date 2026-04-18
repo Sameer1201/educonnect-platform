@@ -1,12 +1,9 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Trophy, Medal, ClipboardList } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePlatformSettings } from "@/hooks/usePlatformSettings";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trophy, Medal, Star, TrendingUp, ClipboardList, FileText, UserCheck } from "lucide-react";
 
 interface LeaderboardEntry {
   id: number;
@@ -15,11 +12,7 @@ interface LeaderboardEntry {
   points: number;
   rank: number;
   avgTestScore: number;
-  avgAssignmentGrade: number;
-  attendancePercentage: number;
   testsCompleted: number;
-  assignmentsSubmitted: number;
-  // Note: avatarUrl not in schema
 }
 
 const rankColors = ["text-yellow-500", "text-slate-400", "text-amber-600"];
@@ -32,61 +25,36 @@ const medalIcons = [
 
 export default function Leaderboard() {
   const { user } = useAuth();
-  const { data: platformSettings } = usePlatformSettings(!!user);
-  const [classId, setClassId] = useState<string>("all");
-  const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
-
-  const { data: classes = [] } = useQuery<{ id: number; title: string }[]>({
-    queryKey: ["classes-for-leaderboard"],
-    queryFn: () => {
-      const endpoint = user?.role === "student" ? "/classes" : "/classes";
-      return api.get(endpoint).then((data) => data.map((c: any) => ({ id: c.id, title: c.title })));
-    },
-    enabled: learningAccessEnabled,
-  });
 
   const { data: leaderboard = [], isLoading } = useQuery<LeaderboardEntry[]>({
-    queryKey: ["leaderboard", classId],
-    queryFn: () => {
-      const params = classId !== "all" ? `?classId=${classId}` : "";
-      return api.get(`/leaderboard${params}`);
-    },
-    refetchInterval: 60000,
+    queryKey: ["leaderboard"],
+    queryFn: () => api.get("/leaderboard"),
+    refetchInterval: 60_000,
   });
 
-  const myEntry = user?.role === "student" ? leaderboard.find((e) => e.id === user.id) : null;
+  const myEntry = user?.role === "student"
+    ? leaderboard.find((entry) => entry.id === user.id)
+    : null;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Trophy size={24} className="text-yellow-500" />
             Leaderboard
           </h1>
           <p className="text-sm text-muted-foreground">
-            {learningAccessEnabled ? "Ranked by test scores, assignments & attendance" : "Ranked by test scores"}
+            Ranked by test performance.
           </p>
         </div>
-        {learningAccessEnabled ? (
-          <Select value={classId} onValueChange={setClassId}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="All classes" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Classes</SelectItem>
-              {classes.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        ) : null}
       </div>
 
-      {/* My rank banner */}
-      {myEntry && (
+      {myEntry ? (
         <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="p-4 flex items-center justify-between gap-4">
+          <CardContent className="flex items-center justify-between gap-4 p-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold text-lg">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-lg font-bold text-white">
                 #{myEntry.rank}
               </div>
               <div>
@@ -95,23 +63,28 @@ export default function Leaderboard() {
               </div>
             </div>
             <div className="flex gap-4 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><ClipboardList size={12} /> {myEntry.testsCompleted} tests</span>
-              {learningAccessEnabled && <span className="flex items-center gap-1"><FileText size={12} /> {myEntry.assignmentsSubmitted} assignments</span>}
-              {learningAccessEnabled && <span className="flex items-center gap-1"><UserCheck size={12} /> {myEntry.attendancePercentage}% attendance</span>}
+              <span className="flex items-center gap-1">
+                <ClipboardList size={12} />
+                {myEntry.testsCompleted} tests
+              </span>
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
       {isLoading ? (
         <div className="space-y-3">
-          {[...Array(5)].map((_, i) => <div key={i} className="h-20 bg-muted animate-pulse rounded-xl" />)}
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />
+          ))}
         </div>
       ) : leaderboard.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center">
-            <Trophy size={40} className="text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">{learningAccessEnabled ? "No data yet. Complete tests and assignments to appear here." : "No data yet. Complete tests to appear here."}</p>
+            <Trophy size={40} className="mx-auto mb-3 text-muted-foreground" />
+            <p className="text-muted-foreground">
+              No ranking data yet. Complete tests to appear here.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -119,39 +92,35 @@ export default function Leaderboard() {
           {leaderboard.map((entry) => {
             const isMe = entry.id === user?.id;
             const isTop3 = entry.rank <= 3;
+
             return (
-              <Card key={entry.id} className={`transition-all ${isMe ? "ring-2 ring-primary" : ""} ${isTop3 ? rankBg[entry.rank - 1] : ""}`}>
+              <Card
+                key={entry.id}
+                className={`transition-all ${isMe ? "ring-2 ring-primary" : ""} ${isTop3 ? rankBg[entry.rank - 1] : ""}`}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg shrink-0 ${isTop3 ? "" : "bg-muted text-muted-foreground"}`}>
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-bold ${isTop3 ? "" : "bg-muted text-muted-foreground"}`}>
                       {isTop3 ? medalIcons[entry.rank - 1] : <span className="text-base">#{entry.rank}</span>}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className={`font-semibold ${isMe ? "text-primary" : ""}`}>{entry.fullName}</span>
-                        {isMe && <Badge className="text-xs">You</Badge>}
+                        {isMe ? <Badge className="text-xs">You</Badge> : null}
                         <span className="text-xs text-muted-foreground">@{entry.username}</span>
                       </div>
-                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <ClipboardList size={11} />
-                          Tests: <strong className="text-foreground">{entry.avgTestScore}%</strong>
+                          Test score: <strong className="text-foreground">{entry.avgTestScore}%</strong>
                         </span>
-                        {learningAccessEnabled && (
-                          <span className="flex items-center gap-1">
-                            <FileText size={11} />
-                            Assignments: <strong className="text-foreground">{entry.avgAssignmentGrade > 0 ? entry.avgAssignmentGrade : "–"}</strong>
-                          </span>
-                        )}
-                        {learningAccessEnabled && (
-                          <span className="flex items-center gap-1">
-                            <UserCheck size={11} />
-                            Attendance: <strong className="text-foreground">{entry.attendancePercentage}%</strong>
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1">
+                          <ClipboardList size={11} />
+                          Tests: <strong className="text-foreground">{entry.testsCompleted}</strong>
+                        </span>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="shrink-0 text-right">
                       <p className={`text-2xl font-bold ${isTop3 ? rankColors[entry.rank - 1] : ""}`}>{entry.points}</p>
                       <p className="text-xs text-muted-foreground">pts</p>
                     </div>

@@ -518,36 +518,6 @@ export const GetStudentDashboardResponse = zod.object({
 });
 
 /**
- * @summary HR dashboard stats (super admin only)
- */
-export const GetHRDashboardResponse = zod.object({
-  totalTeachers: zod.number(),
-  totalStudents: zod.number(),
-  totalClasses: zod.number(),
-  avgClassesPerTeacher: zod.number(),
-  teacherStats: zod.array(
-    zod.object({
-      id: zod.number(),
-      fullName: zod.string(),
-      username: zod.string(),
-      email: zod.string(),
-      subject: zod.string().nullish(),
-      classCount: zod.number(),
-      studentCount: zod.number(),
-      liveClasses: zod.number(),
-    }),
-  ),
-  topStudentsByEnrollment: zod.array(
-    zod.object({
-      id: zod.number(),
-      fullName: zod.string(),
-      username: zod.string(),
-      enrolledCount: zod.number(),
-    }),
-  ),
-});
-
-/**
  * @summary Submit feedback for a class
  */
 export const SubmitFeedbackBody = zod.object({

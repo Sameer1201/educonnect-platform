@@ -1,21 +1,25 @@
 import { Router } from "express";
 import {
   db,
+} from "@workspace/db";
+import {
   questionBankQuestionsTable,
   questionBankReportsTable,
   questionBankSavedQuestionsTable,
+  questionBankQuestionProgressTable,
   chaptersTable,
   subjectsTable,
   classesTable,
   usersTable,
   enrollmentsTable,
-} from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+} from "@workspace/db/schema";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 const router = Router();
 
 type Auth = { userId: number; role: string };
 type QuestionType = "mcq" | "multi" | "integer";
+type QuestionBankAttemptAnswer = number | number[] | string;
 type NormalizedQuestionValue = {
   question: string;
   questionType: QuestionType;
@@ -30,6 +34,16 @@ type NormalizedQuestionValue = {
   difficulty: string;
   points: number;
   imageData: string | null;
+};
+type NormalizedQuestionPayloadResult =
+  | { value: NormalizedQuestionValue }
+  | { error: string };
+type ClassAccessError = { error: string; status: 403 | 404 };
+type ClassAccessSuccess = {
+  cls: typeof classesTable.$inferSelect;
+  subjects: Array<typeof subjectsTable.$inferSelect>;
+  isEnrolled: boolean;
+  isAssignedSubjectTeacher: boolean;
 };
 
 function serializeQuestionTransferPayload(question: typeof questionBankQuestionsTable.$inferSelect) {
@@ -109,20 +123,7 @@ async function getAccessibleQuestionBankClasses(auth: Auth) {
     return db
       .select()
       .from(classesTable)
-      .where(and(eq(classesTable.workflowType, "question_bank"), sql`cardinality(${classesTable.assignedTeacherIds}) > 0`));
-  }
-
-  if (auth.role === "planner") {
-    return db
-      .select()
-      .from(classesTable)
-      .where(
-        and(
-          eq(classesTable.plannerId, auth.userId),
-          eq(classesTable.workflowType, "question_bank"),
-          sql`cardinality(${classesTable.assignedTeacherIds}) > 0`,
-        ),
-      );
+      .where(eq(classesTable.workflowType, "question_bank"));
   }
 
   if (auth.role === "admin") {
@@ -133,9 +134,7 @@ async function getAccessibleQuestionBankClasses(auth: Auth) {
         .where(
           and(
             eq(classesTable.workflowType, "question_bank"),
-            isNotNull(classesTable.plannerId),
-            sql`cardinality(${classesTable.assignedTeacherIds}) > 0`,
-            sql`${classesTable.assignedTeacherIds} @> ARRAY[${auth.userId}]::integer[]`,
+            sql`(${classesTable.adminId} = ${auth.userId} OR ${classesTable.assignedTeacherIds} @> ARRAY[${auth.userId}]::integer[])`,
           ),
         ),
       db.select({ classId: subjectsTable.classId }).from(subjectsTable).where(eq(subjectsTable.teacherId, auth.userId)),
@@ -154,8 +153,6 @@ async function getAccessibleQuestionBankClasses(auth: Auth) {
             and(
               inArray(classesTable.id, extraClassIds),
               eq(classesTable.workflowType, "question_bank"),
-              isNotNull(classesTable.plannerId),
-              sql`cardinality(${classesTable.assignedTeacherIds}) > 0`,
             ),
           )
       : [];
@@ -170,7 +167,6 @@ async function getAccessibleQuestionBankClasses(auth: Auth) {
       .where(
         and(
           eq(classesTable.workflowType, "question_bank"),
-          isNotNull(classesTable.plannerId),
           sql`cardinality(${classesTable.assignedTeacherIds}) > 0`,
         ),
       );
@@ -193,6 +189,97 @@ async function getStudentExamKeys(userId: number) {
     if (normalized) keys.add(normalized);
   }
   return keys;
+}
+
+function getQuestionBankClassExamKey(cls: typeof classesTable.$inferSelect) {
+  return normalizeExamKey(cls.subject) ?? normalizeExamKey(cls.title);
+}
+
+async function findExistingQuestionBankCardByExam(exam: string, excludeClassId?: number) {
+  const examKey = normalizeExamKey(exam);
+  if (!examKey) return null;
+
+  const questionBankClasses = await db
+    .select()
+    .from(classesTable)
+    .where(eq(classesTable.workflowType, "question_bank"));
+
+  return questionBankClasses.find((cls) => {
+    if (excludeClassId && cls.id === excludeClassId) return false;
+    return getQuestionBankClassExamKey(cls) === examKey;
+  }) ?? null;
+}
+
+async function canStudentAccessQuestionBankClass(userId: number, cls: typeof classesTable.$inferSelect) {
+  const examKey = getQuestionBankClassExamKey(cls);
+  if (!examKey) return false;
+  const studentExamKeys = await getStudentExamKeys(userId);
+  return studentExamKeys.has(examKey);
+}
+
+function formatLocalDateKey(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function normalizeQuestionBankAttemptAnswer(
+  question: typeof questionBankQuestionsTable.$inferSelect,
+  value: unknown,
+): { value: QuestionBankAttemptAnswer } | { error: string } {
+  const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+
+  if (questionType === "multi") {
+    if (!Array.isArray(value) || value.length === 0) {
+      return { error: "Select at least one option" };
+    }
+    const selected = value
+      .map((item) => Number(item))
+      .filter((item) => Number.isInteger(item) && item >= 0)
+      .filter((item, index, list) => list.indexOf(item) === index)
+      .sort((a, b) => a - b);
+    return selected.length > 0 ? { value: selected } : { error: "Select at least one valid option" };
+  }
+
+  if (questionType === "integer") {
+    const raw = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+    if (!raw) return { error: "Enter a numeric answer" };
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return { error: "Enter a valid numeric answer" };
+    return { value: raw };
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return { error: "Select a valid option" };
+  }
+  return { value: parsed };
+}
+
+function isQuestionBankAttemptCorrect(
+  question: typeof questionBankQuestionsTable.$inferSelect,
+  answer: QuestionBankAttemptAnswer,
+) {
+  const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+
+  if (questionType === "multi") {
+    const correct = safeParseArray<number>(question.correctAnswerMulti, []).sort((a, b) => a - b);
+    const selected = Array.isArray(answer) ? [...answer].sort((a, b) => a - b) : [];
+    return JSON.stringify(selected) === JSON.stringify(correct);
+  }
+
+  if (questionType === "integer") {
+    const numericAnswer = Number(answer);
+    if (question.correctAnswerMin != null && question.correctAnswerMax != null) {
+      return numericAnswer >= question.correctAnswerMin && numericAnswer <= question.correctAnswerMax;
+    }
+    return numericAnswer === question.correctAnswer;
+  }
+
+  return Number(answer) === question.correctAnswer;
 }
 
 async function buildQuestionBankTreeForClasses(auth: Auth, classes: Array<typeof classesTable.$inferSelect>) {
@@ -240,6 +327,12 @@ async function buildQuestionBankTreeForClasses(auth: Auth, classes: Array<typeof
         .from(questionBankSavedQuestionsTable)
         .where(and(inArray(questionBankSavedQuestionsTable.questionId, questionIds), eq(questionBankSavedQuestionsTable.studentId, auth.userId)))
     : [];
+  const progressRows = auth.role === "student" && questionIds.length > 0
+    ? await db
+        .select()
+        .from(questionBankQuestionProgressTable)
+        .where(and(inArray(questionBankQuestionProgressTable.questionId, questionIds), eq(questionBankQuestionProgressTable.studentId, auth.userId)))
+    : [];
 
   const classMap = new Map(classes.map((cls) => [cls.id, cls]));
   const subjectTeacherIds = [...new Set(subjects.map((subject) => {
@@ -264,9 +357,11 @@ async function buildQuestionBankTreeForClasses(auth: Auth, classes: Array<typeof
   }
 
   const savedQuestionIds = new Set(savedRows.map((row) => row.questionId));
+  const progressByQuestionId = new Map(progressRows.map((row) => [row.questionId, row]));
 
   const serializedQuestions = questions.map((question) => {
     const questionReports = reportsByQuestion.get(question.id) ?? [];
+    const progress = progressByQuestionId.get(question.id);
     return {
       ...question,
       options: safeParseArray<string>(question.options, []),
@@ -283,6 +378,17 @@ async function buildQuestionBankTreeForClasses(auth: Auth, classes: Array<typeof
       reportCount: questionReports.length,
       openReportCount: questionReports.filter((report) => report.status === "open").length,
       isSaved: savedQuestionIds.has(question.id),
+      progress: progress
+        ? {
+            attemptCount: progress.attemptCount,
+            correctCount: progress.correctCount,
+            incorrectCount: progress.incorrectCount,
+            firstAttemptedAt: progress.firstAttemptedAt,
+            lastAttemptedAt: progress.lastAttemptedAt,
+            solvedAt: progress.solvedAt,
+            lastIsCorrect: progress.lastIsCorrect,
+          }
+        : null,
     };
   });
 
@@ -419,7 +525,7 @@ function parseQuestionBankDeadlineInput(value: unknown) {
 router.get("/question-bank/cards", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["planner", "super_admin", "admin"].includes(auth.role)) {
+  if (!["super_admin", "admin"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -468,29 +574,35 @@ router.get("/question-bank/cards", async (req, res) => {
 router.post("/question-bank/cards", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["planner", "super_admin"].includes(auth.role)) {
+  if (auth.role !== "super_admin") {
     return res.status(403).json({ error: "Forbidden" });
   }
 
-  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const exam = typeof req.body?.exam === "string" ? req.body.exam.trim() : "";
+  const title = exam;
   const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
   const teacherIds = Array.isArray(req.body?.teacherIds)
     ? req.body.teacherIds.map((value: unknown) => Number(value)).filter((value: number) => Number.isInteger(value) && value > 0)
     : [];
-  const weeklyTargetQuestions = Number(req.body?.weeklyTargetQuestions);
+  const rawWeeklyTargetQuestions = req.body?.weeklyTargetQuestions;
+  const hasWeeklyTargetQuestions = !(rawWeeklyTargetQuestions === undefined || rawWeeklyTargetQuestions === null || String(rawWeeklyTargetQuestions).trim() === "");
+  const parsedWeeklyTargetQuestions = hasWeeklyTargetQuestions ? Number(rawWeeklyTargetQuestions) : undefined;
   const weeklyTargetDeadline = typeof req.body?.weeklyTargetDeadline === "string" ? req.body.weeklyTargetDeadline.trim() : "";
 
-  if (!title) return res.status(400).json({ error: "Card title is required" });
   if (!exam) return res.status(400).json({ error: "Exam name is required" });
   if (teacherIds.length === 0) return res.status(400).json({ error: "At least one assigned teacher is required" });
-  if (!Number.isInteger(weeklyTargetQuestions) || weeklyTargetQuestions <= 0) {
+  if (hasWeeklyTargetQuestions && (!Number.isInteger(parsedWeeklyTargetQuestions) || (parsedWeeklyTargetQuestions ?? 0) < 1)) {
     return res.status(400).json({ error: "Weekly target must be a positive whole number" });
   }
-  if (!weeklyTargetDeadline) return res.status(400).json({ error: "Deadline is required" });
-  const parsedDeadline = parseQuestionBankDeadlineInput(weeklyTargetDeadline);
-  if (!parsedDeadline) {
+  const parsedDeadline = weeklyTargetDeadline ? parseQuestionBankDeadlineInput(weeklyTargetDeadline) : null;
+  if (weeklyTargetDeadline && !parsedDeadline) {
     return res.status(400).json({ error: "Deadline is invalid" });
+  }
+  const weeklyTargetQuestions = parsedWeeklyTargetQuestions ?? null;
+
+  const duplicateCard = await findExistingQuestionBankCardByExam(exam);
+  if (duplicateCard) {
+    return res.status(409).json({ error: "Question bank for this exam already exists" });
   }
 
   const teachers = await db
@@ -511,7 +623,7 @@ router.post("/question-bank/cards", async (req, res) => {
       workflowType: "question_bank",
       adminId: primaryTeacher.id,
       assignedTeacherIds: teacherIds,
-      plannerId: auth.role === "planner" ? auth.userId : null,
+      plannerId: auth.userId,
       status: "scheduled",
       weeklyTargetQuestions,
       weeklyTargetDeadline: parsedDeadline,
@@ -541,7 +653,7 @@ router.post("/question-bank/cards", async (req, res) => {
     subjectCount: 0,
     chapterCount: 0,
     questionCount: 0,
-    remainingQuestions: weeklyTargetQuestions,
+    remainingQuestions: weeklyTargetQuestions ?? 0,
     createdAt: card.createdAt?.toISOString() ?? null,
   });
 });
@@ -549,7 +661,7 @@ router.post("/question-bank/cards", async (req, res) => {
 router.patch("/question-bank/cards/:id", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["planner", "super_admin"].includes(auth.role)) {
+  if (auth.role !== "super_admin") {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -558,32 +670,36 @@ router.patch("/question-bank/cards/:id", async (req, res) => {
     return res.status(400).json({ error: "Invalid card id" });
   }
 
-  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const exam = typeof req.body?.exam === "string" ? req.body.exam.trim() : "";
+  const title = exam;
   const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
   const teacherIds = Array.isArray(req.body?.teacherIds)
     ? req.body.teacherIds.map((value: unknown) => Number(value)).filter((value: number) => Number.isInteger(value) && value > 0)
     : [];
-  const weeklyTargetQuestions = Number(req.body?.weeklyTargetQuestions);
+  const rawWeeklyTargetQuestions = req.body?.weeklyTargetQuestions;
+  const hasWeeklyTargetQuestions = !(rawWeeklyTargetQuestions === undefined || rawWeeklyTargetQuestions === null || String(rawWeeklyTargetQuestions).trim() === "");
+  const parsedWeeklyTargetQuestions = hasWeeklyTargetQuestions ? Number(rawWeeklyTargetQuestions) : undefined;
   const weeklyTargetDeadline = typeof req.body?.weeklyTargetDeadline === "string" ? req.body.weeklyTargetDeadline.trim() : "";
 
-  if (!title) return res.status(400).json({ error: "Card title is required" });
   if (!exam) return res.status(400).json({ error: "Exam name is required" });
   if (teacherIds.length === 0) return res.status(400).json({ error: "At least one assigned teacher is required" });
-  if (!Number.isInteger(weeklyTargetQuestions) || weeklyTargetQuestions <= 0) {
+  if (hasWeeklyTargetQuestions && (!Number.isInteger(parsedWeeklyTargetQuestions) || (parsedWeeklyTargetQuestions ?? 0) < 1)) {
     return res.status(400).json({ error: "Weekly target must be a positive whole number" });
   }
-  const parsedDeadline = parseQuestionBankDeadlineInput(weeklyTargetDeadline);
-  if (!parsedDeadline) {
+  const parsedDeadline = weeklyTargetDeadline ? parseQuestionBankDeadlineInput(weeklyTargetDeadline) : null;
+  if (weeklyTargetDeadline && !parsedDeadline) {
     return res.status(400).json({ error: "Deadline is invalid" });
   }
+  const weeklyTargetQuestions = parsedWeeklyTargetQuestions ?? null;
 
   const [existingCard] = await db.select().from(classesTable).where(eq(classesTable.id, cardId));
   if (!existingCard || existingCard.workflowType !== "question_bank") {
     return res.status(404).json({ error: "Question bank card not found" });
   }
-  if (auth.role === "planner" && existingCard.plannerId !== auth.userId) {
-    return res.status(403).json({ error: "Forbidden" });
+
+  const duplicateCard = await findExistingQuestionBankCardByExam(exam, cardId);
+  if (duplicateCard) {
+    return res.status(409).json({ error: "Question bank for this exam already exists" });
   }
 
   const teachers = await db
@@ -632,7 +748,7 @@ router.patch("/question-bank/cards/:id", async (req, res) => {
 router.delete("/question-bank/cards/:id", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["planner", "super_admin"].includes(auth.role)) {
+  if (auth.role !== "super_admin") {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -644,9 +760,6 @@ router.delete("/question-bank/cards/:id", async (req, res) => {
   const [existingCard] = await db.select().from(classesTable).where(eq(classesTable.id, cardId));
   if (!existingCard || existingCard.workflowType !== "question_bank") {
     return res.status(404).json({ error: "Question bank card not found" });
-  }
-  if (auth.role === "planner" && existingCard.plannerId !== auth.userId) {
-    return res.status(403).json({ error: "Forbidden" });
   }
 
   await db.delete(classesTable).where(eq(classesTable.id, cardId));
@@ -697,7 +810,7 @@ router.get("/question-bank/alerts", async (req, res) => {
 router.get("/question-bank/exams", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["admin", "planner", "super_admin", "student"].includes(auth.role)) {
+  if (!["admin", "super_admin", "student"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -719,6 +832,21 @@ router.get("/question-bank/exams", async (req, res) => {
         classes: [cls],
       });
     }
+  }
+
+  const allClassIds = [...new Set([...grouped.values()].flatMap((group) => group.classes.map((item) => item.id)))];
+  const progressRows = auth.role === "student" && allClassIds.length > 0
+    ? await db
+        .select()
+        .from(questionBankQuestionProgressTable)
+        .where(and(
+          eq(questionBankQuestionProgressTable.studentId, auth.userId),
+          inArray(questionBankQuestionProgressTable.classId, allClassIds),
+        ))
+    : [];
+  const progressCountByClassId = new Map<number, number>();
+  for (const row of progressRows) {
+    progressCountByClassId.set(row.classId, (progressCountByClassId.get(row.classId) ?? 0) + 1);
   }
 
   const summaries = await Promise.all([...grouped.values()].map(async (group) => {
@@ -750,6 +878,7 @@ router.get("/question-bank/exams", async (req, res) => {
       return sum + Math.max(chapter.targetQuestions ?? 0, uploaded);
     }, 0);
     const questionCount = questions.length;
+    const attemptedQuestionCount = classIds.reduce((sum, classId) => sum + (progressCountByClassId.get(classId) ?? 0), 0);
 
     return {
       key: group.key,
@@ -759,6 +888,7 @@ router.get("/question-bank/exams", async (req, res) => {
       questionCount,
       targetQuestionCount,
       pendingQuestionCount: Math.max(targetQuestionCount - questionCount, 0),
+      attemptedQuestionCount,
     };
   }));
 
@@ -766,10 +896,60 @@ router.get("/question-bank/exams", async (req, res) => {
   res.json(summaries);
 });
 
+router.get("/question-bank/progress/summary", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (auth.role !== "student") return res.status(403).json({ error: "Only students can view question bank progress" });
+
+  const classes = await getAccessibleQuestionBankClasses(auth);
+  const studentExamKeys = await getStudentExamKeys(auth.userId);
+  const visibleClassIds = classes
+    .filter((cls) => {
+      const examKey = getQuestionBankClassExamKey(cls);
+      return examKey ? studentExamKeys.has(examKey) : false;
+    })
+    .map((cls) => cls.id);
+
+  const progressRows = visibleClassIds.length > 0
+    ? await db
+        .select()
+        .from(questionBankQuestionProgressTable)
+        .where(and(
+          eq(questionBankQuestionProgressTable.studentId, auth.userId),
+          inArray(questionBankQuestionProgressTable.classId, visibleClassIds),
+        ))
+    : [];
+
+  const totalSolvedQuestions = progressRows.length;
+  const totalAttempts = progressRows.reduce((sum, row) => sum + Math.max(row.attemptCount ?? 0, 0), 0);
+  const correctAttempts = progressRows.reduce((sum, row) => sum + Math.max(row.correctCount ?? 0, 0), 0);
+  const latestCorrectQuestions = progressRows.filter((row) => row.lastIsCorrect).length;
+  const dailySolvedMap = new Map<string, number>();
+
+  for (const row of progressRows) {
+    const key = formatLocalDateKey(row.firstAttemptedAt);
+    if (!key) continue;
+    dailySolvedMap.set(key, (dailySolvedMap.get(key) ?? 0) + 1);
+  }
+
+  const dailySolvedCounts = [...dailySolvedMap.entries()]
+    .map(([date, questions]) => ({ date, questions }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  res.json({
+    totalSolvedQuestions,
+    totalAttempts,
+    correctAttempts,
+    latestCorrectQuestions,
+    accuracy: totalAttempts > 0 ? Number(((correctAttempts / totalAttempts) * 100).toFixed(1)) : 0,
+    dailySolvedCounts,
+  });
+});
+
 router.get("/question-bank/exams/:examKey", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["admin", "planner", "super_admin", "student"].includes(auth.role)) {
+  if (!["admin", "super_admin", "student"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -806,7 +986,7 @@ router.get("/question-bank/exams/:examKey", async (req, res) => {
 router.get("/question-bank/exams/:examKey/export", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
-  if (!["admin", "planner", "super_admin"].includes(auth.role)) {
+  if (!["admin", "super_admin"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
 
@@ -837,7 +1017,7 @@ router.get("/question-bank/exams/:examKey/export", async (req, res) => {
         title: chapter.title,
         description: chapter.description ?? null,
         targetQuestions: chapter.targetQuestions ?? 0,
-        questions: chapter.questions.map((question) => serializeQuestionTransferPayload(question)),
+        questions: chapter.questions,
       })),
     })),
   });
@@ -933,9 +1113,9 @@ router.post("/question-bank/exams/:examKey/import", async (req, res) => {
       const duplicateKeys = new Set(existingQuestions.map(buildExistingQuestionDuplicateKey).filter((value): value is string => !!value));
 
       const rawQuestions = Array.isArray(rawChapter?.questions) ? rawChapter.questions : [];
-      const parsedQuestions = rawQuestions.map((item) => normalizeQuestionPayload(item));
-      const validQuestions = parsedQuestions.filter((item): item is { value: NormalizedQuestionValue } => "value" in item);
-      const invalidQuestions = parsedQuestions.filter((item): item is { error: string } => "error" in item);
+      const parsedQuestions = rawQuestions.map((item: unknown) => normalizeQuestionPayload(item));
+      const validQuestions = parsedQuestions.filter((item: NormalizedQuestionPayloadResult): item is { value: NormalizedQuestionValue } => "value" in item);
+      const invalidQuestions = parsedQuestions.filter((item: NormalizedQuestionPayloadResult): item is { error: string } => "error" in item);
       if (invalidQuestions.length > 0 && subjectTitle && chapterTitle) {
         warnings.push(`Skipped ${invalidQuestions.length} invalid question(s) in ${subjectTitle} / ${chapterTitle}`);
       }
@@ -964,6 +1144,148 @@ router.post("/question-bank/exams/:examKey/import", async (req, res) => {
   res.status(201).json({
     importedCount,
     skippedSubjectCount,
+    skippedChapterCount,
+    skippedDuplicateCount,
+    invalidQuestionCount,
+    warnings,
+  });
+});
+
+router.get("/question-bank/subjects/:subjectId/export", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+
+  const subjectId = parseInt(req.params.subjectId, 10);
+  if (Number.isNaN(subjectId)) return res.status(400).json({ error: "Invalid subject id" });
+
+  const context = await getSubjectContext(subjectId);
+  if (!context) return res.status(404).json({ error: "Subject not found" });
+  if (!canManageQuestionBank(auth, context.subject, context.cls)) {
+    return res.status(403).json({ error: "Only the assigned subject teacher can export this subject" });
+  }
+
+  const chapters = await db
+    .select()
+    .from(chaptersTable)
+    .where(eq(chaptersTable.subjectId, subjectId))
+    .orderBy(chaptersTable.order, chaptersTable.createdAt);
+
+  const chapterIds = chapters.map((chapter) => chapter.id);
+  const questions = chapterIds.length > 0
+    ? await db
+        .select()
+        .from(questionBankQuestionsTable)
+        .where(inArray(questionBankQuestionsTable.chapterId, chapterIds))
+        .orderBy(questionBankQuestionsTable.order, questionBankQuestionsTable.createdAt)
+    : [];
+
+  const questionsByChapter = new Map<number, Array<ReturnType<typeof serializeQuestionTransferPayload>>>();
+  for (const question of questions) {
+    const existing = questionsByChapter.get(question.chapterId) ?? [];
+    existing.push(serializeQuestionTransferPayload(question));
+    questionsByChapter.set(question.chapterId, existing);
+  }
+
+  res.json({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    subject: {
+      id: context.subject.id,
+      title: context.subject.title,
+      description: context.subject.description ?? null,
+    },
+    chapters: chapters.map((chapter) => ({
+      id: chapter.id,
+      title: chapter.title,
+      description: chapter.description ?? null,
+      targetQuestions: chapter.targetQuestions ?? 0,
+      questions: questionsByChapter.get(chapter.id) ?? [],
+    })),
+  });
+});
+
+router.post("/question-bank/subjects/:subjectId/import", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+
+  const subjectId = parseInt(req.params.subjectId, 10);
+  if (Number.isNaN(subjectId)) return res.status(400).json({ error: "Invalid subject id" });
+
+  const context = await getSubjectContext(subjectId);
+  if (!context) return res.status(404).json({ error: "Subject not found" });
+  if (!canManageQuestionBank(auth, context.subject, context.cls)) {
+    return res.status(403).json({ error: "Only the assigned subject teacher can import into this subject" });
+  }
+
+  const rawChapters = Array.isArray(req.body?.chapters) ? req.body.chapters : [];
+  if (rawChapters.length === 0) {
+    return res.status(400).json({ error: "Import bundle me chapters nahi mile" });
+  }
+
+  const chapters = await db
+    .select()
+    .from(chaptersTable)
+    .where(eq(chaptersTable.subjectId, subjectId))
+    .orderBy(chaptersTable.order, chaptersTable.createdAt);
+
+  const chapterMap = new Map(chapters.map((chapter) => [normalizeTitleKey(chapter.title), chapter] as const));
+  let importedCount = 0;
+  let skippedChapterCount = 0;
+  let skippedDuplicateCount = 0;
+  let invalidQuestionCount = 0;
+  const warnings: string[] = [];
+
+  for (const rawChapter of rawChapters) {
+    const chapterTitle = typeof rawChapter?.title === "string" ? rawChapter.title.trim() : "";
+    const chapterKey = normalizeTitleKey(chapterTitle);
+    const targetChapter = chapterKey ? chapterMap.get(chapterKey) : undefined;
+    if (!targetChapter) {
+      skippedChapterCount += 1;
+      if (chapterTitle) warnings.push(`Chapter not found: ${chapterTitle}`);
+      continue;
+    }
+
+    const existingQuestions = await db
+      .select({
+        id: questionBankQuestionsTable.id,
+        question: questionBankQuestionsTable.question,
+        questionType: questionBankQuestionsTable.questionType,
+      })
+      .from(questionBankQuestionsTable)
+      .where(eq(questionBankQuestionsTable.chapterId, targetChapter.id));
+
+    const duplicateKeys = new Set(existingQuestions.map(buildExistingQuestionDuplicateKey).filter((value): value is string => !!value));
+    const rawQuestions = Array.isArray(rawChapter?.questions) ? rawChapter.questions : [];
+    const parsedQuestions = rawQuestions.map((item: unknown) => normalizeQuestionPayload(item));
+    const validQuestions = parsedQuestions.filter((item: NormalizedQuestionPayloadResult): item is { value: NormalizedQuestionValue } => "value" in item);
+    const invalidQuestions = parsedQuestions.filter((item: NormalizedQuestionPayloadResult): item is { error: string } => "error" in item);
+
+    if (invalidQuestions.length > 0 && chapterTitle) {
+      warnings.push(`Skipped ${invalidQuestions.length} invalid question(s) in ${chapterTitle}`);
+    }
+    invalidQuestionCount += invalidQuestions.length;
+    if (validQuestions.length === 0) continue;
+
+    const values: Array<ReturnType<typeof buildQuestionInsertValues>> = [];
+    let nextOrder = existingQuestions.length;
+    for (const item of validQuestions) {
+      const duplicateKey = normalizeQuestionDuplicateKey(item.value.question, item.value.questionType);
+      if (duplicateKey && duplicateKeys.has(duplicateKey)) {
+        skippedDuplicateCount += 1;
+        continue;
+      }
+      if (duplicateKey) duplicateKeys.add(duplicateKey);
+      values.push(buildQuestionInsertValues(item.value, { chapter: targetChapter, subject: context.subject, cls: context.cls }, nextOrder, auth.userId));
+      nextOrder += 1;
+    }
+
+    if (values.length === 0) continue;
+    const created = await db.insert(questionBankQuestionsTable).values(values).returning({ id: questionBankQuestionsTable.id });
+    importedCount += created.length;
+  }
+
+  res.status(201).json({
+    importedCount,
     skippedChapterCount,
     skippedDuplicateCount,
     invalidQuestionCount,
@@ -1031,8 +1353,8 @@ router.post("/question-bank/chapters/:chapterId/import", async (req, res) => {
     return res.status(400).json({ error: "At least one question is required" });
   }
 
-  const parsedQuestions = rawQuestions.map((item) => normalizeQuestionPayload(item));
-  const firstError = parsedQuestions.find((item) => "error" in item);
+  const parsedQuestions = rawQuestions.map((item: unknown) => normalizeQuestionPayload(item));
+  const firstError = parsedQuestions.find((item: NormalizedQuestionPayloadResult): item is { error: string } => "error" in item);
   if (firstError && "error" in firstError) {
     return res.status(400).json({ error: firstError.error });
   }
@@ -1084,6 +1406,16 @@ async function getChapterContext(chapterId: number) {
   return { chapter, subject, cls };
 }
 
+async function getSubjectContext(subjectId: number) {
+  const [subject] = await db.select().from(subjectsTable).where(eq(subjectsTable.id, subjectId));
+  if (!subject) return null;
+
+  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, subject.classId));
+  if (!cls) return null;
+
+  return { subject, cls };
+}
+
 async function getQuestionContext(questionId: number) {
   const [question] = await db.select().from(questionBankQuestionsTable).where(eq(questionBankQuestionsTable.id, questionId));
   if (!question) return null;
@@ -1094,7 +1426,6 @@ async function getQuestionContext(questionId: number) {
 
 function canViewClassQuestionBank(auth: Auth, cls: typeof classesTable.$inferSelect, isEnrolled: boolean) {
   if (auth.role === "super_admin") return true;
-  if (auth.role === "planner") return cls.plannerId === auth.userId;
   if (auth.role === "admin") return (cls.assignedTeacherIds ?? []).includes(auth.userId);
   if (auth.role === "student") return isEnrolled;
   return false;
@@ -1107,23 +1438,13 @@ function canManageQuestionBank(auth: Auth, subject: typeof subjectsTable.$inferS
   return effectiveTeacherId === auth.userId || (subject.teacherId == null && (cls.assignedTeacherIds ?? []).includes(auth.userId));
 }
 
-async function canTeacherManageClassQuestionBank(auth: Auth, classId: number) {
+function canManageQuestionBankStructure(auth: Auth, cls: typeof classesTable.$inferSelect) {
   if (auth.role === "super_admin") return true;
-  if (auth.role !== "admin") return false;
-
-  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
-  if (!cls) return false;
-  if ((cls.assignedTeacherIds ?? []).includes(auth.userId)) return true;
-
-  const assignedSubjects = await db
-    .select({ id: subjectsTable.id })
-    .from(subjectsTable)
-    .where(and(eq(subjectsTable.classId, classId), eq(subjectsTable.teacherId, auth.userId)));
-
-  return assignedSubjects.length > 0;
+  void cls;
+  return false;
 }
 
-async function getClassAccess(auth: Auth, classId: number) {
+async function getClassAccess(auth: Auth, classId: number): Promise<ClassAccessError | ClassAccessSuccess> {
   const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
   if (!cls) return { error: "Class not found", status: 404 as const };
 
@@ -1150,7 +1471,7 @@ async function getClassAccess(auth: Auth, classId: number) {
   return { cls, subjects, isEnrolled, isAssignedSubjectTeacher };
 }
 
-function normalizeQuestionPayload(body: any) {
+function normalizeQuestionPayload(body: any): NormalizedQuestionPayloadResult {
   const questionType: QuestionType = body.questionType === "multi" || body.questionType === "integer" ? body.questionType : "mcq";
   const question = typeof body.question === "string" ? body.question.trim() : "";
   const explanation = typeof body.explanation === "string" && body.explanation.trim() ? body.explanation.trim() : null;
@@ -1190,14 +1511,14 @@ function normalizeQuestionPayload(body: any) {
 
   if (questionType === "mcq") {
     if (options.length < 2) return { error: "MCQ needs at least 2 options" };
-    if (!Number.isInteger(correctAnswer) || correctAnswer < 0 || correctAnswer >= options.length) {
+    if (correctAnswer === null || !Number.isInteger(correctAnswer) || correctAnswer < 0 || correctAnswer >= options.length) {
       return { error: "Valid correct answer is required" };
     }
   }
 
   if (questionType === "multi") {
     if (options.length < 2) return { error: "Multi-select needs at least 2 options" };
-    if (correctAnswerMulti.length === 0 || correctAnswerMulti.some((idx) => idx < 0 || idx >= options.length)) {
+    if (correctAnswerMulti.length === 0 || correctAnswerMulti.some((idx: number) => idx < 0 || idx >= options.length)) {
       return { error: "Select at least one valid correct option" };
     }
   }
@@ -1270,7 +1591,10 @@ router.get("/question-bank/classes/:classId", async (req, res) => {
   if (Number.isNaN(classId)) return res.status(400).json({ error: "Invalid class id" });
 
   const access = await getClassAccess(auth, classId);
-  if ("error" in access) return res.status(access.status).json({ error: access.error });
+  if ("error" in access) {
+    const { status, error } = access;
+    return res.status(status).json({ error });
+  }
 
   const { cls, subjects } = access;
   const subjectIds = subjects.map((subject) => subject.id);
@@ -1453,8 +1777,8 @@ router.post("/chapters/:chapterId/question-bank-questions/bulk", async (req, res
   const rawQuestions = Array.isArray(req.body?.questions) ? req.body.questions : [];
   if (rawQuestions.length === 0) return res.status(400).json({ error: "At least one question is required" });
 
-  const parsedQuestions = rawQuestions.map((item) => normalizeQuestionPayload(item));
-  const firstError = parsedQuestions.find((item) => "error" in item);
+  const parsedQuestions = rawQuestions.map((item: unknown) => normalizeQuestionPayload(item));
+  const firstError = parsedQuestions.find((item: NormalizedQuestionPayloadResult): item is { error: string } => "error" in item);
   if (firstError && "error" in firstError) {
     return res.status(400).json({ error: firstError.error });
   }
@@ -1500,13 +1824,11 @@ router.post("/question-bank/classes/:classId/subjects", async (req, res) => {
   const classId = parseInt(req.params.classId, 10);
   if (Number.isNaN(classId)) return res.status(400).json({ error: "Invalid class id" });
 
-  const allowed = await canTeacherManageClassQuestionBank(auth, classId);
-  if (!allowed) {
-    return res.status(403).json({ error: "Only the assigned teacher can add subjects here" });
-  }
-
   const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, classId));
   if (!cls) return res.status(404).json({ error: "Class not found" });
+  if (!canManageQuestionBankStructure(auth, cls)) {
+    return res.status(403).json({ error: "Only super admin can modify this question bank" });
+  }
 
   const { title, description } = req.body ?? {};
   if (typeof title !== "string" || !title.trim()) {
@@ -1524,7 +1846,7 @@ router.post("/question-bank/classes/:classId/subjects", async (req, res) => {
       classId,
       title: title.trim(),
       description: typeof description === "string" && description.trim() ? description.trim() : null,
-      teacherId: auth.role === "admin" ? auth.userId : cls.adminId,
+      teacherId: cls.adminId,
       order: existingCount.length,
     })
     .returning();
@@ -1549,13 +1871,11 @@ router.post("/question-bank/subjects/:subjectId/chapters", async (req, res) => {
   const subjectId = parseInt(req.params.subjectId, 10);
   if (Number.isNaN(subjectId)) return res.status(400).json({ error: "Invalid subject id" });
 
-  const [subject] = await db.select().from(subjectsTable).where(eq(subjectsTable.id, subjectId));
-  if (!subject) return res.status(404).json({ error: "Subject not found" });
-
-  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, subject.classId));
-  if (!cls) return res.status(404).json({ error: "Class not found" });
-  if (!(auth.role === "super_admin" || (auth.role === "planner" && cls.plannerId === auth.userId))) {
-    return res.status(403).json({ error: "Only the planner can add chapters" });
+  const context = await getSubjectContext(subjectId);
+  if (!context) return res.status(404).json({ error: "Subject not found" });
+  const { cls } = context;
+  if (!canManageQuestionBankStructure(auth, cls)) {
+    return res.status(403).json({ error: "Only super admin can modify this question bank" });
   }
 
   const { title, description } = req.body ?? {};
@@ -1584,6 +1904,122 @@ router.post("/question-bank/subjects/:subjectId/chapters", async (req, res) => {
     .returning();
 
   res.status(201).json({ ...chapter, questions: [] });
+});
+
+router.patch("/question-bank/subjects/:subjectId", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+
+  const subjectId = parseInt(req.params.subjectId, 10);
+  if (Number.isNaN(subjectId)) return res.status(400).json({ error: "Invalid subject id" });
+
+  const context = await getSubjectContext(subjectId);
+  if (!context) return res.status(404).json({ error: "Subject not found" });
+  const { cls } = context;
+  if (!canManageQuestionBankStructure(auth, cls)) {
+    return res.status(403).json({ error: "Only super admin can modify this question bank" });
+  }
+
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
+  if (!title) {
+    return res.status(400).json({ error: "Subject title is required" });
+  }
+
+  const [updatedSubject] = await db
+    .update(subjectsTable)
+    .set({
+      title,
+      description: description || null,
+    })
+    .where(eq(subjectsTable.id, subjectId))
+    .returning();
+
+  const [teacher] = updatedSubject.teacherId
+    ? await db
+        .select({ fullName: usersTable.fullName, username: usersTable.username })
+        .from(usersTable)
+        .where(eq(usersTable.id, updatedSubject.teacherId))
+    : [];
+
+  res.json({
+    ...updatedSubject,
+    teacherName: teacher?.fullName ?? null,
+    teacherUsername: teacher?.username ?? null,
+  });
+});
+
+router.delete("/question-bank/subjects/:subjectId", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+
+  const subjectId = parseInt(req.params.subjectId, 10);
+  if (Number.isNaN(subjectId)) return res.status(400).json({ error: "Invalid subject id" });
+
+  const context = await getSubjectContext(subjectId);
+  if (!context) return res.status(404).json({ error: "Subject not found" });
+  if (!canManageQuestionBankStructure(auth, context.cls)) {
+    return res.status(403).json({ error: "Only super admin can modify this question bank" });
+  }
+
+  await db.delete(subjectsTable).where(eq(subjectsTable.id, subjectId));
+  res.json({ success: true });
+});
+
+router.patch("/question-bank/chapters/:chapterId", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+
+  const chapterId = parseInt(req.params.chapterId, 10);
+  if (Number.isNaN(chapterId)) return res.status(400).json({ error: "Invalid chapter id" });
+
+  const context = await getChapterContext(chapterId);
+  if (!context) return res.status(404).json({ error: "Chapter not found" });
+  const canEditStructure = canManageQuestionBankStructure(auth, context.cls);
+  const canEditChapterContent = canManageQuestionBank(auth, context.subject, context.cls);
+  if (!canEditStructure && !canEditChapterContent) {
+    return res.status(403).json({ error: "You do not have access to update this chapter" });
+  }
+
+  const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
+  const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
+  const rawTargetQuestions = canEditStructure ? Number(req.body?.targetQuestions ?? context.chapter.targetQuestions ?? 0) : (context.chapter.targetQuestions ?? 0);
+
+  if (!title) {
+    return res.status(400).json({ error: "Chapter title is required" });
+  }
+  if (!Number.isFinite(rawTargetQuestions) || rawTargetQuestions < 0) {
+    return res.status(400).json({ error: "Target questions must be zero or more" });
+  }
+
+  const [updatedChapter] = await db
+    .update(chaptersTable)
+    .set({
+      title,
+      description: description || null,
+      targetQuestions: Math.max(0, Math.round(rawTargetQuestions)),
+    })
+    .where(eq(chaptersTable.id, chapterId))
+    .returning();
+
+  res.json(updatedChapter);
+});
+
+router.delete("/question-bank/chapters/:chapterId", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+
+  const chapterId = parseInt(req.params.chapterId, 10);
+  if (Number.isNaN(chapterId)) return res.status(400).json({ error: "Invalid chapter id" });
+
+  const context = await getChapterContext(chapterId);
+  if (!context) return res.status(404).json({ error: "Chapter not found" });
+  if (!canManageQuestionBankStructure(auth, context.cls)) {
+    return res.status(403).json({ error: "Only super admin can modify this question bank" });
+  }
+
+  await db.delete(chaptersTable).where(eq(chaptersTable.id, chapterId));
+  res.json({ success: true });
 });
 
 router.patch("/question-bank-questions/:id", async (req, res) => {
@@ -1617,7 +2053,7 @@ router.patch("/question-bank-questions/:id", async (req, res) => {
         ? String(parsed.value.correctAnswer ?? parsed.value.correctAnswerMin ?? "")
         : parsed.value.questionType === "mcq"
           ? parsed.value.options[parsed.value.correctAnswer ?? 0] ?? null
-          : parsed.value.correctAnswerMulti.map((idx) => parsed.value.options[idx]).filter(Boolean).join(", "),
+          : parsed.value.correctAnswerMulti.map((idx: number) => parsed.value.options[idx]).filter(Boolean).join(", "),
       explanation: parsed.value.explanation,
       topicTag: parsed.value.topicTag,
       difficulty: parsed.value.difficulty,
@@ -1719,6 +2155,82 @@ router.delete("/question-bank-questions/:id", async (req, res) => {
   res.sendStatus(204);
 });
 
+router.post("/question-bank-questions/:id/attempt", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (auth.role !== "student") return res.status(403).json({ error: "Only students can attempt question bank questions" });
+
+  const questionId = parseInt(req.params.id, 10);
+  if (Number.isNaN(questionId)) return res.status(400).json({ error: "Invalid question id" });
+
+  const context = await getQuestionContext(questionId);
+  if (!context) return res.status(404).json({ error: "Question not found" });
+
+  const allowed = await canStudentAccessQuestionBankClass(auth.userId, context.cls);
+  if (!allowed) return res.status(403).json({ error: "This question bank is not available for your exam profile" });
+
+  const normalizedAnswer = normalizeQuestionBankAttemptAnswer(context.question, req.body?.answer);
+  if ("error" in normalizedAnswer) return res.status(400).json({ error: normalizedAnswer.error });
+
+  const now = new Date();
+  const isCorrect = isQuestionBankAttemptCorrect(context.question, normalizedAnswer.value);
+  const serializedAnswer = JSON.stringify(normalizedAnswer.value);
+
+  const [existing] = await db
+    .select()
+    .from(questionBankQuestionProgressTable)
+    .where(and(
+      eq(questionBankQuestionProgressTable.questionId, questionId),
+      eq(questionBankQuestionProgressTable.studentId, auth.userId),
+    ));
+
+  const [progress] = existing
+    ? await db
+        .update(questionBankQuestionProgressTable)
+        .set({
+          attemptCount: existing.attemptCount + 1,
+          correctCount: existing.correctCount + (isCorrect ? 1 : 0),
+          incorrectCount: existing.incorrectCount + (isCorrect ? 0 : 1),
+          lastAnswer: serializedAnswer,
+          lastIsCorrect: isCorrect,
+          lastAttemptedAt: now,
+          solvedAt: existing.solvedAt ?? (isCorrect ? now : null),
+        })
+        .where(eq(questionBankQuestionProgressTable.id, existing.id))
+        .returning()
+    : await db
+        .insert(questionBankQuestionProgressTable)
+        .values({
+          questionId,
+          studentId: auth.userId,
+          classId: context.cls.id,
+          subjectId: context.subject.id,
+          chapterId: context.chapter.id,
+          attemptCount: 1,
+          correctCount: isCorrect ? 1 : 0,
+          incorrectCount: isCorrect ? 0 : 1,
+          lastAnswer: serializedAnswer,
+          lastIsCorrect: isCorrect,
+          firstAttemptedAt: now,
+          lastAttemptedAt: now,
+          solvedAt: isCorrect ? now : null,
+        })
+        .returning();
+
+  res.json({
+    isCorrect,
+    progress: {
+      attemptCount: progress.attemptCount,
+      correctCount: progress.correctCount,
+      incorrectCount: progress.incorrectCount,
+      firstAttemptedAt: progress.firstAttemptedAt,
+      lastAttemptedAt: progress.lastAttemptedAt,
+      solvedAt: progress.solvedAt,
+      lastIsCorrect: progress.lastIsCorrect,
+    },
+  });
+});
+
 router.post("/question-bank-questions/:id/report", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
@@ -1818,17 +2330,21 @@ router.get("/question-bank/reports", async (req, res) => {
   const [questions, reporters] = await Promise.all([
     questionIds.length > 0
       ? db.select().from(questionBankQuestionsTable).where(inArray(questionBankQuestionsTable.id, questionIds))
-      : Promise.resolve([]),
+      : Promise.resolve<Array<typeof questionBankQuestionsTable.$inferSelect>>([]),
     reporterIds.length > 0
       ? db
           .select({ id: usersTable.id, fullName: usersTable.fullName, username: usersTable.username })
           .from(usersTable)
           .where(inArray(usersTable.id, reporterIds))
-      : Promise.resolve([]),
+      : Promise.resolve<Array<{ id: number; fullName: string; username: string }>>([]),
   ]);
 
-  const questionMap = new Map(questions.map((question) => [question.id, question]));
-  const reporterMap = new Map(reporters.map((reporter) => [reporter.id, reporter]));
+  const questionMap = new Map<number, typeof questionBankQuestionsTable.$inferSelect>(
+    questions.map((question): [number, typeof questionBankQuestionsTable.$inferSelect] => [question.id, question]),
+  );
+  const reporterMap = new Map<number, { id: number; fullName: string; username: string }>(
+    reporters.map((reporter): [number, { id: number; fullName: string; username: string }] => [reporter.id, reporter]),
+  );
 
   res.json(reports.map((report) => ({
     ...report,

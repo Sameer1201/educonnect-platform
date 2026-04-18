@@ -2,63 +2,18 @@ import { useMemo, useState } from "react";
 import { testData, comparativeData } from "@/data/testData";
 import type { ViewMode } from "@/App";
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
+import { getSubjectTheme } from "@/lib/subject-theme";
 
 type CompTab = string;
 
 function subjectColor(tab: string) {
-  const value = tab.toLowerCase();
-  if (value === "overall") return "#6366f1";
-  if (value.includes("physics")) return "#22c55e";
-  if (value.includes("chem")) return "#f97316";
-  if (value.includes("math")) return "#3b82f6";
-  if (value.includes("aptitude")) return "#0ea5e9";
-  if (value.includes("core")) return "#8b5cf6";
-  const palette = ["#6366f1", "#22c55e", "#f97316", "#3b82f6", "#8b5cf6", "#0ea5e9"];
-  const hash = [...tab].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  return palette[hash % palette.length];
+  return getSubjectTheme(tab).color;
 }
 
 function tabIcon(tab: string) {
   const color = subjectColor(tab);
-  const value = tab.toLowerCase();
-  if (value === "overall") return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
-  if (value.includes("aptitude") || value.includes("technical") || value.includes("core") || value.includes("engineering math") || value.includes("mathematics")) {
-    return <span className="inline-flex" style={{ color }}><SubjectSectionIcon label={tab} className="w-4 h-4" /></span>;
-  }
-  if (value.includes("physics")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636l12.728 12.728" /><circle cx="12" cy="12" r="2" /></svg>;
-  if (value.includes("chem")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>;
-  if (value.includes("math")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><line x1="4" y1="9" x2="20" y2="9" strokeLinecap="round" /><line x1="4" y1="15" x2="14" y2="15" strokeLinecap="round" /><line x1="4" y1="6" x2="4" y2="12" strokeLinecap="round" /><line x1="19" y1="12" x2="19" y2="18" strokeLinecap="round" /><line x1="16" y1="15" x2="22" y2="15" strokeLinecap="round" /></svg>;
-  return <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white" style={{ background: color }}>{tab.trim().charAt(0).toUpperCase() || "S"}</span>;
+  return <span className="inline-flex" style={{ color }}><SubjectSectionIcon label={tab} className="w-4 h-4" /></span>;
 }
-
-const subjectIcons: Record<string, React.ReactNode> = {
-  overall: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ color: "#6366f1" }}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-    </svg>
-  ),
-  physics: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ color: "#22c55e" }}>
-      <circle cx="12" cy="12" r="9" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636l12.728 12.728" />
-      <circle cx="12" cy="12" r="2" />
-    </svg>
-  ),
-  chemistry: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ color: "#f97316" }}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-    </svg>
-  ),
-  math: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} style={{ color: "#6366f1" }}>
-      <line x1="4" y1="9" x2="20" y2="9" strokeLinecap="round" />
-      <line x1="4" y1="15" x2="14" y2="15" strokeLinecap="round" />
-      <line x1="4" y1="6" x2="4" y2="12" strokeLinecap="round" />
-      <line x1="19" y1="12" x2="19" y2="18" strokeLinecap="round" />
-      <line x1="16" y1="15" x2="22" y2="15" strokeLinecap="round" />
-    </svg>
-  ),
-};
 
 const studentIcons: Record<string, React.ReactNode> = {
   user: (
@@ -88,10 +43,10 @@ const studentIcons: Record<string, React.ReactNode> = {
 const accuracyTheme = { bar: "#22c55e", gradient: "linear-gradient(to right, transparent, rgba(34,197,94,0.18))" };
 
 function subjectTheme(subject: string) {
-  const bar = subjectColor(subject);
+  const theme = getSubjectTheme(subject);
   return {
-    bar,
-    gradient: `linear-gradient(to right, transparent, ${bar}22)`,
+    bar: theme.color,
+    gradient: theme.gradient,
   };
 }
 
@@ -143,15 +98,6 @@ function AccentCell({
   );
 }
 
-function PlainCell({ value, total }: { value: number; total: number }) {
-  return (
-    <td style={{ border: CELL_BORDER, padding: "14px 20px" }}>
-      <span className="text-sm text-gray-700">{value}</span>
-      <span className="text-xs text-gray-400 ml-1">/ {total}</span>
-    </td>
-  );
-}
-
 function ScoreBarCell({ value, maxScore, subject }: { value: number; maxScore: number; subject: string }) {
   const theme = subjectTheme(subject);
   const pct = maxScore > 0 ? (value / maxScore) * 100 : 0;
@@ -193,25 +139,27 @@ function AccuracyBarCell({ value }: { value: number }) {
 function SubjectTabs({ active, onChange }: { active: CompTab; onChange: (t: CompTab) => void }) {
   const tabs = [...new Set(["Overall", ...testData.performanceBreakdown.filter((row) => row.subject !== "Overall").map((row) => row.subject)])] as CompTab[];
   return (
-    <div className="flex gap-1 p-1" style={{ borderBottom: CELL_BORDER }}>
-      {tabs.map((tab) => {
-        const isActive = tab === active;
-        return (
-          <button
-            key={tab}
-            onClick={() => onChange(tab)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-            style={{
-              color: isActive ? subjectColor(tab) : "#6b7280",
-              background: isActive ? `${subjectColor(tab)}14` : "transparent",
-              border: isActive ? `1px solid ${subjectColor(tab)}4d` : "1px solid transparent",
-            }}
-          >
-            {tabIcon(tab)}
-            {tab}
-          </button>
-        );
-      })}
+    <div className="overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none]">
+      <div className="flex min-w-max gap-1 p-1" style={{ borderBottom: CELL_BORDER }}>
+        {tabs.map((tab) => {
+          const isActive = tab === active;
+          return (
+            <button
+              key={tab}
+              onClick={() => onChange(tab)}
+              className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+              style={{
+                color: isActive ? subjectColor(tab) : "#6b7280",
+                background: isActive ? `${subjectColor(tab)}14` : "transparent",
+                border: isActive ? `1px solid ${subjectColor(tab)}4d` : "1px solid transparent",
+              }}
+            >
+              {tabIcon(tab)}
+              {tab}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -371,7 +319,9 @@ export default function PerformanceAnalysis({ mode }: { mode: ViewMode }) {
                 <tr key={row.subject}>
                   <td style={{ border: CELL_BORDER, padding: "14px 20px" }}>
                     <div className="flex items-center gap-2.5">
-                      {subjectIcons[row.icon] ?? tabIcon(row.subject)}
+                      <span className="inline-flex" style={{ color: theme.bar }}>
+                        <SubjectSectionIcon label={row.subject} className="w-4 h-4" />
+                      </span>
                       <span className="text-sm font-semibold text-gray-800">{row.subject}</span>
                     </div>
                   </td>

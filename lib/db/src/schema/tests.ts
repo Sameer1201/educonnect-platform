@@ -1,7 +1,8 @@
-import { pgTable, text, serial, timestamp, integer, boolean, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, real, unique } from "drizzle-orm/pg-core";
 import { classesTable } from "./classes";
 import { usersTable } from "./users";
 import { chaptersTable } from "./chapters";
+import { questionBankQuestionsTable } from "./question_bank";
 
 export const testsTable = pgTable("tests", {
   id: serial("id").primaryKey(),
@@ -79,7 +80,32 @@ export const testSubmissionsTable = pgTable("test_submissions", {
   submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow(),
 });
 
+export const testQuestionReportsTable = pgTable("test_question_reports", {
+  id: serial("id").primaryKey(),
+  testId: integer("test_id").notNull().references(() => testsTable.id, { onDelete: "cascade" }),
+  questionId: integer("question_id").notNull().references(() => testQuestionsTable.id, { onDelete: "cascade" }),
+  reportedBy: integer("reported_by").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  teacherId: integer("teacher_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("open"),
+  teacherNote: text("teacher_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const testQuestionBankLinksTable = pgTable("test_question_bank_links", {
+  id: serial("id").primaryKey(),
+  testId: integer("test_id").notNull().references(() => testsTable.id, { onDelete: "cascade" }),
+  testQuestionId: integer("test_question_id").notNull().references(() => testQuestionsTable.id, { onDelete: "cascade" }),
+  questionBankQuestionId: integer("question_bank_question_id").notNull().references(() => questionBankQuestionsTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("test_question_bank_links_test_question_unique").on(t.testQuestionId),
+]);
+
 export type Test = typeof testsTable.$inferSelect;
 export type TestSection = typeof testSectionsTable.$inferSelect;
 export type TestQuestion = typeof testQuestionsTable.$inferSelect;
 export type TestSubmission = typeof testSubmissionsTable.$inferSelect;
+export type TestQuestionReport = typeof testQuestionReportsTable.$inferSelect;
+export type TestQuestionBankLink = typeof testQuestionBankLinksTable.$inferSelect;

@@ -3,6 +3,8 @@ import {
   db,
   testsTable,
   testQuestionsTable,
+  testQuestionBankLinksTable,
+  testQuestionReportsTable,
   testSectionsTable,
   testSubmissionsTable,
   examTemplatesTable,
@@ -12,8 +14,9 @@ import {
   lecturePlansTable,
   chaptersTable,
   subjectsTable,
+  questionBankQuestionsTable,
 } from "@workspace/db";
-import { pushNotification, pushNotificationToMany } from "../lib/pushNotification";
+import { pushNotificationToMany } from "../lib/pushNotification";
 import { eq, and, inArray, isNull, or, asc, desc } from "drizzle-orm";
 
 const router = Router();
@@ -28,20 +31,49 @@ async function getUser(userId: number) {
   return user;
 }
 
-async function getChapterContext(chapterId: number) {
-  const [chapter] = await db.select().from(chaptersTable).where(eq(chaptersTable.id, chapterId));
-  if (!chapter) return null;
+function hasDistinctIntegerRange(minValue: unknown, maxValue: unknown) {
+  return minValue !== null &&
+    minValue !== undefined &&
+    maxValue !== null &&
+    maxValue !== undefined &&
+    Number(minValue) !== Number(maxValue);
+}
 
-  const [subject] = await db.select().from(subjectsTable).where(eq(subjectsTable.id, chapter.subjectId));
-  if (!subject) return null;
+function normalizeSerializedIntegerAnswer(question: any) {
+  const correctAnswerMin =
+    question.correctAnswerMin === null || question.correctAnswerMin === undefined
+      ? null
+      : Number(question.correctAnswerMin);
+  const correctAnswerMax =
+    question.correctAnswerMax === null || question.correctAnswerMax === undefined
+      ? null
+      : Number(question.correctAnswerMax);
 
-  const [cls] = await db.select().from(classesTable).where(eq(classesTable.id, subject.classId));
-  if (!cls) return null;
+  if (hasDistinctIntegerRange(correctAnswerMin, correctAnswerMax)) {
+    return {
+      correctAnswer: null,
+      correctAnswerMin,
+      correctAnswerMax,
+    };
+  }
 
-  return { chapter, subject, cls };
+  const exactAnswer =
+    correctAnswerMin ??
+    correctAnswerMax ??
+    (question.correctAnswer === null || question.correctAnswer === undefined
+      ? null
+      : Number(question.correctAnswer));
+
+  return {
+    correctAnswer: exactAnswer,
+    correctAnswerMin: null,
+    correctAnswerMax: null,
+  };
 }
 
 function gradeQuestion(q: any, answer: any): boolean {
+  const meta = safeParseJson<Record<string, unknown> | null>(q.meta, null);
+  if (meta?.needsCorrectAnswer === true || meta?.needsCorrectAnswer === "true") return false;
   const qType = q.questionType ?? "mcq";
   if (qType === "multi") {
     const correct: number[] = q.correctAnswerMulti ? JSON.parse(q.correctAnswerMulti) : [];
@@ -51,12 +83,10 @@ function gradeQuestion(q: any, answer: any): boolean {
   if (qType === "integer") {
     if (answer === undefined || answer === null) return false;
     const num = Number(answer);
-    // Range mode: if both min and max are set, check if answer is within range
-    if (q.correctAnswerMin !== null && q.correctAnswerMin !== undefined &&
-        q.correctAnswerMax !== null && q.correctAnswerMax !== undefined) {
+    if (hasDistinctIntegerRange(q.correctAnswerMin, q.correctAnswerMax)) {
       return num >= q.correctAnswerMin && num <= q.correctAnswerMax;
     }
-    return num === q.correctAnswer;
+    return num === Number(q.correctAnswer ?? q.correctAnswerMin);
   }
   // mcq
   return answer !== undefined && answer !== null && Number(answer) === q.correctAnswer;
@@ -103,29 +133,796 @@ function normalizeObjectValue<T extends Record<string, unknown> | null>(value: u
   return safeParseJson(value, fallback);
 }
 
-function isHtmlImportedTestConfig(value: unknown) {
-  const config = normalizeObjectValue<Record<string, unknown> | null>(value, null);
-  return Boolean(config?.importedFromHtml);
-}
-
-function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
-  const safeName = templateName?.trim() || "the examination";
-  const safeDuration = Number.isFinite(durationMinutes) && durationMinutes > 0 ? durationMinutes : 180;
-  return [
-    `The duration of ${safeName} is ${safeDuration} minutes. The countdown timer at the top right-hand corner of your screen displays the remaining time.`,
-    "When the timer reaches zero, the test will be submitted automatically.",
-    "Read every question carefully before selecting or entering your response.",
-    "Use Save & Next to save the current response and move ahead.",
-    "Use Mark for Review & Next when you want to revisit a question before final submission.",
-    "You can jump to any question from the question palette without losing the current screen context.",
-    "Use Clear Response to remove the selected answer from the current question.",
-    "MCQ uses single selection, MSQ uses multiple selections, and integer questions require a numeric answer.",
-  ].join("\n");
-}
-
 function normalizeSectionLabel(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeTitleKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return normalized || null;
+}
+
+function firstTrimmedString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function normalizeImportedQuestionCodeKey(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const compact = String(value).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "");
+  if (!compact) return null;
+  return compact.replace(/\d+/g, (digits) => {
+    const parsed = Number.parseInt(digits, 10);
+    return Number.isFinite(parsed) ? String(parsed) : digits;
+  });
+}
+
+function extractImportedQuestionCodeNumber(value: unknown): number | null {
+  const normalized = normalizeImportedQuestionCodeKey(value);
+  if (!normalized) return null;
+  const match = normalized.match(/(\d+)/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function shouldPreserveImportedSections(value: unknown) {
+  const config = normalizeObjectValue<Record<string, unknown> | null>(value, null);
+  return Boolean(config?.importedFromHtml || config?.preserveImportedSections);
+}
+
+function isImportedMarksTag(value: string) {
+  return /[+-]?\d+(?:\.\d+)?\s*\/\s*[+-]?\d+(?:\.\d+)?/.test(value);
+}
+
+function isImportedDifficultyTag(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return [
+    "easy",
+    "moderate",
+    "medium",
+    "tough",
+    "hard",
+    "expert",
+    "advanced",
+  ].some((token) => normalized.includes(token));
+}
+
+function normalizeTestDifficultyValue(value: unknown): "easy" | "moderate" | "tough" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "easy") return "easy";
+  if (normalized === "moderate" || normalized === "medium") return "moderate";
+  if (normalized === "tough" || normalized === "hard" || normalized === "advanced" || normalized === "expert") return "tough";
+  return null;
+}
+
+function normalizeImportedQuestionType(value: unknown): "mcq" | "multi" | "integer" {
+  if (typeof value !== "string") return "mcq";
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!normalized) return "mcq";
+  if (normalized === "msq" || normalized.includes("multi") || normalized.includes("multiple")) return "multi";
+  if (normalized === "nat" || normalized.includes("integer") || normalized.includes("numeric") || normalized.includes("numerical")) return "integer";
+  return "mcq";
+}
+
+function parseImportedNumericValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseImportedOptionIndex(value: unknown, optionCount: number): number | null {
+  if (optionCount <= 0) return null;
+  const numeric = parseImportedNumericValue(value);
+  if (numeric !== null && Number.isInteger(numeric)) {
+    if (numeric >= 0 && numeric < optionCount) return numeric;
+    if (numeric >= 1 && numeric <= optionCount) return numeric - 1;
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toUpperCase();
+  if (/^[A-Z]$/.test(trimmed)) {
+    const index = trimmed.charCodeAt(0) - 65;
+    return index >= 0 && index < optionCount ? index : null;
+  }
+  return null;
+}
+
+function normalizeImportedAnswerIndices(value: unknown, optionCount: number): number[] {
+  if (optionCount <= 0 || value === undefined || value === null) return [];
+  const rawParts = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? (/^[A-Za-z]+$/.test(value.trim())
+          ? value.trim().split("")
+          : value.split(/[\s,;|/]+/).filter(Boolean))
+      : [value];
+  const seen = new Set<number>();
+  rawParts.forEach((part) => {
+    const index = parseImportedOptionIndex(part, optionCount);
+    if (index !== null) seen.add(index);
+  });
+  return Array.from(seen).sort((left, right) => left - right);
+}
+
+function extractImportedNumericRange(value: unknown): { min: number | null; max: number | null } {
+  if (Array.isArray(value) && value.length >= 2) {
+    const min = parseImportedNumericValue(value[0]);
+    const max = parseImportedNumericValue(value[1]);
+    if (min !== null && max !== null) return { min, max };
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const min = parseImportedNumericValue(record.min ?? record.minimum ?? record.low ?? record.from ?? record.start);
+    const max = parseImportedNumericValue(record.max ?? record.maximum ?? record.high ?? record.to ?? record.end);
+    if (min !== null && max !== null) return { min, max };
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const directMatch = trimmed.match(/(-?\d+(?:\.\d+)?)\s*(?:-|—|–|to)\s*(-?\d+(?:\.\d+)?)/i);
+    if (directMatch) {
+      return { min: Number(directMatch[1]), max: Number(directMatch[2]) };
+    }
+    const betweenMatch = trimmed.match(/between\s+(-?\d+(?:\.\d+)?)\s+and\s+(-?\d+(?:\.\d+)?)/i);
+    if (betweenMatch) {
+      return { min: Number(betweenMatch[1]), max: Number(betweenMatch[2]) };
+    }
+  }
+  return { min: null, max: null };
+}
+
+const IGNORED_IMPORTED_TAXONOMY_KEYS = new Set([
+  "aerospace engineering",
+  "agricultural engineering",
+  "biotechnology engineering",
+  "bt",
+  "chemical engineering",
+  "ch",
+  "civil engineering",
+  "ce",
+  "computer science and engineering",
+  "computer science engineering",
+  "cse",
+  "cs",
+  "electrical engineering",
+  "ee",
+  "ec",
+  "ece",
+  "electronics and communication engineering",
+  "electronics engineering",
+  "engineering sciences",
+  "es",
+  "it",
+  "instrumentation engineering",
+  "ie",
+  "mechanical engineering",
+  "me",
+  "metallurgical engineering",
+  "mt",
+  "production engineering",
+  "pe",
+]);
+
+function sanitizeImportedTaxonomyValue(value: unknown, sectionLabel?: string | null) {
+  const sanitized = sanitizeExplicitTaxonomyValue(value);
+  const normalized = normalizeTitleKey(sanitized);
+  const normalizedSection = normalizeTitleKey(sectionLabel);
+  if (!normalized) return null;
+  if (IGNORED_IMPORTED_TAXONOMY_KEYS.has(normalized)) return null;
+  if (normalizedSection && normalized === normalizedSection) return null;
+  return sanitized;
+}
+
+function sanitizeExplicitTaxonomyValue(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  const normalized = normalizeTitleKey(trimmed);
+  if (!normalized) return null;
+  if (isImportedMarksTag(trimmed)) return null;
+  if (isImportedDifficultyTag(trimmed)) return null;
+  return trimmed;
+}
+
+function inferImportedTaxonomy(meta: Record<string, unknown> | null, sectionLabel?: string | null) {
+  const importedTags = Array.isArray(meta?.importedTags)
+    ? meta.importedTags
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean)
+    : [];
+  const candidates = importedTags
+    .map((tag) => sanitizeImportedTaxonomyValue(tag, sectionLabel))
+    .filter((value): value is string => Boolean(value));
+
+  return {
+    subjectName: candidates[0] ?? null,
+    chapterName: candidates[1] ?? null,
+  };
+}
+
+function normalizeResolvedTaxonomy({
+  subjectName,
+  chapterName,
+  topicTag,
+}: {
+  subjectName: string | null;
+  chapterName: string | null;
+  topicTag?: string | null;
+}) {
+  return {
+    subjectName,
+    chapterName: chapterName ?? topicTag ?? null,
+  };
+}
+
+function resolveStoredQuestionTaxonomy(meta: Record<string, unknown> | null, sectionLabel?: string | null) {
+  const inferredTaxonomy = inferImportedTaxonomy(meta, sectionLabel);
+  const readValue = (value: unknown) => sanitizeExplicitTaxonomyValue(value);
+
+  return normalizeResolvedTaxonomy({
+    subjectName: readValue(meta?.subjectName) ?? readValue(meta?.subject) ?? inferredTaxonomy.subjectName,
+    chapterName: readValue(meta?.chapterName) ?? readValue(meta?.chapter) ?? inferredTaxonomy.chapterName,
+    topicTag: readValue(meta?.topicTag) ?? readValue(meta?.topicName) ?? readValue(meta?.topic),
+  });
+}
+
+function normalizeQuestionBankDifficulty(value: unknown): "easy" | "medium" | "hard" {
+  if (typeof value !== "string") return "medium";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "easy") return "easy";
+  if (normalized === "tough" || normalized === "hard") return "hard";
+  return "medium";
+}
+
+function normalizeQuestionDuplicateKey(question: string, questionType: "mcq" | "multi" | "integer") {
+  const normalizedQuestion = question.trim().toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalizedQuestion) return null;
+  return `${questionType}:${normalizedQuestion}`;
+}
+
+type QuestionBankPublishSyncSummary = {
+  linkedCount: number;
+  createdQuestionBankClassCount: number;
+  createdSubjectCount: number;
+  createdChapterCount: number;
+  skippedNoSubjectCount: number;
+  skippedNoQuestionBankClassCount: number;
+  skippedInvalidQuestionCount: number;
+  skippedDuplicateCount: number;
+  duplicateQuestions: Array<{
+    questionId: number;
+    questionNo: string;
+  }>;
+  warnings: string[];
+};
+
+type QuestionBankUnpublishCleanupSummary = {
+  detachedCount: number;
+  removedQuestionCount: number;
+  reviewBucketCleared: boolean;
+  warnings: string[];
+};
+
+type ResolvedQuestionBankContext = {
+  targetClass: typeof classesTable.$inferSelect | null;
+  createdQuestionBankClassCount: number;
+};
+
+async function resolveQuestionBankClassForExam(
+  teacherId: number,
+  examType: unknown,
+): Promise<ResolvedQuestionBankContext> {
+  const examKey = normalizeExamKey(examType);
+  if (!examKey) {
+    return {
+      targetClass: null,
+      createdQuestionBankClassCount: 0,
+    };
+  }
+
+  const candidateClasses = await db
+    .select()
+    .from(classesTable)
+    .where(eq(classesTable.workflowType, "question_bank"))
+    .orderBy(asc(classesTable.createdAt));
+
+  const assignedClass =
+    candidateClasses.find((cls) => normalizeExamKey(cls.subject) === examKey && (cls.assignedTeacherIds ?? []).includes(teacherId)) ??
+    candidateClasses.find((cls) => normalizeExamKey(cls.title) === examKey && (cls.assignedTeacherIds ?? []).includes(teacherId)) ??
+    null;
+  const ownedClass =
+    candidateClasses.find((cls) => normalizeExamKey(cls.subject) === examKey && cls.adminId === teacherId) ??
+    candidateClasses.find((cls) => normalizeExamKey(cls.title) === examKey && cls.adminId === teacherId) ??
+    null;
+  const examMatchedClass =
+    candidateClasses.find((cls) => normalizeExamKey(cls.subject) === examKey) ??
+    candidateClasses.find((cls) => normalizeExamKey(cls.title) === examKey) ??
+    null;
+
+  let targetClass = assignedClass ?? ownedClass ?? examMatchedClass ?? null;
+
+  if (!targetClass) {
+    const examLabel =
+      typeof examType === "string" && examType.trim()
+        ? examType.trim().replace(/\s+/g, " ").toUpperCase()
+        : examKey.toUpperCase();
+    const [createdClass] = await db.insert(classesTable).values({
+      title: examLabel,
+      description: "Auto-created from published tests",
+      subject: examLabel,
+      workflowType: "question_bank",
+      adminId: teacherId,
+      assignedTeacherIds: [teacherId],
+      plannerId: null,
+      status: "scheduled",
+      weeklyTargetQuestions: null,
+      weeklyTargetDeadline: null,
+      scheduledAt: null,
+      maxStudents: null,
+      meetingLink: null,
+    }).returning();
+    targetClass = createdClass;
+    return {
+      targetClass,
+      createdQuestionBankClassCount: 1,
+    };
+  }
+
+  return {
+    targetClass,
+    createdQuestionBankClassCount: 0,
+  };
+}
+
+async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherId: number, examType: unknown): Promise<QuestionBankPublishSyncSummary> {
+  const summary: QuestionBankPublishSyncSummary = {
+    linkedCount: 0,
+    createdQuestionBankClassCount: 0,
+    createdSubjectCount: 0,
+    createdChapterCount: 0,
+    skippedNoSubjectCount: 0,
+    skippedNoQuestionBankClassCount: 0,
+    skippedInvalidQuestionCount: 0,
+    skippedDuplicateCount: 0,
+    duplicateQuestions: [],
+    warnings: [],
+  };
+
+  const { targetClass, createdQuestionBankClassCount } = await resolveQuestionBankClassForExam(teacherId, examType);
+  summary.createdQuestionBankClassCount = createdQuestionBankClassCount;
+  if (!targetClass) {
+    summary.skippedNoQuestionBankClassCount += 1;
+    summary.warnings.push("No matching question bank class was found for this exam.");
+    return summary;
+  }
+
+  const [subjects, testQuestions, sections, existingLinks] = await Promise.all([
+    db.select().from(subjectsTable).where(eq(subjectsTable.classId, targetClass.id)).orderBy(asc(subjectsTable.order), asc(subjectsTable.createdAt)),
+    db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId)).orderBy(asc(testQuestionsTable.order), asc(testQuestionsTable.id)),
+    db.select().from(testSectionsTable).where(eq(testSectionsTable.testId, testId)).orderBy(asc(testSectionsTable.order), asc(testSectionsTable.id)),
+    db.select().from(testQuestionBankLinksTable).where(eq(testQuestionBankLinksTable.testId, testId)),
+  ]);
+
+  if (testQuestions.length === 0) {
+    return summary;
+  }
+
+  const existingLinksByTestQuestionId = new Map<number, typeof testQuestionBankLinksTable.$inferSelect>();
+  for (const link of existingLinks) {
+    existingLinksByTestQuestionId.set(link.testQuestionId, link);
+  }
+
+  const sectionById = new Map(sections.map((section) => [section.id, section]));
+  const subjectsByKey = new Map<string, typeof subjectsTable.$inferSelect>(
+    subjects
+      .map((subject) => {
+        const key = normalizeTitleKey(subject.title);
+        return key ? [key, subject] as const : null;
+      })
+      .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
+  );
+  const chapters = subjects.length > 0
+    ? await db.select().from(chaptersTable).where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id))).orderBy(asc(chaptersTable.order), asc(chaptersTable.id))
+    : [];
+  const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
+  chapters.forEach((chapter) => {
+    const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
+    current.push(chapter);
+    chaptersBySubjectId.set(chapter.subjectId, current);
+  });
+  const duplicateKeysByChapterId = new Map<number, Map<string, number>>();
+
+  for (const question of testQuestions) {
+    if (existingLinksByTestQuestionId.has(question.id)) {
+      continue;
+    }
+
+    const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
+    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+    const subjectLabel =
+      firstTrimmedString(
+        resolvedTaxonomy.subjectName,
+        typeof question.subjectLabel === "string" ? question.subjectLabel : null,
+        typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+      );
+
+    if (!subjectLabel) {
+      summary.skippedNoSubjectCount += 1;
+      continue;
+    }
+
+    const subjectKey = normalizeTitleKey(subjectLabel);
+    if (!subjectKey) {
+      summary.skippedNoSubjectCount += 1;
+      continue;
+    }
+
+    let targetSubject = subjectsByKey.get(subjectKey) ?? null;
+    if (!targetSubject) {
+      const nextOrder = subjectsByKey.size;
+      const [createdSubject] = await db.insert(subjectsTable).values({
+        classId: targetClass.id,
+        teacherId,
+        title: subjectLabel,
+        description: null,
+        order: nextOrder,
+      }).returning();
+      targetSubject = createdSubject;
+      subjectsByKey.set(subjectKey, createdSubject);
+      chaptersBySubjectId.set(createdSubject.id, []);
+      summary.createdSubjectCount += 1;
+    }
+    const chapterTitle =
+      firstTrimmedString(
+        resolvedTaxonomy.chapterName,
+        meta?.chapterTitle,
+        meta?.topicTag,
+        meta?.topic,
+      ) ??
+      "Imported from Tests";
+    const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
+
+    let subjectChapters = chaptersBySubjectId.get(targetSubject.id) ?? [];
+    let targetChapter = subjectChapters.find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+    if (!targetChapter) {
+      const [createdChapter] = await db.insert(chaptersTable).values({
+        subjectId: targetSubject.id,
+        title: chapterTitle,
+        description: null,
+        targetQuestions: 0,
+        order: subjectChapters.length,
+      }).returning();
+      targetChapter = createdChapter;
+      subjectChapters = [...subjectChapters, createdChapter];
+      chaptersBySubjectId.set(targetSubject.id, subjectChapters);
+      summary.createdChapterCount += 1;
+    }
+
+    let duplicateMap = duplicateKeysByChapterId.get(targetChapter.id);
+    if (!duplicateMap) {
+      const existingQuestions = await db
+        .select({
+          id: questionBankQuestionsTable.id,
+          question: questionBankQuestionsTable.question,
+          questionType: questionBankQuestionsTable.questionType,
+        })
+        .from(questionBankQuestionsTable)
+        .where(eq(questionBankQuestionsTable.chapterId, targetChapter.id));
+      duplicateMap = new Map<string, number>();
+      existingQuestions.forEach((item) => {
+        const existingQuestionType = item.questionType === "multi" || item.questionType === "integer" ? item.questionType : "mcq";
+        const existingKey = normalizeQuestionDuplicateKey(item.question, existingQuestionType);
+        if (existingKey && !duplicateMap?.has(existingKey)) {
+          duplicateMap?.set(existingKey, item.id);
+        }
+      });
+      duplicateKeysByChapterId.set(targetChapter.id, duplicateMap);
+    }
+
+    const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+    const normalizedQuestionText = question.question.trim() || question.questionCode?.trim() || `Imported test question ${question.id}`;
+    const duplicateKey = normalizeQuestionDuplicateKey(normalizedQuestionText, questionType);
+    const existingQuestionBankQuestionId = duplicateKey ? duplicateMap.get(duplicateKey) ?? null : null;
+    if (existingQuestionBankQuestionId) {
+      await db.insert(testQuestionBankLinksTable).values({
+        testId,
+        testQuestionId: question.id,
+        questionBankQuestionId: existingQuestionBankQuestionId,
+      });
+      summary.skippedDuplicateCount += 1;
+      summary.duplicateQuestions.push({
+        questionId: question.id,
+        questionNo: firstTrimmedString(
+          question.questionCode,
+          `Q${String((Number(question.order) || 0) + 1).padStart(2, "0")}`,
+        ) ?? `Q${question.id}`,
+      });
+      continue;
+    }
+
+    const options = questionType === "integer" ? [] : normalizeArrayValue<string>(question.options, []);
+    const optionImages = questionType === "integer" ? [] : normalizeArrayValue<string | null>(question.optionImages, []);
+    const correctAnswerMulti = questionType === "multi" ? normalizeArrayValue<number>(question.correctAnswerMulti, []) : [];
+    const correctAnswer = question.correctAnswer === null || question.correctAnswer === undefined ? null : Number(question.correctAnswer);
+    const correctAnswerMin = question.correctAnswerMin === null || question.correctAnswerMin === undefined ? null : Number(question.correctAnswerMin);
+    const correctAnswerMax = question.correctAnswerMax === null || question.correctAnswerMax === undefined ? null : Number(question.correctAnswerMax);
+    const hasExactIntegerAnswer = Number.isInteger(correctAnswer);
+    const hasIntegerRangeAnswer = Number.isInteger(correctAnswerMin) && Number.isInteger(correctAnswerMax) && Number(correctAnswerMin) <= Number(correctAnswerMax);
+
+    const isValidQuestion =
+      (questionType === "mcq" && options.length >= 2 && hasExactIntegerAnswer && Number(correctAnswer) >= 0 && Number(correctAnswer) < options.length) ||
+      (questionType === "multi" && options.length >= 2 && correctAnswerMulti.length > 0 && correctAnswerMulti.every((value) => Number.isInteger(value) && value >= 0 && value < options.length)) ||
+      (questionType === "integer" && (hasExactIntegerAnswer || hasIntegerRangeAnswer));
+
+    if (!isValidQuestion) {
+      summary.skippedInvalidQuestionCount += 1;
+      continue;
+    }
+
+    const answer =
+      questionType === "integer"
+        ? String(correctAnswer ?? correctAnswerMin ?? "")
+        : questionType === "mcq"
+          ? options[correctAnswer ?? 0] ?? null
+          : correctAnswerMulti.map((index) => options[index]).filter(Boolean).join(", ");
+
+    const [createdQuestion] = await db.insert(questionBankQuestionsTable).values({
+      classId: targetClass.id,
+      subjectId: targetSubject.id,
+      chapterId: targetChapter.id,
+      question: normalizedQuestionText,
+      questionType,
+      options: JSON.stringify(options),
+      optionImages: optionImages.some(Boolean) ? JSON.stringify(optionImages) : null,
+      correctAnswer: Number.isInteger(correctAnswer) ? correctAnswer : null,
+      correctAnswerMulti: correctAnswerMulti.length > 0 ? JSON.stringify(correctAnswerMulti) : null,
+      correctAnswerMin: Number.isInteger(correctAnswerMin) ? correctAnswerMin : null,
+      correctAnswerMax: Number.isInteger(correctAnswerMax) ? correctAnswerMax : null,
+      answer,
+      explanation: question.solutionText?.trim() || question.aiSolutionText?.trim() || null,
+      topicTag: typeof meta?.topicTag === "string" && meta.topicTag.trim() ? meta.topicTag.trim() : null,
+      difficulty: normalizeQuestionBankDifficulty(meta?.difficulty),
+      points: Math.max(1, Number(question.points) || 1),
+      order: duplicateMap.size,
+      imageData: question.imageData ?? null,
+      sourceTestId: testId,
+      sourceTestQuestionId: question.id,
+      createdBy: teacherId,
+    }).returning({ id: questionBankQuestionsTable.id });
+
+    await db.insert(testQuestionBankLinksTable).values({
+      testId,
+      testQuestionId: question.id,
+      questionBankQuestionId: createdQuestion.id,
+    });
+
+    if (duplicateKey) duplicateMap.set(duplicateKey, createdQuestion.id);
+    summary.linkedCount += 1;
+  }
+
+  return summary;
+}
+
+async function cleanupUnpublishedTestQuestionsFromQuestionBank(
+  testId: number,
+  teacherId: number,
+  examType: unknown,
+): Promise<QuestionBankUnpublishCleanupSummary> {
+  const summary: QuestionBankUnpublishCleanupSummary = {
+    detachedCount: 0,
+    removedQuestionCount: 0,
+    reviewBucketCleared: true,
+    warnings: [],
+  };
+
+  const directLinks = await db
+    .select()
+    .from(testQuestionBankLinksTable)
+    .where(eq(testQuestionBankLinksTable.testId, testId));
+
+  if (directLinks.length > 0) {
+    const linkedQuestionBankIds = [...new Set(directLinks.map((link) => link.questionBankQuestionId))];
+    await db.delete(testQuestionBankLinksTable).where(eq(testQuestionBankLinksTable.testId, testId));
+    summary.detachedCount = directLinks.length;
+
+    if (linkedQuestionBankIds.length > 0) {
+      const [remainingLinks, linkedQuestions] = await Promise.all([
+        db
+          .select({ questionBankQuestionId: testQuestionBankLinksTable.questionBankQuestionId })
+          .from(testQuestionBankLinksTable)
+          .where(inArray(testQuestionBankLinksTable.questionBankQuestionId, linkedQuestionBankIds)),
+        db
+          .select({
+            id: questionBankQuestionsTable.id,
+            sourceTestId: questionBankQuestionsTable.sourceTestId,
+            sourceTestQuestionId: questionBankQuestionsTable.sourceTestQuestionId,
+          })
+          .from(questionBankQuestionsTable)
+          .where(inArray(questionBankQuestionsTable.id, linkedQuestionBankIds)),
+      ]);
+
+      const stillLinkedIds = new Set(remainingLinks.map((link) => link.questionBankQuestionId));
+      const removableQuestionIds = linkedQuestions
+        .filter((question) => !stillLinkedIds.has(question.id) && (question.sourceTestId !== null || question.sourceTestQuestionId !== null))
+        .map((question) => question.id);
+
+      if (removableQuestionIds.length > 0) {
+        await db.delete(questionBankQuestionsTable).where(inArray(questionBankQuestionsTable.id, removableQuestionIds));
+        summary.removedQuestionCount += removableQuestionIds.length;
+      }
+    }
+
+    return summary;
+  }
+
+  const { targetClass } = await resolveQuestionBankClassForExam(teacherId, examType);
+  if (!targetClass) {
+    summary.warnings.push("No matching question bank class was found for cleanup.");
+    return summary;
+  }
+
+  const [subjects, testQuestions, sections] = await Promise.all([
+    db.select().from(subjectsTable).where(eq(subjectsTable.classId, targetClass.id)).orderBy(asc(subjectsTable.order), asc(subjectsTable.createdAt)),
+    db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId)).orderBy(asc(testQuestionsTable.order), asc(testQuestionsTable.id)),
+    db.select().from(testSectionsTable).where(eq(testSectionsTable.testId, testId)).orderBy(asc(testSectionsTable.order), asc(testSectionsTable.id)),
+  ]);
+
+  if (testQuestions.length === 0 || subjects.length === 0) {
+    return summary;
+  }
+
+  const sectionById = new Map(sections.map((section) => [section.id, section]));
+  const subjectsByKey = new Map(
+    subjects
+      .map((subject) => {
+        const key = normalizeTitleKey(subject.title);
+        return key ? [key, subject] as const : null;
+      })
+      .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
+  );
+  const chapters = await db
+    .select()
+    .from(chaptersTable)
+    .where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id)))
+    .orderBy(asc(chaptersTable.order), asc(chaptersTable.id));
+  const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
+  chapters.forEach((chapter) => {
+    const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
+    current.push(chapter);
+    chaptersBySubjectId.set(chapter.subjectId, current);
+  });
+
+  const candidateChapterIds = new Set<number>();
+  for (const question of testQuestions) {
+    const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
+    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+    const subjectLabel =
+      firstTrimmedString(
+        resolvedTaxonomy.subjectName,
+        typeof question.subjectLabel === "string" ? question.subjectLabel : null,
+        typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+      );
+    const subjectKey = normalizeTitleKey(subjectLabel ?? "");
+    if (!subjectKey) continue;
+
+    const targetSubject = subjectsByKey.get(subjectKey) ?? null;
+    if (!targetSubject) continue;
+
+    const chapterTitle =
+      firstTrimmedString(
+        resolvedTaxonomy.chapterName,
+        meta?.chapterTitle,
+        meta?.topicTag,
+        meta?.topic,
+      ) ??
+      "Imported from Tests";
+    const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
+    const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+    if (targetChapter) candidateChapterIds.add(targetChapter.id);
+  }
+
+  if (candidateChapterIds.size === 0) {
+    return summary;
+  }
+
+  const existingQuestionBankQuestions = await db
+    .select({
+      id: questionBankQuestionsTable.id,
+      chapterId: questionBankQuestionsTable.chapterId,
+      question: questionBankQuestionsTable.question,
+      questionType: questionBankQuestionsTable.questionType,
+      createdBy: questionBankQuestionsTable.createdBy,
+      sourceTestId: questionBankQuestionsTable.sourceTestId,
+      sourceTestQuestionId: questionBankQuestionsTable.sourceTestQuestionId,
+    })
+    .from(questionBankQuestionsTable)
+    .where(inArray(questionBankQuestionsTable.chapterId, [...candidateChapterIds]));
+
+  const linksByQuestionBankId = new Set(
+    existingQuestionBankQuestions.length > 0
+      ? (
+          await db
+            .select({ questionBankQuestionId: testQuestionBankLinksTable.questionBankQuestionId })
+            .from(testQuestionBankLinksTable)
+            .where(inArray(testQuestionBankLinksTable.questionBankQuestionId, existingQuestionBankQuestions.map((question) => question.id)))
+        ).map((item) => item.questionBankQuestionId)
+      : [],
+  );
+
+  const questionBankByChapterAndKey = new Map<string, typeof existingQuestionBankQuestions[number]>();
+  existingQuestionBankQuestions.forEach((question) => {
+    const storedQuestionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+    const key = normalizeQuestionDuplicateKey(question.question, storedQuestionType);
+    if (!key) return;
+    const compositeKey = `${question.chapterId}:${key}`;
+    if (!questionBankByChapterAndKey.has(compositeKey)) {
+      questionBankByChapterAndKey.set(compositeKey, question);
+    }
+  });
+
+  const removableLegacyIds = new Set<number>();
+  for (const question of testQuestions) {
+    const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
+    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+    const subjectLabel =
+      firstTrimmedString(
+        resolvedTaxonomy.subjectName,
+        typeof question.subjectLabel === "string" ? question.subjectLabel : null,
+        typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+      );
+    const subjectKey = normalizeTitleKey(subjectLabel ?? "");
+    if (!subjectKey) continue;
+
+    const targetSubject = subjectsByKey.get(subjectKey) ?? null;
+    if (!targetSubject) continue;
+
+    const chapterTitle =
+      firstTrimmedString(
+        resolvedTaxonomy.chapterName,
+        meta?.chapterTitle,
+        meta?.topicTag,
+        meta?.topic,
+      ) ??
+      "Imported from Tests";
+    const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
+    const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+    if (!targetChapter) continue;
+
+    const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+    const normalizedQuestionText = question.question.trim() || question.questionCode?.trim() || `Imported test question ${question.id}`;
+    const duplicateKey = normalizeQuestionDuplicateKey(normalizedQuestionText, questionType);
+    if (!duplicateKey) continue;
+
+    const matchedQuestion = questionBankByChapterAndKey.get(`${targetChapter.id}:${duplicateKey}`) ?? null;
+    if (!matchedQuestion) continue;
+    if (matchedQuestion.createdBy !== teacherId) continue;
+    if (linksByQuestionBankId.has(matchedQuestion.id)) continue;
+
+    removableLegacyIds.add(matchedQuestion.id);
+  }
+
+  if (removableLegacyIds.size > 0) {
+    await db.delete(questionBankQuestionsTable).where(inArray(questionBankQuestionsTable.id, [...removableLegacyIds]));
+    summary.removedQuestionCount += removableLegacyIds.size;
+    summary.warnings.push("Legacy synced questions were cleaned using question-text matching.");
+  }
+
+  return summary;
 }
 
 function serializeTestQuestion(question: any, options?: { showCorrect?: boolean; includeSolutions?: boolean }) {
@@ -149,10 +946,14 @@ function serializeTestQuestion(question: any, options?: { showCorrect?: boolean;
   } as Record<string, unknown>;
 
   if (showCorrect) {
-    base.correctAnswer = question.correctAnswer;
+    const normalizedIntegerAnswer =
+      (question.questionType ?? "mcq") === "integer"
+        ? normalizeSerializedIntegerAnswer(question)
+        : null;
+    base.correctAnswer = normalizedIntegerAnswer?.correctAnswer ?? question.correctAnswer;
     base.correctAnswerMulti = safeParseJson(question.correctAnswerMulti, null);
-    base.correctAnswerMin = question.correctAnswerMin ?? null;
-    base.correctAnswerMax = question.correctAnswerMax ?? null;
+    base.correctAnswerMin = normalizedIntegerAnswer?.correctAnswerMin ?? null;
+    base.correctAnswerMax = normalizedIntegerAnswer?.correctAnswerMax ?? null;
   }
 
   if (includeSolutions) {
@@ -161,6 +962,46 @@ function serializeTestQuestion(question: any, options?: { showCorrect?: boolean;
   }
 
   return base;
+}
+
+function getReporterDisplayName(user: { fullName?: string | null; username?: string | null } | null | undefined) {
+  if (!user) return "Student";
+  if (typeof user.fullName === "string" && user.fullName.trim()) return user.fullName.trim();
+  if (typeof user.username === "string" && user.username.trim()) return user.username.trim();
+  return "Student";
+}
+
+function serializeTestQuestionReport(
+  report: any,
+  reporter?: { fullName?: string | null; username?: string | null } | null,
+) {
+  return {
+    id: report.id,
+    testId: report.testId,
+    questionId: report.questionId,
+    reportedBy: report.reportedBy,
+    teacherId: report.teacherId,
+    reason: report.reason,
+    status: report.status ?? "open",
+    teacherNote: report.teacherNote ?? null,
+    createdAt: report.createdAt ?? null,
+    updatedAt: report.updatedAt ?? null,
+    reporterName: getReporterDisplayName(reporter),
+  };
+}
+
+function buildQuestionReportsByQuestionId(
+  reports: any[],
+  reporterMap: Map<number, { fullName?: string | null; username?: string | null }> = new Map(),
+) {
+  const questionReportsByQuestionId = new Map<number, Array<Record<string, unknown>>>();
+  for (const report of reports) {
+    const serialized = serializeTestQuestionReport(report, reporterMap.get(report.reportedBy));
+    const bucket = questionReportsByQuestionId.get(report.questionId) ?? [];
+    bucket.push(serialized);
+    questionReportsByQuestionId.set(report.questionId, bucket);
+  }
+  return questionReportsByQuestionId;
 }
 
 function formatSubmissionAnswerLabel(question: any, answer: any): string {
@@ -187,11 +1028,14 @@ function formatQuestionCorrectLabel(question: any): string {
       .join(", ");
   }
   if (qType === "integer") {
-    if (question.correctAnswerMin !== null && question.correctAnswerMin !== undefined &&
-        question.correctAnswerMax !== null && question.correctAnswerMax !== undefined) {
-      return `${question.correctAnswerMin} — ${question.correctAnswerMax}`;
+    const normalizedIntegerAnswer = normalizeSerializedIntegerAnswer(question);
+    if (
+      normalizedIntegerAnswer.correctAnswerMin !== null &&
+      normalizedIntegerAnswer.correctAnswerMax !== null
+    ) {
+      return `${normalizedIntegerAnswer.correctAnswerMin} — ${normalizedIntegerAnswer.correctAnswerMax}`;
     }
-    return String(question.correctAnswer ?? "—");
+    return String(normalizedIntegerAnswer.correctAnswer ?? "—");
   }
   return String.fromCharCode(65 + Number(question.correctAnswer ?? 0));
 }
@@ -366,6 +1210,7 @@ router.get("/tests", requireAuth, async (req, res) => {
         classId: testsTable.classId,
         title: testsTable.title,
         chapterId: testsTable.chapterId,
+        examConfig: testsTable.examConfig,
         durationMinutes: testsTable.durationMinutes,
         passingScore: testsTable.passingScore,
         isPublished: testsTable.isPublished,
@@ -376,7 +1221,7 @@ router.get("/tests", requireAuth, async (req, res) => {
         .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
         .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
         .orderBy(testsTable.createdAt);
-      return res.json(tests);
+      return res.json(tests.map((test) => ({ ...test, examConfig: normalizeObjectValue(test.examConfig, null) })));
     }
 
     if (user.role === "admin") {
@@ -384,6 +1229,7 @@ router.get("/tests", requireAuth, async (req, res) => {
         id: testsTable.id, classId: testsTable.classId, title: testsTable.title,
         chapterId: testsTable.chapterId,
         examType: testsTable.examType,
+        examConfig: testsTable.examConfig,
         durationMinutes: testsTable.durationMinutes,
       defaultPositiveMarks: testsTable.defaultPositiveMarks,
       defaultNegativeMarks: testsTable.defaultNegativeMarks,
@@ -397,7 +1243,7 @@ router.get("/tests", requireAuth, async (req, res) => {
         .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
         .where(eq(testsTable.createdBy, userId))
         .orderBy(testsTable.createdAt);
-      return res.json(tests);
+      return res.json(tests.map((test) => ({ ...test, examConfig: normalizeObjectValue(test.examConfig, null) })));
     }
 
     // Student
@@ -480,15 +1326,35 @@ router.get("/tests/review-bucket", requireAuth, async (req, res) => {
     }).from(testsTable)
       .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
       .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
-      .where(inArray(testsTable.id, testIds));
+      .where(and(inArray(testsTable.id, testIds), eq(testsTable.isPublished, true)));
+
+    const visibleTestIds = tests.map((test) => test.id);
+    if (visibleTestIds.length === 0) return res.json([]);
 
     const sections = await db.select().from(testSectionsTable)
-      .where(inArray(testSectionsTable.testId, testIds))
+      .where(inArray(testSectionsTable.testId, visibleTestIds))
       .orderBy(asc(testSectionsTable.order));
 
     const questions = await db.select().from(testQuestionsTable)
-      .where(inArray(testQuestionsTable.testId, testIds))
+      .where(inArray(testQuestionsTable.testId, visibleTestIds))
       .orderBy(asc(testQuestionsTable.order));
+    const questionIds = questions.map((question) => question.id);
+    const reports = questionIds.length > 0
+      ? await db
+          .select()
+          .from(testQuestionReportsTable)
+          .where(and(
+            inArray(testQuestionReportsTable.questionId, questionIds),
+            eq(testQuestionReportsTable.reportedBy, userId),
+          ))
+          .orderBy(desc(testQuestionReportsTable.createdAt), desc(testQuestionReportsTable.id))
+      : [];
+    const latestReportByQuestionId = new Map<number, typeof reports[number]>();
+    for (const report of reports) {
+      if (!latestReportByQuestionId.has(report.questionId)) {
+        latestReportByQuestionId.set(report.questionId, report);
+      }
+    }
 
     const testMetaById = new Map(tests.map((test) => [test.id, test]));
     const sectionById = new Map(sections.map((section) => [section.id, section]));
@@ -503,6 +1369,7 @@ router.get("/tests/review-bucket", requireAuth, async (req, res) => {
       const submission = latestByTest.get(question.testId);
       if (!submission) return [];
       if (dismissedQuestionIds.has(question.id)) return [];
+      const latestReport = latestReportByQuestionId.get(question.id);
       const answers = safeParseJson<Record<string, unknown>>(submission.answers, {});
       const timings = safeParseJson<Record<string, number>>(submission.questionTimings, {});
       const answer = answers[String(question.id)];
@@ -591,6 +1458,7 @@ router.get("/tests/review-bucket", requireAuth, async (req, res) => {
         sectionLabel: section?.title ?? subjectLabel,
         yourAnswerLabel: answered ? formatSubmissionAnswerLabel(question, answer) : "Not attempted",
         correctAnswerLabel: formatQuestionCorrectLabel(question),
+        report: latestReport ? serializeTestQuestionReport(latestReport) : null,
         analytics,
         question: {
           ...serializeTestQuestion(question, { showCorrect: true, includeSolutions: true }),
@@ -639,6 +1507,168 @@ router.post("/tests/review-bucket/:questionId/remove", requireAuth, async (req, 
   }
 });
 
+router.post("/tests/questions/:questionId/report", requireAuth, async (req, res) => {
+  try {
+    const userId = parseInt(req.cookies.userId, 10);
+    const questionId = parseInt(req.params.questionId, 10);
+    if (!Number.isFinite(questionId)) return res.status(400).json({ error: "Invalid question id" });
+
+    const user = await getUser(userId);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (user.role !== "student") return res.status(403).json({ error: "Only students can report questions" });
+
+    const [questionRow] = await db
+      .select({
+        questionId: testQuestionsTable.id,
+        questionCode: testQuestionsTable.questionCode,
+        testId: testsTable.id,
+        testTitle: testsTable.title,
+        teacherId: testsTable.createdBy,
+      })
+      .from(testQuestionsTable)
+      .innerJoin(testsTable, eq(testQuestionsTable.testId, testsTable.id))
+      .where(eq(testQuestionsTable.id, questionId))
+      .limit(1);
+    if (!questionRow) return res.status(404).json({ error: "Question not found" });
+
+    const [submission] = await db
+      .select({ id: testSubmissionsTable.id })
+      .from(testSubmissionsTable)
+      .where(and(
+        eq(testSubmissionsTable.testId, questionRow.testId),
+        eq(testSubmissionsTable.studentId, userId),
+      ))
+      .limit(1);
+    if (!submission) {
+      return res.status(403).json({ error: "You can report only after submitting this test" });
+    }
+
+    if (!questionRow.teacherId) {
+      return res.status(400).json({ error: "No teacher is assigned for this test yet" });
+    }
+
+    const [existingOpenReport] = await db
+      .select({ id: testQuestionReportsTable.id })
+      .from(testQuestionReportsTable)
+      .where(and(
+        eq(testQuestionReportsTable.questionId, questionId),
+        eq(testQuestionReportsTable.reportedBy, userId),
+        eq(testQuestionReportsTable.status, "open"),
+      ))
+      .limit(1);
+    if (existingOpenReport) {
+      return res.status(409).json({ error: "You already have an open report for this question" });
+    }
+
+    const reason =
+      typeof req.body?.reason === "string" && req.body.reason.trim()
+        ? req.body.reason.trim()
+        : "Student reported an issue with this question";
+    const now = new Date();
+    const [report] = await db
+      .insert(testQuestionReportsTable)
+      .values({
+        testId: questionRow.testId,
+        questionId,
+        reportedBy: userId,
+        teacherId: questionRow.teacherId,
+        reason,
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    const reporterLabel =
+      (typeof user.fullName === "string" && user.fullName.trim() ? user.fullName.trim() : null) ??
+      (typeof user.username === "string" && user.username.trim() ? user.username.trim() : null) ??
+      "A student";
+    const questionLabel = questionRow.questionCode?.trim() || `Question ${questionId}`;
+    await pushNotificationToMany([questionRow.teacherId], {
+      type: "test",
+      title: "Question reported",
+      message: `${reporterLabel} reported ${questionLabel} in ${questionRow.testTitle}.`,
+      link: `/admin/tests/${questionRow.testId}/builder?questionId=${questionId}`,
+    });
+
+    return res.status(201).json(serializeTestQuestionReport(report, user));
+  } catch (error) {
+    console.error("POST /api/tests/questions/:questionId/report failed", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.patch("/tests/question-reports/:reportId", requireAuth, async (req, res) => {
+  try {
+    const userId = parseInt(req.cookies.userId, 10);
+    const reportId = parseInt(req.params.reportId, 10);
+    if (!Number.isFinite(reportId)) return res.status(400).json({ error: "Invalid report id" });
+
+    const user = await getUser(userId);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (user.role !== "admin" && user.role !== "super_admin") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const [report] = await db
+      .select({
+        id: testQuestionReportsTable.id,
+        testId: testQuestionReportsTable.testId,
+        questionId: testQuestionReportsTable.questionId,
+        reportedBy: testQuestionReportsTable.reportedBy,
+        teacherId: testQuestionReportsTable.teacherId,
+        reason: testQuestionReportsTable.reason,
+        status: testQuestionReportsTable.status,
+        teacherNote: testQuestionReportsTable.teacherNote,
+        createdAt: testQuestionReportsTable.createdAt,
+        updatedAt: testQuestionReportsTable.updatedAt,
+        testTitle: testsTable.title,
+      })
+      .from(testQuestionReportsTable)
+      .innerJoin(testsTable, eq(testQuestionReportsTable.testId, testsTable.id))
+      .where(eq(testQuestionReportsTable.id, reportId))
+      .limit(1);
+    if (!report) return res.status(404).json({ error: "Report not found" });
+    if (user.role !== "super_admin" && report.teacherId !== userId) {
+      return res.status(403).json({ error: "Only the assigned teacher can manage this report" });
+    }
+
+    const nextStatus = req.body?.status === "resolved" ? "resolved" : req.body?.status === "rejected" ? "rejected" : null;
+    if (!nextStatus) return res.status(400).json({ error: "A valid status is required" });
+    const teacherNote =
+      typeof req.body?.teacherNote === "string" && req.body.teacherNote.trim()
+        ? req.body.teacherNote.trim()
+        : null;
+
+    const [updatedReport] = await db
+      .update(testQuestionReportsTable)
+      .set({
+        status: nextStatus,
+        teacherNote,
+        updatedAt: new Date(),
+      })
+      .where(eq(testQuestionReportsTable.id, reportId))
+      .returning();
+    if (!updatedReport) return res.status(404).json({ error: "Report not found" });
+
+    const title = nextStatus === "rejected" ? "Question report rejected" : "Question report resolved";
+    const message = nextStatus === "rejected"
+      ? `Your report for a question in ${report.testTitle} was reviewed and rejected.`
+      : `Your reported question in ${report.testTitle} has been resolved.`;
+    await pushNotificationToMany([report.reportedBy], {
+      type: "test",
+      title,
+      message: teacherNote ? `${message} ${teacherNote}` : message,
+      link: `/student/tests/${report.testId}/solutions`,
+    });
+
+    return res.json(serializeTestQuestionReport(updatedReport));
+  } catch (error) {
+    console.error("PATCH /api/tests/question-reports/:reportId failed", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // GET /api/tests/:id — test detail with questions
 router.get("/tests/:id", requireAuth, async (req, res) => {
   try {
@@ -680,12 +1710,12 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
       .where(eq(testQuestionsTable.testId, testId)).orderBy(testQuestionsTable.order);
     const rawSections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, testId)).orderBy(testSectionsTable.order);
-    const sections = isHtmlImportedTestConfig(test.examConfig)
+    const sections = shouldPreserveImportedSections(test.examConfig)
       ? rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
       : await syncTestSectionsFromTemplate(test.id, test.examType, rawSections);
 
     const isAdmin = user.role === "admin" || user.role === "super_admin";
-    let submission = null;
+    let submission: typeof testSubmissionsTable.$inferSelect | null = null;
     if (user.role === "student") {
       const [sub] = await db.select().from(testSubmissionsTable)
         .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)))
@@ -704,11 +1734,36 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
     } : null;
 
     const showCorrect = isAdmin || submission !== null;
-    const safeQuestions = questions.map((q) =>
-      serializeTestQuestion(q, { showCorrect, includeSolutions: showCorrect })
+    const reports = isAdmin
+      ? await db
+          .select()
+          .from(testQuestionReportsTable)
+          .where(eq(testQuestionReportsTable.testId, testId))
+          .orderBy(desc(testQuestionReportsTable.createdAt), desc(testQuestionReportsTable.id))
+      : [];
+    const reporterIds = [...new Set(reports.map((report) => report.reportedBy).filter((value) => Number.isFinite(value)))];
+    const reporters = reporterIds.length > 0
+      ? await db
+          .select({ id: usersTable.id, fullName: usersTable.fullName, username: usersTable.username })
+          .from(usersTable)
+          .where(inArray(usersTable.id, reporterIds))
+      : [];
+    const reporterMap = new Map(
+      reporters.map((reporter) => [reporter.id, reporter] as const),
     );
+    const questionReportsByQuestionId = buildQuestionReportsByQuestionId(reports, reporterMap);
+    const safeQuestions = questions.map((q) => {
+      const serialized = serializeTestQuestion(q, { showCorrect, includeSolutions: showCorrect }) as Record<string, unknown>;
+      if (isAdmin) {
+        const questionReports = questionReportsByQuestionId.get(q.id) ?? [];
+        serialized.reports = questionReports;
+        serialized.openReportCount = questionReports.filter((report) => report.status === "open").length;
+        serialized.totalReportCount = questionReports.length;
+      }
+      return serialized;
+    });
 
-    return res.json({ ...test, sections, questions: safeQuestions, submission: richSubmission });
+    return res.json({ ...test, examConfig: normalizeObjectValue(test.examConfig, null), sections, questions: safeQuestions, submission: richSubmission });
   } catch (error) {
     console.error("GET /api/tests/:id failed", error);
     return res.status(500).json({ error: "Internal server error" });
@@ -729,17 +1784,13 @@ router.get("/tests/:id/export", requireAuth, async (req, res) => {
     const rawSections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, testId))
       .orderBy(asc(testSectionsTable.order));
-    const sections = isHtmlImportedTestConfig(test.examConfig)
+    const sections = shouldPreserveImportedSections(test.examConfig)
       ? rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
       : await syncTestSectionsFromTemplate(test.id, test.examType, rawSections);
     const questions = await db.select().from(testQuestionsTable)
       .where(eq(testQuestionsTable.testId, testId))
       .orderBy(asc(testQuestionsTable.order));
-
-    const allSubmissions = await db
-      .select({ answers: testSubmissionsTable.answers })
-      .from(testSubmissionsTable)
-      .where(eq(testSubmissionsTable.testId, testId));
+    const sectionById = new Map(sections.map((section) => [section.id, section]));
 
     const bundle = {
       version: 1,
@@ -773,27 +1824,60 @@ router.get("/tests/:id/export", requireAuth, async (req, res) => {
           meta: normalizeObjectValue(section.meta, null),
           order: section.order ?? index,
         })),
-        questions: questions.map((question, index) => ({
-          question: question.question,
-          questionType: question.questionType ?? "mcq",
-          sectionRef: question.sectionId ? `section-${question.sectionId}` : null,
-          questionCode: question.questionCode ?? null,
-          sourceType: question.sourceType ?? "manual",
-          subjectLabel: question.subjectLabel ?? null,
-          options: normalizeArrayValue<string>(question.options, []),
-          optionImages: normalizeArrayValue<string | null>(question.optionImages, []),
-          correctAnswer: question.correctAnswer,
-          correctAnswerMulti: normalizeArrayValue<number>(question.correctAnswerMulti, []),
-          correctAnswerMin: question.correctAnswerMin ?? null,
-          correctAnswerMax: question.correctAnswerMax ?? null,
-          points: question.points,
-          negativeMarks: question.negativeMarks ?? 0,
-          meta: normalizeObjectValue(question.meta, null),
-          solutionText: question.solutionText ?? null,
-          solutionImageData: question.solutionImageData ?? null,
-          order: question.order ?? index,
-          imageData: question.imageData ?? null,
-        })),
+        questions: questions.map((question, index) => {
+          const meta = normalizeObjectValue<Record<string, unknown> | null>(question.meta, null);
+          const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+          const sectionLabel = firstTrimmedString(
+            question.subjectLabel,
+            section?.subjectLabel,
+            section?.title,
+          );
+          const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+          const subjectName = resolvedTaxonomy.subjectName;
+          const chapterName = resolvedTaxonomy.chapterName;
+          const topicTag = firstTrimmedString(meta?.topicTag, meta?.topic, meta?.topicName);
+          const difficulty = normalizeTestDifficultyValue(firstTrimmedString(meta?.difficulty));
+          const idealTimeSeconds =
+            parseImportedNumericValue(meta?.estimatedTimeSeconds) ??
+            parseImportedNumericValue(meta?.idealTimeSeconds);
+          const normalizedIntegerAnswer =
+            (question.questionType ?? "mcq") === "integer"
+              ? normalizeSerializedIntegerAnswer(question)
+              : null;
+          return {
+            question: question.question,
+            questionType: question.questionType ?? "mcq",
+            sectionRef: question.sectionId ? `section-${question.sectionId}` : null,
+            section: sectionLabel,
+            sectionLabel,
+            questionCode: question.questionCode ?? null,
+            sourceType: question.sourceType ?? "manual",
+            subjectLabel: sectionLabel,
+            subject: subjectName,
+            subjectName,
+            chapter: chapterName,
+            chapterName,
+            difficulty,
+            difficultyLevel: difficulty,
+            idealTimeSeconds,
+            estimatedTimeSeconds: idealTimeSeconds,
+            topic: topicTag,
+            topicTag,
+            options: normalizeArrayValue<string>(question.options, []),
+            optionImages: normalizeArrayValue<string | null>(question.optionImages, []),
+            correctAnswer: normalizedIntegerAnswer?.correctAnswer ?? question.correctAnswer,
+            correctAnswerMulti: normalizeArrayValue<number>(question.correctAnswerMulti, []),
+            correctAnswerMin: normalizedIntegerAnswer?.correctAnswerMin ?? null,
+            correctAnswerMax: normalizedIntegerAnswer?.correctAnswerMax ?? null,
+            points: question.points,
+            negativeMarks: question.negativeMarks ?? 0,
+            meta,
+            solutionText: question.solutionText ?? null,
+            solutionImageData: question.solutionImageData ?? null,
+            order: question.order ?? index,
+            imageData: question.imageData ?? null,
+          };
+        }),
       },
     };
 
@@ -871,26 +1955,36 @@ router.post("/tests/import", requireAuth, async (req, res) => {
     const payload = req.body?.test ? req.body : { test: req.body };
     const test = payload?.test;
     if (!test || typeof test !== "object") return res.status(400).json({ error: "Invalid import payload" });
+    const importDefaults = normalizeObjectValue<Record<string, unknown> | null>(payload?.importDefaults, null);
 
     const title = typeof test.title === "string" ? test.title.trim() : "";
     if (!title) return res.status(400).json({ error: "Imported test title missing" });
 
     const importedSections = Array.isArray(test.sections) ? test.sections : [];
     const questions = Array.isArray(test.questions) ? test.questions : [];
+    const importedExamConfig = normalizeObjectValue<Record<string, unknown> | null>(test.examConfig, null);
     const normalizedExamType = normalizeExamKey(test.examType) ?? (typeof test.examType === "string" && test.examType.trim() ? test.examType.trim() : "custom");
     const [matchedTemplate] = normalizedExamType && normalizedExamType !== "custom"
       ? await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.key, normalizedExamType)).limit(1)
       : [null];
 
-    const isHtmlImport = isHtmlImportedTestConfig(test.examConfig);
+    const preserveImportedSections = importedSections.length > 0;
+    const storedExamConfig = preserveImportedSections
+      ? { ...(importedExamConfig ?? {}), preserveImportedSections: true }
+      : importedExamConfig;
     const templateSections = matchedTemplate
       ? normalizeArrayValue<Record<string, unknown>>(matchedTemplate.sections, [])
       : [];
-    const resolvedSections = isHtmlImport
+    const resolvedSections = importedSections.length > 0
       ? importedSections
       : templateSections.length > 0
         ? templateSections
         : importedSections;
+    const importDefaultSubjectName = sanitizeExplicitTaxonomyValue(importDefaults?.subjectName);
+    const importDefaultChapterName = sanitizeExplicitTaxonomyValue(importDefaults?.chapterName);
+    const importDefaultDifficulty = normalizeTestDifficultyValue(importDefaults?.difficulty);
+    const importDefaultIdealTimeSeconds = parseImportedNumericValue(importDefaults?.idealTimeSeconds);
+    let pendingReviewCount = 0;
 
     const normalizeSectionLabel = (value: unknown) =>
       typeof value === "string" ? value.trim().toLowerCase().replace(/\s+/g, " ") : "";
@@ -913,7 +2007,7 @@ router.post("/tests/import", requireAuth, async (req, res) => {
       examHeader: typeof test.examHeader === "string" && test.examHeader.trim() ? test.examHeader.trim() : matchedTemplate?.examHeader ?? null,
       examSubheader: typeof test.examSubheader === "string" && test.examSubheader.trim() ? test.examSubheader.trim() : matchedTemplate?.examSubheader ?? null,
       instructions: typeof test.instructions === "string" && test.instructions.trim() ? test.instructions.trim() : null,
-      examConfig: test.examConfig ? JSON.stringify(test.examConfig) : null,
+      examConfig: storedExamConfig ? JSON.stringify(storedExamConfig) : null,
       durationMinutes: Number(test.durationMinutes) || matchedTemplate?.durationMinutes || 30,
       passingScore: test.passingScore === undefined || test.passingScore === null || String(test.passingScore).trim() === "" ? null : Number(test.passingScore),
       defaultPositiveMarks: test.defaultPositiveMarks !== undefined ? Number(test.defaultPositiveMarks) : matchedTemplate?.defaultPositiveMarks ?? 1,
@@ -924,7 +2018,7 @@ router.post("/tests/import", requireAuth, async (req, res) => {
     }).returning();
 
     const sectionIdMap = new Map<string, number>();
-    const createdSections: Array<{ id: number; label: string; index: number }> = [];
+    const createdSections: Array<{ id: number; label: string; displayLabel: string | null; index: number }> = [];
     for (let index = 0; index < resolvedSections.length; index += 1) {
       const section = resolvedSections[index] as any;
       const templateLabel = normalizeSectionLabel(section.subjectLabel ?? section.title);
@@ -953,7 +2047,12 @@ router.post("/tests/import", requireAuth, async (req, res) => {
         meta: section.meta ? JSON.stringify(section.meta) : (importedMatch?.meta ? JSON.stringify(importedMatch.meta) : null),
         order: section.order !== undefined ? Number(section.order) : index,
       }).returning();
-      createdSections.push({ id: createdSection.id, label: normalizeSectionLabel(createdSection.subjectLabel ?? createdSection.title), index });
+      createdSections.push({
+        id: createdSection.id,
+        label: normalizeSectionLabel(createdSection.subjectLabel ?? createdSection.title),
+        displayLabel: firstTrimmedString(createdSection.subjectLabel, createdSection.title),
+        index,
+      });
       if (importedMatch) {
         sectionIdMap.set(String(importedMatch.exportRef ?? `section-${index}`), createdSection.id);
       }
@@ -974,11 +2073,204 @@ router.post("/tests/import", requireAuth, async (req, res) => {
 
     for (let index = 0; index < questions.length; index += 1) {
       const question = questions[index];
-      const sectionId = question.sectionRef ? sectionIdMap.get(String(question.sectionRef)) ?? null : null;
-      const questionType = typeof question.questionType === "string" ? question.questionType : "mcq";
+      const questionSectionLabel = firstTrimmedString(
+        question.section,
+        question.sectionLabel,
+        question.subjectLabel,
+        importedSectionsByRef.get(String(question.sectionRef ?? ""))?.subjectLabel,
+        importedSectionsByRef.get(String(question.sectionRef ?? ""))?.title,
+      );
+      const matchedSection =
+        question.sectionRef
+          ? createdSections.find((section) => section.id === (sectionIdMap.get(String(question.sectionRef)) ?? -1)) ?? null
+          : questionSectionLabel
+            ? createdSections.find((section) => section.label === normalizeSectionLabel(questionSectionLabel)) ?? null
+            : null;
+      const sectionId = matchedSection?.id ?? (question.sectionRef ? sectionIdMap.get(String(question.sectionRef)) ?? null : null);
+      const importedMeta = normalizeObjectValue<Record<string, unknown> | null>(question.meta, null);
+      const requestedQuestionType = normalizeImportedQuestionType(
+        firstTrimmedString(
+          question.questionType,
+          question.type,
+          importedMeta?.questionType,
+          importedMeta?.type,
+        ),
+      );
       const options = normalizeArrayValue<string>(question.options, []);
       const optionImages = normalizeArrayValue<string | null>(question.optionImages, []);
-      const correctAnswerMulti = normalizeArrayValue<number>(question.correctAnswerMulti, []);
+      const resolvedImportedTaxonomy = resolveStoredQuestionTaxonomy(importedMeta, questionSectionLabel ?? matchedSection?.displayLabel ?? null);
+      const correctAnswerMulti = normalizeImportedAnswerIndices(
+        question.correctAnswerMulti ??
+        question.correctAnswers ??
+        question.answers ??
+        (requestedQuestionType === "multi" ? (question.correctAnswer ?? question.answer) : null) ??
+        importedMeta?.correctAnswerMulti ??
+        importedMeta?.correctAnswers ??
+        importedMeta?.answers ??
+        (requestedQuestionType === "multi" ? (importedMeta?.correctAnswer ?? importedMeta?.answer) : null),
+        options.length,
+      );
+      const correctAnswerRangeFromQuestion = extractImportedNumericRange(question.correctAnswerRange);
+      const fallbackQuestionRange = extractImportedNumericRange(question.answerRange);
+      const correctAnswerRange = {
+        min: correctAnswerRangeFromQuestion.min ?? fallbackQuestionRange.min,
+        max: correctAnswerRangeFromQuestion.max ?? fallbackQuestionRange.max,
+      };
+      const metaCorrectAnswerRange = extractImportedNumericRange(importedMeta?.correctAnswerRange);
+      const metaFallbackRange = extractImportedNumericRange(importedMeta?.answerRange);
+      const metaAnswerRange = {
+        min: metaCorrectAnswerRange.min ?? metaFallbackRange.min,
+        max: metaCorrectAnswerRange.max ?? metaFallbackRange.max,
+      };
+      const solutionRange = extractImportedNumericRange(
+        firstTrimmedString(
+          question.solutionText,
+          importedMeta?.solutionText,
+          question.aiSolutionText,
+          importedMeta?.aiSolutionText,
+        ),
+      );
+      const correctAnswerIndex = parseImportedOptionIndex(
+        question.correctAnswer ??
+        question.answer ??
+        importedMeta?.correctAnswer ??
+        importedMeta?.answer,
+        options.length,
+      );
+      const exactIntegerAnswer =
+        parseImportedNumericValue(question.correctAnswer) ??
+        parseImportedNumericValue(question.answer) ??
+        parseImportedNumericValue(importedMeta?.correctAnswer) ??
+        parseImportedNumericValue(importedMeta?.answer);
+      const explicitCorrectAnswerMin =
+        parseImportedNumericValue(question.correctAnswerMin) ??
+        parseImportedNumericValue(question.answerMin) ??
+        parseImportedNumericValue(question.rangeMin) ??
+        parseImportedNumericValue(importedMeta?.correctAnswerMin) ??
+        parseImportedNumericValue(importedMeta?.answerMin) ??
+        parseImportedNumericValue(importedMeta?.rangeMin);
+      const explicitCorrectAnswerMax =
+        parseImportedNumericValue(question.correctAnswerMax) ??
+        parseImportedNumericValue(question.answerMax) ??
+        parseImportedNumericValue(question.rangeMax) ??
+        parseImportedNumericValue(importedMeta?.correctAnswerMax) ??
+        parseImportedNumericValue(importedMeta?.answerMax) ??
+        parseImportedNumericValue(importedMeta?.rangeMax);
+      let correctAnswerMin = explicitCorrectAnswerMin ?? correctAnswerRange.min ?? metaAnswerRange.min;
+      let correctAnswerMax = explicitCorrectAnswerMax ?? correctAnswerRange.max ?? metaAnswerRange.max;
+      const canInferIntegerRangeFromText = requestedQuestionType === "integer" || options.length === 0;
+      if (
+        canInferIntegerRangeFromText &&
+        solutionRange.min !== null &&
+        solutionRange.max !== null &&
+        (
+          correctAnswerMin === null ||
+          correctAnswerMax === null ||
+          correctAnswerMin === correctAnswerMax
+        )
+      ) {
+        correctAnswerMin = Math.min(solutionRange.min, solutionRange.max);
+        correctAnswerMax = Math.max(solutionRange.min, solutionRange.max);
+      }
+      const questionType =
+        requestedQuestionType === "multi" || correctAnswerMulti.length > 1
+          ? "multi"
+          : requestedQuestionType === "integer" || (options.length === 0 && correctAnswerMin !== null && correctAnswerMax !== null)
+            ? "integer"
+            : "mcq";
+      const subjectLabel = firstTrimmedString(
+        question.subjectLabel,
+        importedMeta?.subjectLabel,
+        question.section,
+        question.sectionLabel,
+        matchedSection?.displayLabel,
+      );
+      const topicTag = firstTrimmedString(
+        question.topicTag,
+        importedMeta?.topicTag,
+        question.topicName,
+        importedMeta?.topicName,
+        question.topic,
+        importedMeta?.topic,
+      );
+      const rawSubjectName = firstTrimmedString(
+        question.subject,
+        question.subjectName,
+        resolvedImportedTaxonomy.subjectName,
+      );
+      const rawChapterName = firstTrimmedString(
+        question.chapter,
+        question.chapterName,
+        question.chapterTitle,
+        importedMeta?.chapterTitle,
+        resolvedImportedTaxonomy.chapterName,
+      );
+      const sanitizedSubjectName = sanitizeExplicitTaxonomyValue(rawSubjectName);
+      const sanitizedChapterName = sanitizeExplicitTaxonomyValue(rawChapterName);
+      const normalizedTaxonomy = normalizeResolvedTaxonomy({
+        subjectName: sanitizedSubjectName,
+        chapterName: sanitizedChapterName,
+        topicTag,
+      });
+      const subjectName = normalizedTaxonomy.subjectName ?? importDefaultSubjectName;
+      const chapterName = normalizedTaxonomy.chapterName ?? importDefaultChapterName;
+      const difficulty =
+        normalizeTestDifficultyValue(
+        firstTrimmedString(
+          question.difficulty,
+          question.difficultyLevel,
+          importedMeta?.difficulty,
+        ),
+        ) ?? importDefaultDifficulty;
+      const estimatedTimeSecondsRaw =
+        question.idealTimeSeconds ??
+        question.estimatedTimeSeconds ??
+        question.idealTime ??
+        importedMeta?.estimatedTimeSeconds ??
+        importedMeta?.idealTimeSeconds ??
+        importedMeta?.idealTime ??
+        null;
+      const estimatedTimeSeconds =
+        estimatedTimeSecondsRaw === undefined || estimatedTimeSecondsRaw === null || String(estimatedTimeSecondsRaw).trim() === ""
+          ? importDefaultIdealTimeSeconds
+          : Number(estimatedTimeSecondsRaw);
+      const hasCorrectAnswer =
+        questionType === "multi"
+          ? correctAnswerMulti.length > 0
+          : questionType === "integer"
+            ? exactIntegerAnswer !== null || (correctAnswerMin !== null && correctAnswerMax !== null)
+            : correctAnswerIndex !== null;
+      const needsSubjectName = !subjectName;
+      const needsChapterName = !chapterName;
+      const needsDifficulty = !difficulty;
+      const needsIdealTimeSeconds = estimatedTimeSeconds === null || !Number.isFinite(estimatedTimeSeconds);
+      const needsCorrectAnswer = !hasCorrectAnswer;
+      const needsQuestionSetup = needsSubjectName || needsChapterName || needsDifficulty || needsIdealTimeSeconds || needsCorrectAnswer;
+      if (needsQuestionSetup) pendingReviewCount += 1;
+      const {
+        needsSubjectName: _needsSubjectName,
+        needsChapterName: _needsChapterName,
+        needsDifficulty: _needsDifficulty,
+        needsIdealTimeSeconds: _needsIdealTimeSeconds,
+        needsCorrectAnswer: _needsCorrectAnswer,
+        needsQuestionSetup: _needsQuestionSetup,
+        ...baseImportedMeta
+      } = importedMeta ?? {};
+      const normalizedMeta = {
+        ...baseImportedMeta,
+        ...(difficulty ? { difficulty } : {}),
+        ...(estimatedTimeSeconds !== null && Number.isFinite(estimatedTimeSeconds) ? { estimatedTimeSeconds } : {}),
+        ...(subjectName ? { subjectName } : {}),
+        ...(chapterName ? { chapterName } : {}),
+        ...(topicTag ? { topicTag } : {}),
+        ...(needsSubjectName ? { needsSubjectName: true } : {}),
+        ...(needsChapterName ? { needsChapterName: true } : {}),
+        ...(needsDifficulty ? { needsDifficulty: true } : {}),
+        ...(needsIdealTimeSeconds ? { needsIdealTimeSeconds: true } : {}),
+        ...(needsCorrectAnswer ? { needsCorrectAnswer: true } : {}),
+        ...(needsQuestionSetup ? { needsQuestionSetup: true } : {}),
+      };
+      const persistedMeta = Object.keys(normalizedMeta).length > 0 ? normalizedMeta : null;
 
       await db.insert(testQuestionsTable).values({
         testId: createdTest.id,
@@ -987,16 +2279,21 @@ router.post("/tests/import", requireAuth, async (req, res) => {
         questionType,
         questionCode: typeof question.questionCode === "string" && question.questionCode.trim() ? question.questionCode.trim() : null,
         sourceType: typeof question.sourceType === "string" && question.sourceType.trim() ? question.sourceType.trim() : "manual",
-        subjectLabel: typeof question.subjectLabel === "string" && question.subjectLabel.trim() ? question.subjectLabel.trim() : null,
+        subjectLabel,
         options: JSON.stringify(options),
         optionImages: optionImages.length > 0 ? JSON.stringify(optionImages) : null,
-        correctAnswer: question.correctAnswer !== undefined && question.correctAnswer !== null ? Number(question.correctAnswer) : 0,
+        correctAnswer:
+          questionType === "integer"
+            ? (correctAnswerMin !== null && correctAnswerMax !== null ? 0 : Number(exactIntegerAnswer ?? 0))
+            : questionType === "multi"
+              ? 0
+              : Number(correctAnswerIndex ?? 0),
         correctAnswerMulti: questionType === "multi" ? JSON.stringify(correctAnswerMulti) : null,
-        correctAnswerMin: question.correctAnswerMin !== undefined && question.correctAnswerMin !== null ? Number(question.correctAnswerMin) : null,
-        correctAnswerMax: question.correctAnswerMax !== undefined && question.correctAnswerMax !== null ? Number(question.correctAnswerMax) : null,
+        correctAnswerMin: questionType === "integer" && correctAnswerMin !== null ? Number(correctAnswerMin) : null,
+        correctAnswerMax: questionType === "integer" && correctAnswerMax !== null ? Number(correctAnswerMax) : null,
         points: question.points !== undefined && question.points !== null ? Number(question.points) : 1,
         negativeMarks: question.negativeMarks !== undefined && question.negativeMarks !== null ? Number(question.negativeMarks) : 0,
-        meta: question.meta ? JSON.stringify(question.meta) : null,
+        meta: persistedMeta ? JSON.stringify(persistedMeta) : null,
         solutionText: typeof question.solutionText === "string" && question.solutionText.trim() ? question.solutionText.trim() : null,
         solutionImageData: typeof question.solutionImageData === "string" && question.solutionImageData.trim() ? question.solutionImageData : null,
         order: question.order !== undefined ? Number(question.order) : index,
@@ -1007,7 +2304,7 @@ router.post("/tests/import", requireAuth, async (req, res) => {
     const persistedSections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, createdTest.id))
       .orderBy(asc(testSectionsTable.order));
-    const syncedSections = isHtmlImport
+    const syncedSections = shouldPreserveImportedSections(createdTest.examConfig)
       ? persistedSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
       : await syncTestSectionsFromTemplate(createdTest.id, createdTest.examType, persistedSections);
 
@@ -1016,10 +2313,236 @@ router.post("/tests/import", requireAuth, async (req, res) => {
       title: createdTest.title,
       sectionCount: syncedSections.length,
       questionCount: questions.length,
+      pendingReviewCount,
       isPublished: createdTest.isPublished,
     });
   } catch (error) {
     console.error("POST /api/tests/import failed", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/tests/:id/import-question-metadata — bulk apply per-question metadata to an existing test
+router.post("/tests/:id/import-question-metadata", requireAuth, async (req, res) => {
+  try {
+    const testId = parseInt(req.params.id, 10);
+    const userId = parseInt(req.cookies.userId, 10);
+    const user = await getUser(userId);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+
+    const body = req.body;
+    const rawItems = Array.isArray(body)
+      ? body
+      : body && typeof body === "object"
+        ? Array.isArray((body as any).questions)
+          ? (body as any).questions
+          : Array.isArray((body as any).items)
+            ? (body as any).items
+            : Array.isArray((body as any).rows)
+              ? (body as any).rows
+              : Array.isArray((body as any).data)
+                ? (body as any).data
+                : Array.isArray((body as any).test?.questions)
+                  ? (body as any).test.questions
+                  : Array.isArray((body as any).test?.items)
+                    ? (body as any).test.items
+                    : []
+        : [];
+    if (rawItems.length === 0) {
+      return res.status(400).json({ error: "No question metadata found in import payload" });
+    }
+
+    const testQuestions = await db
+      .select()
+      .from(testQuestionsTable)
+      .where(eq(testQuestionsTable.testId, testId))
+      .orderBy(asc(testQuestionsTable.order));
+    if (testQuestions.length === 0) {
+      return res.status(404).json({ error: "Test questions not found" });
+    }
+
+    const questionByCode = new Map<string, typeof testQuestions[number]>();
+    const questionByCodeNumber = new Map<number, typeof testQuestions[number]>();
+    testQuestions.forEach((question) => {
+      const normalizedQuestionCode = normalizeImportedQuestionCodeKey(question.questionCode);
+      if (normalizedQuestionCode) {
+        questionByCode.set(normalizedQuestionCode, question);
+      }
+      const questionCodeNumber = extractImportedQuestionCodeNumber(question.questionCode);
+      if (questionCodeNumber !== null && !questionByCodeNumber.has(questionCodeNumber)) {
+        questionByCodeNumber.set(questionCodeNumber, question);
+      }
+    });
+
+    let matchedCount = 0;
+    let updatedCount = 0;
+    let unresolvedCount = 0;
+    const skippedRows: string[] = [];
+
+    for (let index = 0; index < rawItems.length; index += 1) {
+      const item = rawItems[index] as Record<string, unknown>;
+      const rawQuestionCode = item.questionCode ?? item.code ?? item.question_code ?? null;
+      const normalizedQuestionCode = normalizeImportedQuestionCodeKey(rawQuestionCode);
+      const questionCodeNumber = extractImportedQuestionCodeNumber(rawQuestionCode);
+      const questionNumber =
+        parseImportedNumericValue(item.questionNumber) ??
+        parseImportedNumericValue(item.questionNo) ??
+        parseImportedNumericValue(item.order) ??
+        parseImportedNumericValue(item.index);
+      const matchedQuestion =
+        (normalizedQuestionCode ? questionByCode.get(normalizedQuestionCode) ?? null : null) ??
+        (questionCodeNumber !== null ? questionByCodeNumber.get(questionCodeNumber) ?? null : null) ??
+        (questionNumber !== null && questionNumber >= 1 && questionNumber <= testQuestions.length
+          ? testQuestions[Math.round(questionNumber) - 1]
+          : null);
+      if (!matchedQuestion) {
+        skippedRows.push(
+          normalizedQuestionCode ||
+          (questionNumber !== null ? `Q${Math.round(questionNumber)}` : `Row ${index + 1}`),
+        );
+        continue;
+      }
+      matchedCount += 1;
+
+      const currentMeta = safeParseJson<Record<string, unknown> | null>(matchedQuestion.meta, null);
+      const questionType = matchedQuestion.questionType ?? "mcq";
+      const optionCount = safeParseJson<string[]>(matchedQuestion.options, []).length;
+      const explicitSubjectName = sanitizeExplicitTaxonomyValue(
+        firstTrimmedString(item.subject, item.subjectName, item.subject_name),
+      );
+      const explicitChapterName = sanitizeExplicitTaxonomyValue(
+        firstTrimmedString(item.chapter, item.chapterName, item.chapter_name),
+      );
+      const explicitTopicTag = sanitizeExplicitTaxonomyValue(
+        firstTrimmedString(item.topic, item.topicTag, item.topicName, item.topic_name),
+      );
+      const explicitDifficulty = normalizeTestDifficultyValue(
+        firstTrimmedString(item.difficulty, item.difficultyLevel, item.difficulty_level),
+      );
+      const explicitIdealTimeSeconds =
+        parseImportedNumericValue(item.idealTimeSeconds) ??
+        parseImportedNumericValue(item.estimatedTimeSeconds) ??
+        parseImportedNumericValue(item.idealTime);
+
+      const nextSubjectName =
+        explicitSubjectName ??
+        sanitizeExplicitTaxonomyValue(firstTrimmedString(currentMeta?.subjectName, currentMeta?.subject));
+      const nextChapterName =
+        explicitChapterName ??
+        sanitizeExplicitTaxonomyValue(firstTrimmedString(currentMeta?.chapterName, currentMeta?.chapter));
+      const nextTopicTag =
+        explicitTopicTag ??
+        sanitizeExplicitTaxonomyValue(firstTrimmedString(currentMeta?.topicTag, currentMeta?.topicName, currentMeta?.topic));
+      const nextDifficulty =
+        explicitDifficulty ??
+        normalizeTestDifficultyValue(firstTrimmedString(currentMeta?.difficulty));
+      const nextIdealTimeSeconds =
+        explicitIdealTimeSeconds ??
+        parseImportedNumericValue(currentMeta?.estimatedTimeSeconds);
+
+      const providedCorrectAnswerIndex = parseImportedOptionIndex(
+        item.correctAnswer ?? item.answer,
+        optionCount,
+      );
+      const providedCorrectAnswerMulti = normalizeImportedAnswerIndices(
+        item.correctAnswerMulti ?? item.correctAnswers ?? item.answers,
+        optionCount,
+      );
+      const providedExactIntegerAnswer =
+        parseImportedNumericValue(item.correctAnswer) ??
+        parseImportedNumericValue(item.answer);
+      const providedCorrectAnswerMin =
+        parseImportedNumericValue(item.correctAnswerMin) ??
+        parseImportedNumericValue(item.answerMin) ??
+        parseImportedNumericValue(item.rangeMin);
+      const providedCorrectAnswerMax =
+        parseImportedNumericValue(item.correctAnswerMax) ??
+        parseImportedNumericValue(item.answerMax) ??
+        parseImportedNumericValue(item.rangeMax);
+      const providedRange = extractImportedNumericRange(item.correctAnswerRange ?? item.answerRange);
+
+      const currentHasCorrectAnswer =
+        currentMeta?.needsCorrectAnswer === true || currentMeta?.needsCorrectAnswer === "true"
+          ? false
+          : questionType === "multi"
+            ? safeParseJson<number[]>(matchedQuestion.correctAnswerMulti, []).length > 0
+            : questionType === "integer"
+              ? hasDistinctIntegerRange(matchedQuestion.correctAnswerMin, matchedQuestion.correctAnswerMax) || matchedQuestion.correctAnswer !== null
+              : Number(matchedQuestion.correctAnswer) >= 0;
+
+      const nextHasCorrectAnswer =
+        questionType === "multi"
+          ? providedCorrectAnswerMulti.length > 0 || currentHasCorrectAnswer
+          : questionType === "integer"
+            ? (
+              providedExactIntegerAnswer !== null ||
+              (providedCorrectAnswerMin !== null && providedCorrectAnswerMax !== null) ||
+              (providedRange.min !== null && providedRange.max !== null) ||
+              currentHasCorrectAnswer
+            )
+            : providedCorrectAnswerIndex !== null || currentHasCorrectAnswer;
+
+      const nextMeta = {
+        ...(currentMeta ?? {}),
+        ...(nextSubjectName ? { subjectName: nextSubjectName } : {}),
+        ...(nextChapterName ? { chapterName: nextChapterName } : {}),
+        ...(nextTopicTag ? { topicTag: nextTopicTag } : {}),
+        ...(nextDifficulty ? { difficulty: nextDifficulty } : {}),
+        ...(nextIdealTimeSeconds !== null && Number.isFinite(nextIdealTimeSeconds) ? { estimatedTimeSeconds: nextIdealTimeSeconds } : {}),
+        needsSubjectName: !nextSubjectName,
+        needsChapterName: !nextChapterName,
+        needsDifficulty: !nextDifficulty,
+        needsIdealTimeSeconds: !(nextIdealTimeSeconds !== null && Number.isFinite(nextIdealTimeSeconds)),
+        needsCorrectAnswer: !nextHasCorrectAnswer,
+        needsQuestionSetup: (
+          !nextSubjectName ||
+          !nextChapterName ||
+          !nextDifficulty ||
+          !(nextIdealTimeSeconds !== null && Number.isFinite(nextIdealTimeSeconds)) ||
+          !nextHasCorrectAnswer
+        ),
+      };
+
+      const updates: Record<string, unknown> = {
+        meta: JSON.stringify(nextMeta),
+      };
+
+      if (questionType === "mcq" && providedCorrectAnswerIndex !== null) {
+        updates.correctAnswer = providedCorrectAnswerIndex;
+      } else if (questionType === "multi" && providedCorrectAnswerMulti.length > 0) {
+        updates.correctAnswerMulti = JSON.stringify(providedCorrectAnswerMulti);
+      } else if (questionType === "integer") {
+        const rangeMin = providedCorrectAnswerMin ?? providedRange.min;
+        const rangeMax = providedCorrectAnswerMax ?? providedRange.max;
+        if (rangeMin !== null && rangeMax !== null) {
+          updates.correctAnswer = 0;
+          updates.correctAnswerMin = Math.min(rangeMin, rangeMax);
+          updates.correctAnswerMax = Math.max(rangeMin, rangeMax);
+        } else if (providedExactIntegerAnswer !== null) {
+          updates.correctAnswer = providedExactIntegerAnswer;
+          updates.correctAnswerMin = null;
+          updates.correctAnswerMax = null;
+        }
+      }
+
+      await db
+        .update(testQuestionsTable)
+        .set(updates)
+        .where(and(eq(testQuestionsTable.id, matchedQuestion.id), eq(testQuestionsTable.testId, testId)));
+
+      updatedCount += 1;
+      if (nextMeta.needsQuestionSetup) unresolvedCount += 1;
+    }
+
+    return res.json({
+      matchedCount,
+      updatedCount,
+      unresolvedCount,
+      skippedCount: skippedRows.length,
+      skippedRows,
+    });
+  } catch (error) {
+    console.error("POST /api/tests/:id/import-question-metadata failed", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1059,8 +2582,8 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     if (defaultNegativeMarks !== undefined) updates.defaultNegativeMarks = Number(defaultNegativeMarks);
     if (scheduledAt !== undefined) updates.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
 
-    const importedFromHtml = isHtmlImportedTestConfig(beforeTest?.examConfig);
-    if (selectedTemplate && !importedFromHtml) {
+    const preserveSections = shouldPreserveImportedSections(beforeTest?.examConfig);
+    if (selectedTemplate && !preserveSections) {
       updates.examType = selectedTemplate.key;
       updates.examHeader = selectedTemplate.examHeader ?? null;
       updates.examSubheader = selectedTemplate.examSubheader ?? null;
@@ -1079,9 +2602,17 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     const rawSections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, testId))
       .orderBy(asc(testSectionsTable.order));
-    const syncedSections = importedFromHtml
+    const syncedSections = shouldPreserveImportedSections(test.examConfig)
       ? rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
       : await syncTestSectionsFromTemplate(testId, test.examType, rawSections);
+    const questionBankSync =
+      updates.isPublished === true
+        ? await syncPublishedTestQuestionsToQuestionBank(testId, userId, test.examType)
+        : null;
+    const questionBankCleanup =
+      updates.isPublished === false && beforeTest?.isPublished
+        ? await cleanupUnpublishedTestQuestionsFromQuestionBank(testId, userId, beforeTest.examType)
+        : null;
 
     // Notify enrolled students when a test is first published
     if (updates.isPublished === true && !beforeTest?.isPublished) {
@@ -1118,8 +2649,17 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
       }
     }
 
-    return res.json({ ...test, sections: syncedSections });
-  } catch { return res.status(500).json({ error: "Internal server error" }); }
+    return res.json({
+      ...test,
+      examConfig: normalizeObjectValue(test.examConfig, null),
+      sections: syncedSections,
+      questionBankSync,
+      questionBankCleanup,
+    });
+  } catch (error) {
+    console.error("PATCH /api/tests/:id failed", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // DELETE /api/tests/:id
@@ -1163,21 +2703,42 @@ router.post("/tests/:id/questions", requireAuth, async (req, res) => {
     } = req.body;
     if (!question && !imageData) return res.status(400).json({ error: "question text or image required" });
 
-    // Validate per type
-    if (questionType === "multi" && (!correctAnswerMulti || !Array.isArray(correctAnswerMulti))) {
-      return res.status(400).json({ error: "correctAnswerMulti (array) required for multi type" });
-    }
-    if (questionType === "integer" && correctAnswer === undefined && (correctAnswerMin === undefined || correctAnswerMax === undefined)) {
-      return res.status(400).json({ error: "correctAnswer or correctAnswerMin+correctAnswerMax required for integer type" });
-    }
-    if (questionType !== "multi" && questionType !== "integer" && correctAnswer === undefined) {
-      return res.status(400).json({ error: "correctAnswer required" });
-    }
-
     const existing = await db.select({ id: testQuestionsTable.id })
       .from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId));
 
-    const isRange = questionType === "integer" && correctAnswerMin !== undefined && correctAnswerMax !== undefined;
+    const normalizedMeta = normalizeObjectValue<Record<string, unknown> | null>(meta, null);
+    const parsedCorrectAnswer = correctAnswer === undefined || correctAnswer === null || String(correctAnswer).trim?.() === ""
+      ? null
+      : Number(correctAnswer);
+    const hasMcqCorrectAnswer = parsedCorrectAnswer !== null && Number.isFinite(parsedCorrectAnswer) && parsedCorrectAnswer >= 0;
+    const normalizedCorrectAnswerMulti = Array.isArray(correctAnswerMulti) ? correctAnswerMulti.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value >= 0) : [];
+    const hasMultiCorrectAnswer = normalizedCorrectAnswerMulti.length > 0;
+    const parsedCorrectAnswerMin =
+      correctAnswerMin === undefined || correctAnswerMin === null || String(correctAnswerMin).trim?.() === ""
+        ? null
+        : Number(correctAnswerMin);
+    const parsedCorrectAnswerMax =
+      correctAnswerMax === undefined || correctAnswerMax === null || String(correctAnswerMax).trim?.() === ""
+        ? null
+        : Number(correctAnswerMax);
+    const isRange =
+      questionType === "integer" &&
+      parsedCorrectAnswerMin !== null &&
+      parsedCorrectAnswerMax !== null &&
+      Number.isFinite(parsedCorrectAnswerMin) &&
+      Number.isFinite(parsedCorrectAnswerMax);
+    const hasIntegerCorrectAnswer = isRange || (parsedCorrectAnswer !== null && Number.isFinite(parsedCorrectAnswer));
+    const needsCorrectAnswer =
+      questionType === "multi"
+        ? !hasMultiCorrectAnswer
+        : questionType === "integer"
+          ? !hasIntegerCorrectAnswer
+          : !hasMcqCorrectAnswer;
+    const persistedMeta = {
+      ...(normalizedMeta ?? {}),
+      needsCorrectAnswer,
+      needsQuestionSetup: needsCorrectAnswer || Boolean(normalizedMeta?.needsQuestionSetup),
+    };
 
     const [q] = await db.insert(testQuestionsTable).values({
       testId,
@@ -1189,13 +2750,20 @@ router.post("/tests/:id/questions", requireAuth, async (req, res) => {
       questionType: String(questionType),
       options: JSON.stringify(options),
       optionImages: optionImages ? JSON.stringify(optionImages) : null,
-      correctAnswer: questionType === "multi" ? 0 : (isRange ? 0 : Number(correctAnswer ?? 0)),
-      correctAnswerMulti: questionType === "multi" ? JSON.stringify(correctAnswerMulti) : null,
-      correctAnswerMin: isRange ? Number(correctAnswerMin) : null,
-      correctAnswerMax: isRange ? Number(correctAnswerMax) : null,
+      correctAnswer:
+        questionType === "multi"
+          ? 0
+          : isRange
+            ? 0
+            : questionType === "mcq"
+              ? (hasMcqCorrectAnswer ? Number(parsedCorrectAnswer) : -1)
+              : (hasIntegerCorrectAnswer ? Number(parsedCorrectAnswer) : 0),
+      correctAnswerMulti: questionType === "multi" ? JSON.stringify(normalizedCorrectAnswerMulti) : null,
+      correctAnswerMin: isRange ? Number(parsedCorrectAnswerMin) : null,
+      correctAnswerMax: isRange ? Number(parsedCorrectAnswerMax) : null,
       points: points ? Number(points) : 1,
       negativeMarks: negativeMarks !== undefined ? Number(negativeMarks) : 0,
-      meta: meta ? JSON.stringify(meta) : null,
+      meta: Object.keys(persistedMeta).length > 0 ? JSON.stringify(persistedMeta) : null,
       solutionText: typeof solutionText === "string" && solutionText.trim() ? solutionText.trim() : null,
       solutionImageData: typeof solutionImageData === "string" && solutionImageData.trim() ? solutionImageData : null,
       order: existing.length,
@@ -1236,18 +2804,39 @@ router.patch("/tests/:id/questions/:qid", requireAuth, async (req, res) => {
       solutionImageData,
     } = req.body;
     if (!question && !imageData) return res.status(400).json({ error: "question text or image required" });
-
-    if (questionType === "multi" && (!correctAnswerMulti || !Array.isArray(correctAnswerMulti))) {
-      return res.status(400).json({ error: "correctAnswerMulti (array) required for multi type" });
-    }
-    if (questionType === "integer" && correctAnswer === undefined && (correctAnswerMin === undefined || correctAnswerMax === undefined)) {
-      return res.status(400).json({ error: "correctAnswer or correctAnswerMin+correctAnswerMax required for integer type" });
-    }
-    if (questionType !== "multi" && questionType !== "integer" && correctAnswer === undefined) {
-      return res.status(400).json({ error: "correctAnswer required" });
-    }
-
-    const isRange = questionType === "integer" && correctAnswerMin !== undefined && correctAnswerMax !== undefined;
+    const normalizedMeta = normalizeObjectValue<Record<string, unknown> | null>(meta, null);
+    const parsedCorrectAnswer = correctAnswer === undefined || correctAnswer === null || String(correctAnswer).trim?.() === ""
+      ? null
+      : Number(correctAnswer);
+    const hasMcqCorrectAnswer = parsedCorrectAnswer !== null && Number.isFinite(parsedCorrectAnswer) && parsedCorrectAnswer >= 0;
+    const normalizedCorrectAnswerMulti = Array.isArray(correctAnswerMulti) ? correctAnswerMulti.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value >= 0) : [];
+    const hasMultiCorrectAnswer = normalizedCorrectAnswerMulti.length > 0;
+    const parsedCorrectAnswerMin =
+      correctAnswerMin === undefined || correctAnswerMin === null || String(correctAnswerMin).trim?.() === ""
+        ? null
+        : Number(correctAnswerMin);
+    const parsedCorrectAnswerMax =
+      correctAnswerMax === undefined || correctAnswerMax === null || String(correctAnswerMax).trim?.() === ""
+        ? null
+        : Number(correctAnswerMax);
+    const isRange =
+      questionType === "integer" &&
+      parsedCorrectAnswerMin !== null &&
+      parsedCorrectAnswerMax !== null &&
+      Number.isFinite(parsedCorrectAnswerMin) &&
+      Number.isFinite(parsedCorrectAnswerMax);
+    const hasIntegerCorrectAnswer = isRange || (parsedCorrectAnswer !== null && Number.isFinite(parsedCorrectAnswer));
+    const needsCorrectAnswer =
+      questionType === "multi"
+        ? !hasMultiCorrectAnswer
+        : questionType === "integer"
+          ? !hasIntegerCorrectAnswer
+          : !hasMcqCorrectAnswer;
+    const persistedMeta = {
+      ...(normalizedMeta ?? {}),
+      needsCorrectAnswer,
+      needsQuestionSetup: needsCorrectAnswer || Boolean(normalizedMeta?.needsQuestionSetup),
+    };
 
     const [q] = await db.update(testQuestionsTable).set({
       testId,
@@ -1259,21 +2848,67 @@ router.patch("/tests/:id/questions/:qid", requireAuth, async (req, res) => {
       questionType: String(questionType),
       options: JSON.stringify(options),
       optionImages: optionImages ? JSON.stringify(optionImages) : null,
-      correctAnswer: questionType === "multi" ? 0 : (isRange ? 0 : Number(correctAnswer ?? 0)),
-      correctAnswerMulti: questionType === "multi" ? JSON.stringify(correctAnswerMulti) : null,
-      correctAnswerMin: isRange ? Number(correctAnswerMin) : null,
-      correctAnswerMax: isRange ? Number(correctAnswerMax) : null,
+      correctAnswer:
+        questionType === "multi"
+          ? 0
+          : isRange
+            ? 0
+            : questionType === "mcq"
+              ? (hasMcqCorrectAnswer ? Number(parsedCorrectAnswer) : -1)
+              : (hasIntegerCorrectAnswer ? Number(parsedCorrectAnswer) : 0),
+      correctAnswerMulti: questionType === "multi" ? JSON.stringify(normalizedCorrectAnswerMulti) : null,
+      correctAnswerMin: isRange ? Number(parsedCorrectAnswerMin) : null,
+      correctAnswerMax: isRange ? Number(parsedCorrectAnswerMax) : null,
       points: points ? Number(points) : 1,
       negativeMarks: negativeMarks !== undefined ? Number(negativeMarks) : 0,
-      meta: meta ? JSON.stringify(meta) : null,
+      meta: Object.keys(persistedMeta).length > 0 ? JSON.stringify(persistedMeta) : null,
       solutionText: typeof solutionText === "string" && solutionText.trim() ? solutionText.trim() : null,
       solutionImageData: typeof solutionImageData === "string" && solutionImageData.trim() ? solutionImageData : null,
       imageData: imageData ? String(imageData) : null,
     }).where(and(eq(testQuestionsTable.id, questionId), eq(testQuestionsTable.testId, testId))).returning();
 
     if (!q) return res.status(404).json({ error: "Question not found" });
+    const openReports = await db
+      .select()
+      .from(testQuestionReportsTable)
+      .where(and(
+        eq(testQuestionReportsTable.questionId, questionId),
+        eq(testQuestionReportsTable.status, "open"),
+      ));
 
-    return res.json(serializeTestQuestion(q, { showCorrect: true, includeSolutions: true }));
+    if (openReports.length > 0) {
+      await db
+        .update(testQuestionReportsTable)
+        .set({
+          status: "resolved",
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(testQuestionReportsTable.questionId, questionId),
+          eq(testQuestionReportsTable.status, "open"),
+        ));
+
+      const [testMeta] = await db
+        .select({ title: testsTable.title })
+        .from(testsTable)
+        .where(eq(testsTable.id, testId))
+        .limit(1);
+      const reporterIds = [...new Set(openReports.map((report) => report.reportedBy))];
+      if (reporterIds.length > 0) {
+        const questionLabel = q.questionCode?.trim() || `Question ${questionId}`;
+        await pushNotificationToMany(reporterIds, {
+          type: "test",
+          title: "Reported question fixed",
+          message: `${questionLabel} in ${testMeta?.title ?? "your test"} has been updated by the teacher.`,
+          link: `/student/tests/${testId}/solutions`,
+        });
+      }
+    }
+
+    return res.json({
+      ...serializeTestQuestion(q, { showCorrect: true, includeSolutions: true }),
+      resolvedReportsCount: openReports.length,
+    });
   } catch { return res.status(500).json({ error: "Internal server error" }); }
 });
 
@@ -1445,6 +3080,490 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
   } catch { return res.status(500).json({ error: "Internal server error" }); }
 });
 
+type InsightDifficulty = "easy" | "moderate" | "tough";
+type InsightQuestionType = "mcq" | "multi" | "integer";
+type InsightStatus = "strong" | "building" | "recovering" | "slipping" | "fragile";
+type SpeedZone = "fast-accurate" | "fast-fragile" | "slow-solid" | "drag-zone";
+
+type InsightPoint = {
+  testId: number;
+  submittedAt: string | null;
+  subject: string;
+  subjectKey: string;
+  focus: string;
+  focusKey: string;
+  difficulty: InsightDifficulty;
+  questionType: InsightQuestionType;
+  attempted: boolean;
+  correct: boolean;
+  timeSpent: number;
+};
+
+type AdvancedInsightsPayload = {
+  historyDepth: number;
+  masteryMap: Array<{
+    label: string;
+    currentAccuracy: number;
+    baselineAccuracy: number | null;
+    trend: number | null;
+    attempted: number;
+    avgSecondsPerAttempt: number;
+    status: InsightStatus;
+    signal: string;
+  }>;
+  forgettingCurve: Array<{
+    label: string;
+    subject: string;
+    previousAccuracy: number;
+    currentAccuracy: number;
+    drop: number;
+    retentionPct: number;
+    lastSeenDays: number | null;
+  }>;
+  speedVsAccuracy: Array<{
+    label: string;
+    accuracy: number;
+    avgSecondsPerAttempt: number;
+    baselineAccuracy: number | null;
+    baselineSecondsPerAttempt: number | null;
+    zone: SpeedZone;
+    insight: string;
+  }>;
+  errorRecurrence: Array<{
+    label: string;
+    category: "Topic" | "Difficulty" | "Question Type";
+    currentWrong: number;
+    previousWrong: number;
+    testsHit: number;
+    severity: "high" | "medium";
+    signal: string;
+  }>;
+  revisionRoadmap: Array<{
+    title: string;
+    priority: "High" | "Medium";
+    focusArea: string;
+    reason: string;
+    actions: string[];
+  }>;
+};
+
+function normalizeInsightQuestionType(value: unknown): InsightQuestionType {
+  if (value === "multi") return "multi";
+  if (value === "integer") return "integer";
+  return "mcq";
+}
+
+function insightQuestionTypeLabel(value: InsightQuestionType) {
+  if (value === "multi") return "Multi Select";
+  if (value === "integer") return "Integer";
+  return "MCQ";
+}
+
+function insightDifficultyLabel(value: InsightDifficulty) {
+  if (value === "easy") return "Easy";
+  if (value === "tough") return "Tough";
+  return "Moderate";
+}
+
+function roundMetric(value: number, digits = 1) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function summarizeInsightPoints(points: InsightPoint[]) {
+  const attemptedPoints = points.filter((point) => point.attempted);
+  const attempted = attemptedPoints.length;
+  const correct = attemptedPoints.filter((point) => point.correct).length;
+  const wrong = Math.max(0, attempted - correct);
+  const totalTime = attemptedPoints.reduce((sum, point) => sum + point.timeSpent, 0);
+  return {
+    attempted,
+    correct,
+    wrong,
+    accuracy: attempted > 0 ? roundMetric((correct / attempted) * 100) : 0,
+    avgSecondsPerAttempt: attempted > 0 ? roundMetric(totalTime / attempted) : 0,
+  };
+}
+
+function resolveInsightFocusLabel(subject: string, focus: string) {
+  const subjectKey = normalizeTitleKey(subject);
+  const focusKey = normalizeTitleKey(focus);
+  if (!focusKey || focusKey === subjectKey) return subject;
+  return `${subject} · ${focus}`;
+}
+
+function buildInsightPoint(params: {
+  testId: number;
+  submittedAt: Date | string | null | undefined;
+  testTitle: string;
+  sectionLabel?: string | null;
+  subjectName?: string | null;
+  chapterName?: string | null;
+  topicTag?: string | null;
+  meta?: Record<string, unknown> | null;
+  questionType?: string | null;
+  attempted: boolean;
+  correct: boolean;
+  timeSpent: number;
+}): InsightPoint {
+  const subject = firstTrimmedString(
+    params.subjectName,
+    typeof params.meta?.subjectName === "string" ? params.meta.subjectName : null,
+    params.sectionLabel,
+    params.testTitle,
+  ) ?? params.testTitle;
+  const focus = firstTrimmedString(
+    params.topicTag,
+    typeof params.meta?.topicTag === "string" ? params.meta.topicTag : null,
+    typeof params.meta?.topicName === "string" ? params.meta.topicName : null,
+    typeof params.meta?.topic === "string" ? params.meta.topic : null,
+    params.chapterName,
+    typeof params.meta?.chapterName === "string" ? params.meta.chapterName : null,
+    subject,
+  ) ?? subject;
+  const difficulty = normalizeTestDifficultyValue(params.meta?.difficulty) ?? "moderate";
+
+  return {
+    testId: params.testId,
+    submittedAt: params.submittedAt ? new Date(params.submittedAt).toISOString() : null,
+    subject,
+    subjectKey: normalizeTitleKey(subject) ?? "unknown-subject",
+    focus,
+    focusKey: normalizeTitleKey(focus) ?? normalizeTitleKey(subject) ?? "unknown-focus",
+    difficulty,
+    questionType: normalizeInsightQuestionType(params.questionType),
+    attempted: params.attempted,
+    correct: params.correct,
+    timeSpent: Number(params.timeSpent || 0),
+  };
+}
+
+function buildHistoryInsightPoints(params: {
+  testId: number;
+  testTitle: string;
+  submittedAt: Date | string | null | undefined;
+  questions: Array<typeof testQuestionsTable.$inferSelect>;
+  sections: Array<typeof testSectionsTable.$inferSelect>;
+  answers: Record<string, unknown>;
+  timings: Record<string, number>;
+}) {
+  const sectionsById = new Map(params.sections.map((section) => [section.id, section] as const));
+  return params.questions.map((question) => {
+    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+    const section = question.sectionId ? sectionsById.get(question.sectionId) ?? null : null;
+    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title, params.testTitle);
+    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+    const topicTag = firstTrimmedString(meta?.topicTag, meta?.topicName, meta?.topic);
+    const answer = params.answers[question.id] ?? params.answers[String(question.id)];
+    const attempted = hasAnsweredQuestion(question, answer);
+    const correct = attempted ? gradeQuestion(question, answer) : false;
+    const timeSpent = Number(params.timings[question.id] ?? params.timings[String(question.id)] ?? 0);
+    return buildInsightPoint({
+      testId: params.testId,
+      submittedAt: params.submittedAt,
+      testTitle: params.testTitle,
+      sectionLabel,
+      subjectName: resolvedTaxonomy.subjectName,
+      chapterName: resolvedTaxonomy.chapterName,
+      topicTag,
+      meta,
+      questionType: question.questionType,
+      attempted,
+      correct,
+      timeSpent,
+    });
+  });
+}
+
+function buildAdvancedInsightsPayload(params: {
+  currentPoints: InsightPoint[];
+  historyPoints: InsightPoint[];
+  historyDepth: number;
+  currentSubmittedAt: Date | string | null | undefined;
+}): AdvancedInsightsPayload {
+  const currentSubmittedAt = params.currentSubmittedAt ? new Date(params.currentSubmittedAt) : null;
+  const currentBySubject = new Map<string, { label: string; points: InsightPoint[] }>();
+  const historyBySubject = new Map<string, { label: string; points: InsightPoint[] }>();
+  const currentByFocus = new Map<string, { label: string; subject: string; points: InsightPoint[] }>();
+  const historyByFocus = new Map<string, { label: string; subject: string; points: InsightPoint[] }>();
+
+  const registerGroup = <T extends { label: string; points: InsightPoint[] }>(
+    map: Map<string, T>,
+    key: string,
+    create: () => T,
+    point: InsightPoint,
+  ) => {
+    const existing = map.get(key) ?? create();
+    existing.points.push(point);
+    map.set(key, existing);
+  };
+
+  for (const point of params.currentPoints) {
+    registerGroup(currentBySubject, point.subjectKey, () => ({ label: point.subject, points: [] }), point);
+    registerGroup(currentByFocus, point.focusKey, () => ({ label: point.focus, subject: point.subject, points: [] }), point);
+  }
+  for (const point of params.historyPoints) {
+    registerGroup(historyBySubject, point.subjectKey, () => ({ label: point.subject, points: [] }), point);
+    registerGroup(historyByFocus, point.focusKey, () => ({ label: point.focus, subject: point.subject, points: [] }), point);
+  }
+
+  const masteryMap = Array.from(currentBySubject.entries())
+    .map(([subjectKey, group]) => {
+      const current = summarizeInsightPoints(group.points);
+      const baselineGroup = historyBySubject.get(subjectKey);
+      const baseline = baselineGroup ? summarizeInsightPoints(baselineGroup.points) : null;
+      const trend = baseline ? roundMetric(current.accuracy - baseline.accuracy) : null;
+
+      let status: InsightStatus = "building";
+      if (current.accuracy >= 75 && (trend == null || trend >= -5)) status = "strong";
+      else if (trend != null && trend >= 8) status = "recovering";
+      else if (trend != null && trend <= -12) status = "slipping";
+      else if (current.accuracy < 55) status = "fragile";
+
+      let signal = `${current.attempted} attempted with ${current.avgSecondsPerAttempt}s average pace.`;
+      if (baseline && trend != null) {
+        signal = trend >= 0
+          ? `Up ${Math.abs(trend)} pts vs recent baseline with ${current.avgSecondsPerAttempt}s average pace.`
+          : `Down ${Math.abs(trend)} pts vs recent baseline with ${current.avgSecondsPerAttempt}s average pace.`;
+      }
+
+      return {
+        label: group.label,
+        currentAccuracy: current.accuracy,
+        baselineAccuracy: baseline?.accuracy ?? null,
+        trend,
+        attempted: current.attempted,
+        avgSecondsPerAttempt: current.avgSecondsPerAttempt,
+        status,
+        signal,
+      };
+    })
+    .sort((left, right) => {
+      const rank: Record<InsightStatus, number> = { slipping: 0, fragile: 1, building: 2, recovering: 3, strong: 4 };
+      return rank[left.status] - rank[right.status] || left.currentAccuracy - right.currentAccuracy;
+    });
+
+  let forgettingCurve = Array.from(currentByFocus.entries())
+    .map(([focusKey, group]) => {
+      const current = summarizeInsightPoints(group.points);
+      const historyGroup = historyByFocus.get(focusKey);
+      if (!historyGroup) return null;
+      const baseline = summarizeInsightPoints(historyGroup.points);
+      const drop = roundMetric(baseline.accuracy - current.accuracy);
+      if (baseline.attempted < 2 || current.attempted < 1 || baseline.accuracy < 60 || drop < 12) return null;
+      const latestSeen = historyGroup.points
+        .map((point) => point.submittedAt)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+      const lastSeenDays = currentSubmittedAt && latestSeen
+        ? Math.max(0, Math.round((currentSubmittedAt.getTime() - new Date(latestSeen).getTime()) / (1000 * 60 * 60 * 24)))
+        : null;
+      return {
+        label: group.label,
+        subject: group.subject,
+        previousAccuracy: baseline.accuracy,
+        currentAccuracy: current.accuracy,
+        drop,
+        retentionPct: baseline.accuracy > 0 ? roundMetric((current.accuracy / baseline.accuracy) * 100) : 0,
+        lastSeenDays,
+      };
+    })
+    .filter((value): value is NonNullable<typeof value> => Boolean(value))
+    .sort((left, right) => right.drop - left.drop)
+    .slice(0, 4);
+
+  if (forgettingCurve.length === 0) {
+    forgettingCurve = masteryMap
+      .filter((item) => item.baselineAccuracy != null && item.trend != null && item.trend <= -12)
+      .map((item) => ({
+        label: item.label,
+        subject: item.label,
+        previousAccuracy: item.baselineAccuracy ?? 0,
+        currentAccuracy: item.currentAccuracy,
+        drop: Math.abs(item.trend ?? 0),
+        retentionPct: item.baselineAccuracy ? roundMetric((item.currentAccuracy / item.baselineAccuracy) * 100) : 0,
+        lastSeenDays: null,
+      }))
+      .slice(0, 4);
+  }
+
+  const speedVsAccuracy = Array.from(currentBySubject.entries())
+    .map(([subjectKey, group]) => {
+      const current = summarizeInsightPoints(group.points);
+      const baselineGroup = historyBySubject.get(subjectKey);
+      const baseline = baselineGroup ? summarizeInsightPoints(baselineGroup.points) : null;
+      const paceReference = baseline?.avgSecondsPerAttempt ?? 90;
+
+      let zone: SpeedZone = "slow-solid";
+      if (current.accuracy >= 70 && current.avgSecondsPerAttempt <= paceReference * 0.95) zone = "fast-accurate";
+      else if (current.accuracy < 70 && current.avgSecondsPerAttempt <= paceReference) zone = "fast-fragile";
+      else if (current.accuracy < 70) zone = "drag-zone";
+
+      let insight = `${current.accuracy}% accuracy at ${current.avgSecondsPerAttempt}s per attempt.`;
+      if (baseline) {
+        const paceDelta = roundMetric(current.avgSecondsPerAttempt - baseline.avgSecondsPerAttempt);
+        const accDelta = roundMetric(current.accuracy - baseline.accuracy);
+        const paceLabel = paceDelta >= 0 ? `${paceDelta}s slower` : `${Math.abs(paceDelta)}s faster`;
+        const accLabel = accDelta >= 0 ? `${accDelta} pts up` : `${Math.abs(accDelta)} pts down`;
+        insight = `${paceLabel} with ${accLabel} vs recent baseline.`;
+      }
+
+      return {
+        label: group.label,
+        accuracy: current.accuracy,
+        avgSecondsPerAttempt: current.avgSecondsPerAttempt,
+        baselineAccuracy: baseline?.accuracy ?? null,
+        baselineSecondsPerAttempt: baseline?.avgSecondsPerAttempt ?? null,
+        zone,
+        insight,
+      };
+    })
+    .sort((left, right) => {
+      const rank: Record<SpeedZone, number> = { "drag-zone": 0, "fast-fragile": 1, "slow-solid": 2, "fast-accurate": 3 };
+      return rank[left.zone] - rank[right.zone] || left.accuracy - right.accuracy;
+    });
+
+  const currentWrongPoints = params.currentPoints.filter((point) => point.attempted && !point.correct);
+  const historyWrongPoints = params.historyPoints.filter((point) => point.attempted && !point.correct);
+  const recurrenceCandidates = new Map<string, {
+    label: string;
+    category: "Topic" | "Difficulty" | "Question Type";
+    currentWrong: number;
+    previousWrong: number;
+    testsHit: Set<number>;
+  }>();
+
+  const registerRecurrence = (
+    key: string,
+    category: "Topic" | "Difficulty" | "Question Type",
+    label: string,
+    point: InsightPoint,
+    bucket: "currentWrong" | "previousWrong",
+  ) => {
+    const existing = recurrenceCandidates.get(key) ?? {
+      label,
+      category,
+      currentWrong: 0,
+      previousWrong: 0,
+      testsHit: new Set<number>(),
+    };
+    existing[bucket] += 1;
+    existing.testsHit.add(point.testId);
+    recurrenceCandidates.set(key, existing);
+  };
+
+  for (const point of currentWrongPoints) {
+    registerRecurrence(`topic:${point.focusKey}`, "Topic", resolveInsightFocusLabel(point.subject, point.focus), point, "currentWrong");
+    registerRecurrence(`difficulty:${point.difficulty}`, "Difficulty", insightDifficultyLabel(point.difficulty), point, "currentWrong");
+    registerRecurrence(`type:${point.questionType}`, "Question Type", insightQuestionTypeLabel(point.questionType), point, "currentWrong");
+  }
+  for (const point of historyWrongPoints) {
+    registerRecurrence(`topic:${point.focusKey}`, "Topic", resolveInsightFocusLabel(point.subject, point.focus), point, "previousWrong");
+    registerRecurrence(`difficulty:${point.difficulty}`, "Difficulty", insightDifficultyLabel(point.difficulty), point, "previousWrong");
+    registerRecurrence(`type:${point.questionType}`, "Question Type", insightQuestionTypeLabel(point.questionType), point, "previousWrong");
+  }
+
+  const errorRecurrence = Array.from(recurrenceCandidates.values())
+    .filter((item) => (item.currentWrong >= 1 && item.previousWrong >= 1) || (item.currentWrong + item.previousWrong >= 3 && item.testsHit.size >= 2))
+    .sort((left, right) => {
+      const leftScore = left.currentWrong * 3 + left.previousWrong * 2 + left.testsHit.size + (left.category === "Topic" ? 2 : 0);
+      const rightScore = right.currentWrong * 3 + right.previousWrong * 2 + right.testsHit.size + (right.category === "Topic" ? 2 : 0);
+      return rightScore - leftScore;
+    })
+    .slice(0, 4)
+    .map((item) => {
+      const severity: "high" | "medium" = item.currentWrong + item.previousWrong >= 4 || item.testsHit.size >= 3 ? "high" : "medium";
+      return {
+        label: item.label,
+        category: item.category,
+        currentWrong: item.currentWrong,
+        previousWrong: item.previousWrong,
+        testsHit: item.testsHit.size,
+        severity,
+        signal: `Wrong ${item.currentWrong + item.previousWrong} times across ${item.testsHit.size} test${item.testsHit.size === 1 ? "" : "s"}.`,
+      };
+    });
+
+  const revisionRoadmap: AdvancedInsightsPayload["revisionRoadmap"] = [];
+  const roadmapKeys = new Set<string>();
+  const pushRoadmap = (item: AdvancedInsightsPayload["revisionRoadmap"][number]) => {
+    const key = normalizeTitleKey(item.focusArea) ?? normalizeTitleKey(item.title) ?? item.title;
+    if (roadmapKeys.has(key)) return;
+    roadmapKeys.add(key);
+    revisionRoadmap.push(item);
+  };
+
+  const weakestMastery = masteryMap[0];
+  const biggestDrop = forgettingCurve[0];
+  const biggestRecurringError = errorRecurrence[0];
+  const paceRisk = speedVsAccuracy.find((item) => item.zone === "drag-zone" || item.zone === "fast-fragile") ?? speedVsAccuracy[0];
+
+  if (biggestDrop) {
+    pushRoadmap({
+      title: `Recover ${biggestDrop.label}`,
+      priority: "High",
+      focusArea: biggestDrop.label,
+      reason: `${biggestDrop.drop} pt drop vs recent baseline. Retention is now ${biggestDrop.retentionPct}% in this area.`,
+      actions: [
+        `Redo the last wrong questions from ${biggestDrop.label} without time pressure.`,
+        `Create a short formula or concept recap for ${biggestDrop.label}.`,
+        `Attempt one timed mini-set from ${biggestDrop.label} before the next mock.`,
+      ],
+    });
+  }
+
+  if (biggestRecurringError) {
+    pushRoadmap({
+      title: `Break ${biggestRecurringError.label} loop`,
+      priority: biggestRecurringError.severity === "high" ? "High" : "Medium",
+      focusArea: biggestRecurringError.label,
+      reason: `${biggestRecurringError.category} mistakes have repeated across ${biggestRecurringError.testsHit} tests.`,
+      actions: [
+        `Review why ${biggestRecurringError.currentWrong + biggestRecurringError.previousWrong} mistakes happened in ${biggestRecurringError.label}.`,
+        `Solve 8-12 focused questions from this bucket in mixed difficulty.`,
+        `Do one post-practice audit and note the exact trigger behind each miss.`,
+      ],
+    });
+  }
+
+  if (paceRisk) {
+    pushRoadmap({
+      title: paceRisk.zone === "drag-zone" ? `Unblock pace in ${paceRisk.label}` : `Stabilise accuracy in ${paceRisk.label}`,
+      priority: paceRisk.zone === "drag-zone" ? "High" : "Medium",
+      focusArea: paceRisk.label,
+      reason: paceRisk.insight,
+      actions: [
+        `Run one timed set for ${paceRisk.label} with a hard stop per question.`,
+        `Mark which questions deserve quick skip vs full attempt in ${paceRisk.label}.`,
+        `Compare pace after the next test and keep only the faster method that stays accurate.`,
+      ],
+    });
+  }
+
+  if (revisionRoadmap.length < 3 && weakestMastery) {
+    pushRoadmap({
+      title: `Rebuild ${weakestMastery.label}`,
+      priority: weakestMastery.status === "fragile" || weakestMastery.status === "slipping" ? "High" : "Medium",
+      focusArea: weakestMastery.label,
+      reason: weakestMastery.signal,
+      actions: [
+        `Revisit core concepts and solved examples from ${weakestMastery.label}.`,
+        `Solve a short untimed drill first, then repeat it with time pressure.`,
+        `Track whether accuracy crosses ${Math.max(70, weakestMastery.currentAccuracy + 10)}% on the next attempt.`,
+      ],
+    });
+  }
+
+  return {
+    historyDepth: params.historyDepth,
+    masteryMap,
+    forgettingCurve,
+    speedVsAccuracy,
+    errorRecurrence,
+    revisionRoadmap: revisionRoadmap.slice(0, 3),
+  };
+}
+
 // GET /api/tests/:id/my-analysis — student gets their own advanced analysis + anonymous class stats
 router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
   try {
@@ -1488,6 +3607,53 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
       .where(eq(testQuestionsTable.testId, testId)).orderBy(testQuestionsTable.order);
     const sections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, testId)).orderBy(testSectionsTable.order);
+    const sectionById = new Map(sections.map((section) => [section.id, section] as const));
+
+    const recentSubmissionRows = await db.select({
+      id: testSubmissionsTable.id,
+      testId: testSubmissionsTable.testId,
+      answers: testSubmissionsTable.answers,
+      questionTimings: testSubmissionsTable.questionTimings,
+      score: testSubmissionsTable.score,
+      totalPoints: testSubmissionsTable.totalPoints,
+      percentage: testSubmissionsTable.percentage,
+      submittedAt: testSubmissionsTable.submittedAt,
+      testTitle: testsTable.title,
+    }).from(testSubmissionsTable)
+      .innerJoin(testsTable, eq(testSubmissionsTable.testId, testsTable.id))
+      .where(eq(testSubmissionsTable.studentId, userId))
+      .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id));
+
+    const latestRecentByTest = new Map<number, typeof recentSubmissionRows[number]>();
+    for (const row of recentSubmissionRows) {
+      if (row.testId === testId || latestRecentByTest.has(row.testId)) continue;
+      latestRecentByTest.set(row.testId, row);
+      if (latestRecentByTest.size >= 5) break;
+    }
+    const historyRows = Array.from(latestRecentByTest.values());
+    const historyTestIds = historyRows.map((row) => row.testId);
+    const historyQuestions = historyTestIds.length > 0
+      ? await db.select().from(testQuestionsTable)
+        .where(inArray(testQuestionsTable.testId, historyTestIds))
+        .orderBy(asc(testQuestionsTable.testId), asc(testQuestionsTable.order))
+      : [];
+    const historySections = historyTestIds.length > 0
+      ? await db.select().from(testSectionsTable)
+        .where(inArray(testSectionsTable.testId, historyTestIds))
+        .orderBy(asc(testSectionsTable.testId), asc(testSectionsTable.order))
+      : [];
+    const historyQuestionsByTest = new Map<number, typeof historyQuestions>();
+    const historySectionsByTest = new Map<number, typeof historySections>();
+    for (const row of historyRows) {
+      historyQuestionsByTest.set(row.testId, []);
+      historySectionsByTest.set(row.testId, []);
+    }
+    for (const question of historyQuestions) {
+      historyQuestionsByTest.get(question.testId)?.push(question);
+    }
+    for (const section of historySections) {
+      historySectionsByTest.get(section.testId)?.push(section);
+    }
 
     // All class submissions for aggregate stats
     const allSubRows = await db.select({
@@ -1525,6 +3691,15 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
 
     // Per-question analysis
     const perQuestion = questions.map((q, idx) => {
+      const meta = q.meta ? JSON.parse(q.meta) : null;
+      const section = q.sectionId ? sectionById.get(q.sectionId) ?? null : null;
+      const sectionLabel = firstTrimmedString(
+        q.subjectLabel,
+        section?.subjectLabel,
+        section?.title,
+      );
+      const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+      const topicTag = firstTrimmedString(meta?.topicTag, meta?.topicName, meta?.topic);
       const answer = myAnswers[q.id] ?? myAnswers[String(q.id)];
       const isSkipped = answer === undefined || answer === null || (Array.isArray(answer) && answer.length === 0) || answer === "";
       const isCorrect = !isSkipped ? gradeQuestion(q, answer) : false;
@@ -1556,8 +3731,11 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
         optionImages: q.optionImages ? JSON.parse(q.optionImages) : null,
         imageData: q.imageData ?? null,
         sectionId: q.sectionId ?? null,
-        subjectLabel: q.subjectLabel ?? null,
-        meta: q.meta ? JSON.parse(q.meta) : null,
+        subjectLabel: sectionLabel ?? null,
+        subjectName: resolvedTaxonomy.subjectName,
+        chapterName: resolvedTaxonomy.chapterName,
+        topicTag,
+        meta,
         points: q.points,
         negativeMarks: q.negativeMarks ?? 0,
         correctAnswer: q.correctAnswer,
@@ -1592,6 +3770,38 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
     const fasterThanClass = perQuestion.filter(q => q.timeVsClass < -20 && q.myTime > 0).length;
     const slowerThanClass = perQuestion.filter(q => q.timeVsClass > 50 && q.myTime > 0).length;
 
+    const currentInsightPoints = perQuestion.map((question) => buildInsightPoint({
+      testId,
+      submittedAt: submission.submittedAt,
+      testTitle: test.title,
+      sectionLabel: question.subjectLabel,
+      subjectName: question.subjectName,
+      chapterName: question.chapterName,
+      topicTag: question.topicTag,
+      meta: question.meta,
+      questionType: question.questionType,
+      attempted: !question.isSkipped,
+      correct: question.isCorrect,
+      timeSpent: question.myTime,
+    }));
+
+    const historicalInsightPoints = historyRows.flatMap((row) => buildHistoryInsightPoints({
+      testId: row.testId,
+      testTitle: row.testTitle,
+      submittedAt: row.submittedAt,
+      questions: historyQuestionsByTest.get(row.testId) ?? [],
+      sections: historySectionsByTest.get(row.testId) ?? [],
+      answers: safeParseJson<Record<string, unknown>>(row.answers, {}),
+      timings: safeParseJson<Record<string, number>>(row.questionTimings, {}),
+    }));
+
+    const advancedInsights = buildAdvancedInsightsPayload({
+      currentPoints: currentInsightPoints,
+      historyPoints: historicalInsightPoints,
+      historyDepth: historyRows.length,
+      currentSubmittedAt: submission.submittedAt,
+    });
+
     return res.json({
       test: { ...test, totalQuestions: questions.length },
       submission: {
@@ -1612,6 +3822,7 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
       classStats: { totalSubs, classAvg, classPassRate, rank, percentile },
       perQuestion,
       insights: { weakQuestions, hardQuestions, timeHogs, fasterThanClass, slowerThanClass },
+      advancedInsights,
     });
   } catch (err) {
     console.error(err);
@@ -1659,6 +3870,27 @@ router.get("/tests/:id/solutions", requireAuth, async (req, res) => {
     const questions = await db.select().from(testQuestionsTable)
       .where(eq(testQuestionsTable.testId, testId))
       .orderBy(asc(testQuestionsTable.order));
+    const questionIds = questions.map((question) => question.id);
+    const studentReports = user.role === "student" && questionIds.length > 0
+      ? await db
+          .select()
+          .from(testQuestionReportsTable)
+          .where(and(
+            inArray(testQuestionReportsTable.questionId, questionIds),
+            eq(testQuestionReportsTable.reportedBy, userId),
+          ))
+          .orderBy(desc(testQuestionReportsTable.createdAt), desc(testQuestionReportsTable.id))
+      : [];
+    const latestReportByQuestionId = new Map<number, typeof studentReports[number]>();
+    for (const report of studentReports) {
+      if (!latestReportByQuestionId.has(report.questionId)) {
+        latestReportByQuestionId.set(report.questionId, report);
+      }
+    }
+    const allSubmissions = await db
+      .select({ answers: testSubmissionsTable.answers })
+      .from(testSubmissionsTable)
+      .where(eq(testSubmissionsTable.testId, testId));
 
     const questionsBySection = new Map<number | null, any[]>();
     for (const question of questions) {
@@ -1668,11 +3900,17 @@ router.get("/tests/:id/solutions", requireAuth, async (req, res) => {
       questionsBySection.set(key, existing);
     }
 
-    const serializedSections = [];
+    const serializedSections: Array<{
+      id: number;
+      title: string;
+      subjectLabel: string | null;
+      order: number;
+      items: Array<Record<string, unknown>>;
+    }> = [];
 
     for (const section of filteredSections) {
       const sectionQuestions = questionsBySection.get(section.id) ?? [];
-      const items = [];
+      const items: Array<Record<string, unknown>> = [];
 
       for (const question of sectionQuestions) {
         const optionStats = computeOptionSelectionStats(question, allSubmissions);
@@ -1681,6 +3919,9 @@ router.get("/tests/:id/solutions", requireAuth, async (req, res) => {
           solutionText: question.solutionText?.trim() || null,
           solutionImageData: question.solutionImageData ?? null,
           solutionSource: question.solutionText?.trim() || question.solutionImageData?.trim() ? "teacher" : "none",
+          report: latestReportByQuestionId.get(question.id)
+            ? serializeTestQuestionReport(latestReportByQuestionId.get(question.id))
+            : null,
           optionSelectionCounts: optionStats.optionCounts,
           optionSelectionPercentages: optionStats.optionSelectionPercentages,
         });
@@ -1981,23 +4222,17 @@ router.get("/calendar", requireAuth, async (req, res) => {
     const user = await getUser(userId);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-    let classRows: any[] = [], testRows: any[] = [], lecturePlanRows: any[] = [];
+    let testRows: any[] = [], lecturePlanRows: any[] = [];
     if (user.role === "super_admin") {
-      classRows = await db.select().from(classesTable);
       testRows = await db.select({ id: testsTable.id, title: testsTable.title, scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt, classId: testsTable.classId, isPublished: testsTable.isPublished }).from(testsTable);
       lecturePlanRows = await db.select().from(lecturePlansTable);
     } else if (user.role === "admin") {
-      classRows = await db.select().from(classesTable).where(eq(classesTable.adminId, userId));
       testRows = await db.select({ id: testsTable.id, title: testsTable.title, scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt, classId: testsTable.classId, isPublished: testsTable.isPublished }).from(testsTable).where(eq(testsTable.createdBy, userId));
       lecturePlanRows = await db.select().from(lecturePlansTable).where(eq(lecturePlansTable.teacherId, userId));
-    } else if (user.role === "planner") {
-      classRows = await db.select().from(classesTable).where(eq(classesTable.plannerId, userId));
-      lecturePlanRows = await db.select().from(lecturePlansTable).where(eq(lecturePlansTable.plannerId, userId));
     } else {
       const enrollments = await db.select({ classId: enrollmentsTable.classId }).from(enrollmentsTable).where(eq(enrollmentsTable.studentId, userId));
       const classIds = enrollments.map((e) => e.classId);
       if (classIds.length > 0) {
-        classRows = await db.select().from(classesTable).where(inArray(classesTable.id, classIds));
         testRows = await db.select({ id: testsTable.id, title: testsTable.title, scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt, classId: testsTable.classId })
           .from(testsTable)
           .where(and(
@@ -2017,15 +4252,6 @@ router.get("/calendar", requireAuth, async (req, res) => {
     const lecturePlanUserMap = new Map(lecturePlanUsers.map((u) => [u.id, u]));
 
     const events = [
-      ...classRows.map((c) => ({
-        id: `class-${c.id}`,
-        type: "class" as const,
-        title: c.title,
-        date: (c.scheduledAt ?? c.createdAt).toISOString(),
-        status: c.status,
-        linkId: c.id,
-        isScheduled: !!c.scheduledAt,
-      })),
       ...testRows.map((t) => ({
         id: `test-${t.id}`,
         type: "test" as const,

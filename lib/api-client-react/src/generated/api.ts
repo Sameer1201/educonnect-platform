@@ -26,7 +26,6 @@ import type {
   CreateSupportTicketBody,
   ErrorResponse,
   FeedbackItem,
-  HRDashboard,
   HealthStatus,
   ListClassesParams,
   ListSupportTicketsParams,
@@ -2140,81 +2139,6 @@ export function useGetStudentDashboard<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetStudentDashboardQueryOptions(options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary HR dashboard stats (super admin only)
- */
-export const getGetHRDashboardUrl = () => {
-  return `/api/dashboard/hr`;
-};
-
-export const getHRDashboard = async (
-  options?: RequestInit,
-): Promise<HRDashboard> => {
-  return customFetch<HRDashboard>(getGetHRDashboardUrl(), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getGetHRDashboardQueryKey = () => {
-  return [`/api/dashboard/hr`] as const;
-};
-
-export const getGetHRDashboardQueryOptions = <
-  TData = Awaited<ReturnType<typeof getHRDashboard>>,
-  TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getHRDashboard>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetHRDashboardQueryKey();
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getHRDashboard>>> = ({
-    signal,
-  }) => getHRDashboard({ signal, ...requestOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getHRDashboard>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type GetHRDashboardQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getHRDashboard>>
->;
-export type GetHRDashboardQueryError = ErrorType<unknown>;
-
-/**
- * @summary HR dashboard stats (super admin only)
- */
-
-export function useGetHRDashboard<
-  TData = Awaited<ReturnType<typeof getHRDashboard>>,
-  TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getHRDashboard>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetHRDashboardQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

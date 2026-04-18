@@ -58,24 +58,18 @@ router.get("/lecture-plans", async (req, res): Promise<void> => {
   const auth = getAuth(req, res);
   if (!auth) return;
 
-  if (!["super_admin", "admin", "planner"].includes(auth.role)) {
+  if (!["super_admin", "admin"].includes(auth.role)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
 
   const plans = auth.role === "super_admin"
     ? await db.select().from(lecturePlansTable).orderBy(asc(lecturePlansTable.scheduledAt))
-    : auth.role === "admin"
-      ? await db
-          .select()
-          .from(lecturePlansTable)
-          .where(eq(lecturePlansTable.teacherId, auth.userId))
-          .orderBy(asc(lecturePlansTable.scheduledAt))
-      : await db
-          .select()
-          .from(lecturePlansTable)
-          .where(eq(lecturePlansTable.plannerId, auth.userId))
-          .orderBy(asc(lecturePlansTable.scheduledAt));
+    : await db
+        .select()
+        .from(lecturePlansTable)
+        .where(eq(lecturePlansTable.teacherId, auth.userId))
+        .orderBy(asc(lecturePlansTable.scheduledAt));
 
   res.json(await serializePlans(plans));
 });
@@ -84,8 +78,8 @@ router.post("/lecture-plans", async (req, res): Promise<void> => {
   const auth = getAuth(req, res);
   if (!auth) return;
 
-  if (!["planner", "super_admin"].includes(auth.role)) {
-    res.status(403).json({ error: "Only planners can create lecture plans" });
+  if (auth.role !== "super_admin") {
+    res.status(403).json({ error: "Only super admin can create schedule updates" });
     return;
   }
 
@@ -131,8 +125,8 @@ router.post("/lecture-plans", async (req, res): Promise<void> => {
 
   await pushNotificationToMany([parsedTeacherId], {
     type: "system",
-    title: `New planner event: ${title.trim()}`,
-    message: `A planner scheduled ${subject.trim()} for ${scheduledAt}.`,
+    title: `New schedule update: ${title.trim()}`,
+    message: `A schedule update was created for ${subject.trim()} on ${scheduledAt}.`,
     link: "/schedule",
   });
 
@@ -143,7 +137,7 @@ router.patch("/lecture-plans/:id", async (req, res): Promise<void> => {
   const auth = getAuth(req, res);
   if (!auth) return;
 
-  if (!["planner", "super_admin"].includes(auth.role)) {
+  if (auth.role !== "super_admin") {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -157,11 +151,6 @@ router.patch("/lecture-plans/:id", async (req, res): Promise<void> => {
   const [existing] = await db.select().from(lecturePlansTable).where(eq(lecturePlansTable.id, id));
   if (!existing) {
     res.status(404).json({ error: "Lecture plan not found" });
-    return;
-  }
-
-  if (auth.role === "planner" && existing.plannerId !== auth.userId) {
-    res.status(403).json({ error: "You can only edit your own lecture plans" });
     return;
   }
 
@@ -233,7 +222,7 @@ router.patch("/lecture-plans/:id", async (req, res): Promise<void> => {
       : "Teacher assignment updated.";
     await pushNotificationToMany([...notifyIds], {
       type: "system",
-      title: `Planner updated: ${updated.title}`,
+      title: `Schedule updated: ${updated.title}`,
       message: changedSchedule,
       link: "/schedule",
     });
@@ -246,7 +235,7 @@ router.delete("/lecture-plans/:id", async (req, res): Promise<void> => {
   const auth = getAuth(req, res);
   if (!auth) return;
 
-  if (!["planner", "super_admin"].includes(auth.role)) {
+  if (auth.role !== "super_admin") {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
@@ -260,11 +249,6 @@ router.delete("/lecture-plans/:id", async (req, res): Promise<void> => {
   const [existing] = await db.select().from(lecturePlansTable).where(eq(lecturePlansTable.id, id));
   if (!existing) {
     res.status(404).json({ error: "Lecture plan not found" });
-    return;
-  }
-
-  if (auth.role === "planner" && existing.plannerId !== auth.userId) {
-    res.status(403).json({ error: "You can only delete your own lecture plans" });
     return;
   }
 

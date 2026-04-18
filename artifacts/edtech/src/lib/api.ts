@@ -7,7 +7,7 @@ async function req<T = any>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(err?.error ?? `HTTP ${r.status}`);
   }
   const text = await r.text();
-  return text ? JSON.parse(text) : null;
+  return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
 export const api = {

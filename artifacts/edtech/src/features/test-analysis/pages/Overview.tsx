@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 import { attemptData, testData, timeData } from "@/data/testData";
+import { getSubjectTheme } from "@/lib/subject-theme";
 
 function ratio(score: number, max: number) {
   if (!max) return 0;
@@ -228,13 +229,14 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
             const matchingPerformance = sectionRows.find((row) => row.subject === subject.label);
             const matchingTime = timeRows.find((row) => row.subject === subject.label);
             const progress = ratio(subject.score, subject.max);
+            const theme = getSubjectTheme(subject.label);
 
             return (
               <div key={subject.key} className="rounded-3xl border border-[#E5E7EB] bg-[#FCFCFE] p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-[#5B4DFF]">
+                      <span style={{ color: theme.color }}>
                         <SubjectSectionIcon label={subject.label} className="h-4 w-4" />
                       </span>
                       <p className="text-base font-semibold text-[#111827]">{subject.label}</p>
@@ -242,8 +244,12 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
                     <p className="mt-1 text-sm text-[#6B7280]">{subject.percentile}%ile estimate</p>
                   </div>
                   <div
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-semibold text-white"
-                    style={{ backgroundColor: subject.color }}
+                    className="flex h-10 min-w-10 items-center justify-center rounded-2xl border px-2 text-sm font-semibold"
+                    style={{
+                      backgroundColor: theme.softBgStrong,
+                      borderColor: theme.softBorder,
+                      color: theme.color,
+                    }}
                   >
                     {Math.round(progress)}%
                   </div>
@@ -252,7 +258,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
                 <div className="mt-4 h-2 rounded-full bg-[#EEF2F7]">
                   <div
                     className="h-2 rounded-full transition-all"
-                    style={{ width: `${progress}%`, backgroundColor: subject.color }}
+                    style={{ width: `${progress}%`, backgroundColor: theme.color }}
                   />
                 </div>
 
@@ -290,7 +296,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
         <FocusCard
           title="Strongest Section"
           value={strongestSection?.subject ?? "Not enough data"}
-          valueIcon={strongestSection ? <SubjectSectionIcon label={strongestSection.subject} className="h-4 w-4" /> : undefined}
+          valueIcon={strongestSection ? <span style={{ color: getSubjectTheme(strongestSection.subject).color }}><SubjectSectionIcon label={strongestSection.subject} className="h-4 w-4" /></span> : undefined}
           detail={
             strongestSection
               ? `${formatSignedMarks(strongestSection.totalScore)} out of ${strongestSection.maxTotalScore}, with ${strongestSection.attemptedCorrect} correct answers.`
@@ -302,7 +308,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
         <FocusCard
           title="Needs Attention"
           value={weakestSection?.subject ?? "Not enough data"}
-          valueIcon={weakestSection ? <SubjectSectionIcon label={weakestSection.subject} className="h-4 w-4" /> : undefined}
+          valueIcon={weakestSection ? <span style={{ color: getSubjectTheme(weakestSection.subject).color }}><SubjectSectionIcon label={weakestSection.subject} className="h-4 w-4" /></span> : undefined}
           detail={
             weakestSection
               ? `${weakestSection.notAttempted} not attempted and ${weakestSection.attemptedWrong} wrong in this section.`
@@ -314,7 +320,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
         <FocusCard
           title="Pacing Watch"
           value={slowestSection?.subject ?? "Balanced pacing"}
-          valueIcon={slowestSection ? <SubjectSectionIcon label={slowestSection.subject} className="h-4 w-4" /> : undefined}
+          valueIcon={slowestSection ? <span style={{ color: getSubjectTheme(slowestSection.subject).color }}><SubjectSectionIcon label={slowestSection.subject} className="h-4 w-4" /></span> : undefined}
           detail={
             slowestSection
               ? `${slowestSection.timeSpent} minutes spent here, with ${slowestSection.accuracy}% accuracy.`

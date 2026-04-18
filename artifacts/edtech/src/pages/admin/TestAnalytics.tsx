@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import {
   ArrowLeft, TrendingUp, Users, Award, Target, Clock, Flag, AlertTriangle,
-  CheckCircle2, XCircle, BarChart3, Zap, BookOpen, Brain, Activity, Info,
+  CheckCircle2, XCircle, BarChart3, Zap, Brain, Activity, Info,
   ChevronDown, ChevronRight, ThumbsDown, ThumbsUp, MinusCircle, Timer
 } from "lucide-react";
 
@@ -86,7 +86,6 @@ interface Analytics {
 
 const DIFF_COLOR: Record<Difficulty, string> = { easy: "#22c55e", medium: "#f59e0b", hard: "#ef4444" };
 const DIFF_BG: Record<Difficulty, string> = { easy: "bg-green-100 text-green-700", medium: "bg-amber-100 text-amber-700", hard: "bg-red-100 text-red-700" };
-const QUALITY_COLOR: Record<Quality, string> = { excellent: "#6366f1", good: "#22c55e", fair: "#f59e0b", poor: "#ef4444" };
 const QUALITY_BG: Record<Quality, string> = { excellent: "bg-indigo-100 text-indigo-700", good: "bg-green-100 text-green-700", fair: "bg-amber-100 text-amber-700", poor: "bg-red-100 text-red-700" };
 
 function fmtTime(s: number) {
@@ -94,7 +93,7 @@ function fmtTime(s: number) {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-function HeatmapCell({ value, max, label }: { value: boolean | null; max?: number; label?: string }) {
+function HeatmapCell({ value, label }: { value: boolean | null; label?: string }) {
   if (value === null) return <div className="w-6 h-6 rounded bg-muted/40 border border-border/30" title="Skipped" />;
   return (
     <div
@@ -168,7 +167,6 @@ export default function TestAnalytics() {
   ];
 
   const totalQuestions = analytics.perQuestion.length;
-  const maxStudentTime = Math.max(...(analytics.studentBreakdown.map((s) => s.totalTime)), 0);
   const allCellTimes = analytics.studentBreakdown.flatMap((s) => s.questionResults.map((r) => r.time));
   const maxCellTime = Math.max(...allCellTimes, 0);
 
@@ -272,9 +270,19 @@ export default function TestAnalytics() {
                         <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
                         <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => [v, "Students"]} />
                         <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                          {analytics.scoreDistribution.map((b, i) => (
-                            <Cell key={i} fill={analytics.test.passingScore == null ? "#6366f1" : b.min >= analytics.test.passingScore ? "#22c55e" : b.max < analytics.test.passingScore ? "#ef4444" : "#f59e0b"} />
-                          ))}
+                          {analytics.scoreDistribution.map((bucket, i) => {
+                            const [minLabel = "0", maxLabel = "100"] = bucket.range.replace("%", "").split("–");
+                            const min = Number(minLabel);
+                            const max = Number(maxLabel);
+                            const fill = analytics.test.passingScore == null
+                              ? "#6366f1"
+                              : min >= analytics.test.passingScore
+                                ? "#22c55e"
+                                : max < analytics.test.passingScore
+                                  ? "#ef4444"
+                                  : "#f59e0b";
+                            return <Cell key={i} fill={fill} />;
+                          })}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>

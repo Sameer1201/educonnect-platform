@@ -12,7 +12,6 @@ import {
   attendanceTable,
   assignmentSubmissionsTable,
   testSubmissionsTable,
-  studentPaymentsTable,
   lectureEnrollmentsTable,
   directMessagesTable,
   communityPostsTable,
@@ -74,7 +73,7 @@ function requireRole(req: any, res: any, allowedRoles: string[]): string | null 
 }
 
 router.get("/users", async (req, res): Promise<void> => {
-  const callerRole = requireRole(req, res, ["super_admin", "admin", "planner"]);
+  const callerRole = requireRole(req, res, ["super_admin", "admin"]);
   if (!callerRole) return;
 
   const params = ListUsersQueryParams.safeParse(req.query);
@@ -82,20 +81,12 @@ router.get("/users", async (req, res): Promise<void> => {
   let users = await db.select().from(usersTable).orderBy(usersTable.createdAt);
 
   if (params.success) {
-    if (callerRole === "planner" && params.data.role && params.data.role !== "admin") {
-      res.status(403).json({ error: "Planners can only view teacher accounts" });
-      return;
-    }
     if (params.data.role) {
       users = users.filter((u) => u.role === params.data.role);
     }
     if (params.data.status) {
       users = users.filter((u) => u.status === params.data.status);
     }
-  }
-
-  if (callerRole === "planner") {
-    users = users.filter((u) => u.role === "admin");
   }
 
   res.json(users.map(serializeUser));
@@ -113,6 +104,11 @@ router.post("/users", async (req, res): Promise<void> => {
 
   const { username, password, fullName, email, subject } = parsed.data;
   const role = parsed.data.role ?? "admin";
+
+  if (role !== "admin") {
+    res.status(400).json({ error: "Only teacher accounts can be created from this panel" });
+    return;
+  }
 
   const [existing] = await db
     .select()
@@ -308,7 +304,6 @@ router.delete("/users/:id", async (req, res): Promise<void> => {
     await db.delete(attendanceTable).where(eq(attendanceTable.studentId, userId));
     await db.delete(assignmentSubmissionsTable).where(eq(assignmentSubmissionsTable.studentId, userId));
     await db.delete(testSubmissionsTable).where(eq(testSubmissionsTable.studentId, userId));
-    await db.delete(studentPaymentsTable).where(eq(studentPaymentsTable.studentId, userId));
     await db.delete(lectureEnrollmentsTable).where(eq(lectureEnrollmentsTable.studentId, userId));
     await db.delete(directMessagesTable).where(or(eq(directMessagesTable.senderId, userId), eq(directMessagesTable.receiverId, userId)));
     await db.delete(communityPostsTable).where(eq(communityPostsTable.authorId, userId));

@@ -53,7 +53,6 @@ A 3-level EdTech platform built with React + Vite.
 - `/admin/class/:id` — Class detail with student list and whiteboard link
 - `/admin/students` — Approve/reject student registrations
 - `/admin/whiteboard/:classId` — Interactive canvas whiteboard (teacher)
-- `/super-admin/hr` — HR Dashboard (teacher performance table, top students, workforce metrics)
 - `/admin/support` — Admin support tickets management (view all tickets, respond, update status)
 - `/student/dashboard` — Student overview (enrolled classes, live classes, available classes)
 - `/student/classes` — Browse all classes, enroll
@@ -92,7 +91,6 @@ Express 5 backend with:
 - `GET /api/dashboard/super-admin` — Super admin stats
 - `GET /api/dashboard/admin` — Teacher/admin stats
 - `GET /api/dashboard/student` — Student stats
-- `GET /api/dashboard/hr` — HR dashboard (teacher stats, student enrollment rankings)
 - `POST /api/feedback` — Student submits class feedback (rating 1-5 + optional comment)
 - `GET /api/feedback/class/:classId` — List all feedback for a class
 - `GET /api/support` — List support tickets (students see own, admins see all)
@@ -104,12 +102,6 @@ Express 5 backend with:
 **AI Extraction Setup:**
 - Set `OPENAI_API_KEY` on the API server to enable AI question extraction
 - Optional: set `OPENAI_MODEL` to override the default model (`gpt-5.4-mini`)
-
-**Monthly Payment Management:**
-- Super Admin & Admin: `/super-admin/payments` and `/admin/payments` — generate monthly fee records for all students, mark individual payments as paid or overdue, send bulk push-notification reminders to unpaid students, stats cards + revenue/collection-rate cards + searchable table
-- Student: `/student/payments` — personal payment history with status badges (Paid/Pending/Overdue), overdue banner alert, summary totals
-- DB table: `student_payments` (studentId, month, year, amount, status, dueDate, paidAt, paidBy, notes)
-- Notifications auto-sent on: fee generation, marking paid, overdue alerts, manual reminders
 
 ### Database Schema (PostgreSQL)
 - `users`: id, username, password_hash, full_name, email, phone, role (super_admin|admin|student), status (pending|approved|rejected), subject, created_at

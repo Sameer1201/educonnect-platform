@@ -3,33 +3,31 @@ import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
-import { optimizeImageToDataUrl } from "@/lib/imageUpload";
-import { looksLikeRichHtmlContent, sanitizeRichHtml } from "@/lib/richContent";
+import { looksLikeRichHtmlContent, sanitizeRichHtml, stripRichHtmlToText } from "@/lib/richContent";
 import {
-  ClipboardList, Plus, Trash2, CheckCircle2, XCircle, ChevronDown, ChevronRight,
-  ToggleLeft, ToggleRight, Clock, BarChart3, ImagePlus, X, Hash, ListChecks, CheckSquare,
-  TrendingUp, Users, Award, Target, PencilLine, Download, Upload
+  ClipboardList, Plus, Trash2, CheckCircle2, XCircle, ChevronDown,
+  ToggleLeft, ToggleRight, Clock, Hash,
+  Calculator, Flag,
+  TrendingUp, PencilLine, Download, Upload, FileText, X
 } from "lucide-react";
 import { format } from "date-fns";
-import { useListClasses } from "@workspace/api-client-react";
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, RadialBarChart, RadialBar
-} from "recharts";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type QuestionType = "mcq" | "multi" | "integer";
 type ExamType = string;
+type QuestionDifficulty = "easy" | "moderate" | "tough";
+type QuestionBulkImportMode = "metadata" | "answers";
 
 function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
   const safeName = templateName.trim() || "the examination";
@@ -57,31 +55,6 @@ interface SectionDraft {
   preferredQuestionType: QuestionType;
 }
 
-interface QuestionDraftState {
-  questionType: QuestionType;
-  question: string;
-  imageData: string | null;
-  solutionText: string;
-  solutionImageData: string | null;
-  options: string[];
-  optionImages: (string | null)[];
-  correctAnswer: number;
-  correctAnswerMulti: number[];
-  integerMode: "exact" | "range";
-  correctInteger: string;
-  correctIntegerMin: string;
-  correctIntegerMax: string;
-  difficulty: "easy" | "moderate" | "tough";
-  chapterName: string;
-  topicTag: string;
-  idealTimeMinutes: string;
-  questionCode: string;
-  subjectLabel: string;
-  points: string;
-  negativeMarks: string;
-  sourceType: string;
-}
-
 interface Test {
   id: number; classId: number | null; title: string; description: string | null;
   examType?: ExamType | string | null;
@@ -93,18 +66,55 @@ interface Test {
   chapterId: number | null; durationMinutes: number; passingScore: number | null; isPublished: boolean;
   scheduledAt: string | null; className: string | null; chapterName?: string | null; subjectName?: string | null;
 }
+
+interface PublishSyncQuestion {
+  questionId: number;
+  questionNo: string;
+}
+
+interface PublishSyncSummary {
+  linkedCount: number;
+  createdQuestionBankClassCount: number;
+  createdSubjectCount: number;
+  createdChapterCount: number;
+  skippedNoSubjectCount: number;
+  skippedNoQuestionBankClassCount: number;
+  skippedInvalidQuestionCount: number;
+  skippedDuplicateCount: number;
+  duplicateQuestions?: PublishSyncQuestion[];
+  warnings?: string[];
+}
+
+interface PublishResultDialogState {
+  testId: number;
+  testTitle: string;
+  summary: PublishSyncSummary;
+}
+
+interface UnpublishCleanupSummary {
+  detachedCount: number;
+  removedQuestionCount: number;
+  reviewBucketCleared: boolean;
+  warnings?: string[];
+}
+
 interface Question {
   id: number; question: string; questionType: QuestionType; options: string[];
   sectionId?: number | null;
   questionCode?: string | null;
   sourceType?: string | null;
   subjectLabel?: string | null;
+  difficulty?: string | null;
+  idealTimeSeconds?: number | null;
   optionImages?: (string | null)[] | null;
   correctAnswer: number; correctAnswerMulti: number[] | null;
   correctAnswerMin?: number | null; correctAnswerMax?: number | null;
   points: number; negativeMarks?: number | null; order: number; imageData?: string | null; meta?: Record<string, unknown> | null;
   solutionText?: string | null;
   solutionImageData?: string | null;
+  reports?: Array<{ status?: "open" | "resolved" | "rejected" | null }> | null;
+  openReportCount?: number | null;
+  totalReportCount?: number | null;
 }
 interface TestSection {
   id: number;
@@ -118,6 +128,7 @@ interface TestSection {
   meta?: Record<string, unknown> | null;
   order: number;
 }
+
 interface ExamTemplate {
   id: number;
   key: string;
@@ -142,37 +153,22 @@ interface ExamTemplate {
   }>;
 }
 
-function isHtmlImportedExamConfig(value: unknown) {
+function normalizeExamConfigObject(value: unknown) {
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value) as Record<string, unknown>;
-      return Boolean(parsed?.importedFromHtml);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     } catch {
-      return false;
+      return {};
     }
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  return Boolean((value as Record<string, unknown>).importedFromHtml);
-}
-interface Analytics {
-  test: { id: number; title: string; passingScore: number | null };
-  total: number; passCount: number; failCount: number;
-  avgPercentage: number; avgScore: number; maxScore: number; minScore: number;
-  scoreDistribution: { range: string; count: number }[];
-  perQuestion: {
-    id: number; question: string; questionType: QuestionType;
-    options: string[]; optionImages: (string | null)[] | null;
-    correctAnswer: number; correctAnswerMulti: number[] | null;
-    correctAnswerMin: number | null; correctAnswerMax: number | null;
-    points: number; negativeMarks?: number | null; correctCount: number; wrongCount: number; successRate: number;
-    optionCounts: number[]; imageData: string | null;
-  }[];
-  submissions: {
-    id: number; studentName: string; studentUsername: string;
-    score: number; totalPoints: number; percentage: number; passed: boolean; submittedAt: string;
-  }[];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
 }
 
+function getCalculatorEnabledFromExamConfig(value: unknown) {
+  return Boolean(normalizeExamConfigObject(value).calculatorEnabled);
+}
 interface ExportedTestBundle {
   version: number;
   exportedAt: string;
@@ -197,6 +193,223 @@ interface ExportedTestBundle {
     sections: Array<Record<string, unknown>>;
     questions: Array<Record<string, unknown>>;
   };
+}
+
+interface PdfExportQuestionItem {
+  question: string;
+  imageData?: string | null;
+}
+
+function formatDateTimeLocalValue(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function formatApiErrorMessage(rawMessage: string, fallbackMessage: string) {
+  const trimmed = rawMessage.trim();
+  if (!trimmed) return fallbackMessage;
+
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: unknown; message?: unknown };
+    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim();
+    if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim();
+  } catch {
+    // Non-JSON error bodies are handled below.
+  }
+
+  let normalized = trimmed;
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) {
+    if (typeof DOMParser !== "undefined") {
+      const parsed = new DOMParser().parseFromString(trimmed, "text/html");
+      normalized = parsed.body?.textContent?.replace(/\s+/g, " ").trim() || trimmed;
+    } else {
+      normalized = trimmed.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    }
+  }
+
+  if (/Cannot POST\s+\/api\/tests\/\d+\/import-question-metadata/i.test(normalized)) {
+    return "Metadata import route abhi unavailable hai. Backend server restart karke dobara try karo.";
+  }
+
+  return normalized || fallbackMessage;
+}
+
+function normalizeExamTypeSelection(value: unknown, templates: ExamTemplate[]) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  const normalized = value.trim().toLowerCase();
+  const matched = templates.find((template) => {
+    const candidates = [
+      template.key,
+      template.name,
+      template.examHeader ?? "",
+      template.examSubheader ?? "",
+    ];
+    return candidates.some((candidate) => candidate.trim().toLowerCase() === normalized);
+  });
+  return matched?.key ?? "";
+}
+
+function getOpenReportCount(question: Pick<Question, "openReportCount" | "reports">) {
+  if (typeof question.openReportCount === "number" && Number.isFinite(question.openReportCount)) {
+    return Math.max(0, question.openReportCount);
+  }
+  return (question.reports ?? []).filter((report) => report?.status === "open").length;
+}
+
+function readBlobAsDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read image blob."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function resolveImageDataUrl(source: string) {
+  if (!source) return "";
+  if (source.startsWith("data:image/")) return source;
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Failed to load image (${response.status}).`);
+  }
+  return readBlobAsDataUrl(await response.blob());
+}
+
+function getImageFormat(imageDataUrl: string) {
+  if (/^data:image\/png/i.test(imageDataUrl)) return "PNG";
+  if (/^data:image\/webp/i.test(imageDataUrl)) return "WEBP";
+  return "JPEG";
+}
+
+function extractQuestionImageSources(question: string, imageData?: string | null) {
+  const sources = new Set<string>();
+  if (imageData) sources.add(imageData);
+  if (typeof DOMParser !== "undefined" && /<img[\s>]/i.test(question)) {
+    const parsed = new DOMParser().parseFromString(question, "text/html");
+    parsed.querySelectorAll("img").forEach((image) => {
+      const src = image.getAttribute("src")?.trim();
+      if (src) {
+        sources.add(src);
+      }
+    });
+  }
+  return Array.from(sources);
+}
+
+async function exportQuestionsPdf({
+  title,
+  filename,
+  questions,
+}: {
+  title: string;
+  filename: string;
+  questions: PdfExportQuestionItem[];
+}) {
+  if (questions.length === 0) {
+    throw new Error("No questions are available for PDF export.");
+  }
+
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const marginX = 48;
+  const topMargin = 56;
+  const bottomMargin = 42;
+  const contentWidth = pageWidth - marginX * 2;
+  const imageIndent = 22;
+  const bodyWidth = contentWidth - imageIndent;
+  const maxRenderableImageHeight = pageHeight - topMargin - bottomMargin - 24;
+  const maxDisplayImageWidth = Math.min(bodyWidth, 340);
+  const maxDisplayImageHeight = Math.min(maxRenderableImageHeight, 220);
+  let y = topMargin;
+  let skippedImageCount = 0;
+
+  const addPage = () => {
+    doc.addPage();
+    y = topMargin;
+  };
+
+  const ensureSpace = (heightNeeded: number) => {
+    if (y + heightNeeded > pageHeight - bottomMargin) {
+      addPage();
+    }
+  };
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.setTextColor(15, 23, 42);
+  doc.text(title, marginX, y);
+  y += 28;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(100, 116, 139);
+  doc.text("Questions only export", marginX, y);
+  y += 20;
+
+  for (const [index, item] of questions.entries()) {
+    const questionLabel = `${index + 1}.`;
+    const questionText = stripRichHtmlToText(item.question) || "Untitled question";
+    const questionLines = doc.splitTextToSize(questionText, bodyWidth);
+    ensureSpace(Math.max(30, questionLines.length * 16 + 14));
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(15, 23, 42);
+    doc.text(questionLabel, marginX, y);
+
+    doc.setFont("helvetica", "normal");
+    doc.text(questionLines, marginX + imageIndent, y);
+    y += questionLines.length * 16 + 10;
+
+    for (const imageSource of extractQuestionImageSources(item.question, item.imageData)) {
+      try {
+        const imageDataUrl = await resolveImageDataUrl(imageSource);
+        if (!imageDataUrl) continue;
+        const imageProperties = doc.getImageProperties(imageDataUrl);
+        const naturalImageWidth = Math.max(imageProperties.width || 0, 1);
+        const naturalImageHeight = Math.max(imageProperties.height || 0, 1);
+        const imageScale = Math.min(
+          maxDisplayImageWidth / naturalImageWidth,
+          maxDisplayImageHeight / naturalImageHeight,
+          1,
+        );
+        const imageWidth = naturalImageWidth * imageScale;
+        const imageHeight = naturalImageHeight * imageScale;
+
+        ensureSpace(imageHeight + 12);
+        doc.addImage(
+          imageDataUrl,
+          getImageFormat(imageDataUrl),
+          marginX + imageIndent,
+          y,
+          imageWidth,
+          imageHeight,
+        );
+        y += imageHeight + 12;
+      } catch {
+        skippedImageCount += 1;
+      }
+    }
+
+    y += 10;
+  }
+
+  const totalPages = doc.getNumberOfPages();
+  for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+    doc.setPage(pageNumber);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184);
+    doc.text(`Page ${pageNumber} of ${totalPages}`, pageWidth / 2, pageHeight - 18, { align: "center" });
+  }
+
+  doc.save(filename);
+  return { skippedImageCount };
 }
 
 function normalizeImportedText(value: string) {
@@ -262,20 +475,59 @@ function defaultIdealTimeSeconds(difficulty: "easy" | "moderate" | "tough") {
 }
 
 function toImportedQuestionType(value: string | null): QuestionType {
-  const normalized = value?.trim().toUpperCase();
-  if (normalized === "MSQ" || normalized === "MULTI") return "multi";
-  if (normalized === "NAT" || normalized === "INTEGER") return "integer";
+  const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!normalized) return "mcq";
+  if (normalized === "msq" || normalized.includes("multi") || normalized.includes("multiple")) return "multi";
+  if (normalized === "nat" || normalized.includes("integer") || normalized.includes("numeric") || normalized.includes("numerical")) return "integer";
   return "mcq";
 }
 
 function answerLettersToIndices(value: string | null) {
   if (!value) return [];
-  return value
-    .split(",")
+  const trimmed = value.trim();
+  const entries = /^[A-Za-z]+$/.test(trimmed)
+    ? trimmed.split("")
+    : trimmed.split(/[\s,;|/]+/);
+  return entries
     .map((entry) => entry.trim().toUpperCase())
     .filter(Boolean)
     .map((entry) => entry.charCodeAt(0) - 65)
     .filter((entry) => entry >= 0);
+}
+
+function parseImportedNumericValue(value: string | null | undefined) {
+  if (!value || !value.trim()) return null;
+  const parsed = Number(value.trim().replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractImportedIntegerRange(low: string | null, high: string | null, answerText: string | null) {
+  const parsedLow = parseImportedNumericValue(low);
+  const parsedHigh = parseImportedNumericValue(high);
+  if (parsedLow !== null && parsedHigh !== null) {
+    return {
+      min: Math.min(parsedLow, parsedHigh),
+      max: Math.max(parsedLow, parsedHigh),
+    };
+  }
+  if (answerText) {
+    const trimmed = answerText.trim();
+    const directMatch = trimmed.match(/(-?\d+(?:\.\d+)?)\s*(?:-|—|–|to)\s*(-?\d+(?:\.\d+)?)/i);
+    if (directMatch) {
+      return {
+        min: Math.min(Number(directMatch[1]), Number(directMatch[2])),
+        max: Math.max(Number(directMatch[1]), Number(directMatch[2])),
+      };
+    }
+    const betweenMatch = trimmed.match(/between\s+(-?\d+(?:\.\d+)?)\s+and\s+(-?\d+(?:\.\d+)?)/i);
+    if (betweenMatch) {
+      return {
+        min: Math.min(Number(betweenMatch[1]), Number(betweenMatch[2])),
+        max: Math.max(Number(betweenMatch[1]), Number(betweenMatch[2])),
+      };
+    }
+  }
+  return null;
 }
 
 async function parseSavedHtmlTestImport(file: File): Promise<ExportedTestBundle> {
@@ -309,7 +561,7 @@ async function parseSavedHtmlTestImport(file: File): Promise<ExportedTestBundle>
 
   for (const [index, card] of cards.entries()) {
     const questionNumber = Number(card.getAttribute("data-qnum") || index + 1);
-    const questionType = toImportedQuestionType(card.getAttribute("data-qtype"));
+    const requestedQuestionType = toImportedQuestionType(card.getAttribute("data-qtype"));
     const tags = normalizeImportedText(card.querySelector(".tags")?.textContent || "")
       .split("•")
       .map((entry) => entry.trim())
@@ -350,6 +602,27 @@ async function parseSavedHtmlTestImport(file: File): Promise<ExportedTestBundle>
     const solutionImageData = !solutionRichHtml ? extractFirstImageSource(solutionClone) : null;
 
     const correctLetters = answerLettersToIndices(card.getAttribute("data-correct"));
+    const answerLineText = normalizeImportedText(card.querySelector(".answerline b")?.textContent || "");
+    const canInferIntegerRangeFromText = requestedQuestionType === "integer" || options.length === 0;
+    const importedIntegerRange =
+      extractImportedIntegerRange(
+        card.getAttribute("data-nat-low"),
+        card.getAttribute("data-nat-high"),
+        answerLineText,
+      ) ??
+      (canInferIntegerRangeFromText
+        ? extractImportedIntegerRange(
+            null,
+            null,
+            solutionText,
+          )
+        : null);
+    const questionType =
+      requestedQuestionType === "multi" || correctLetters.length > 1
+        ? "multi"
+        : requestedQuestionType === "integer" || (options.length === 0 && Boolean(importedIntegerRange))
+          ? "integer"
+          : "mcq";
     const questionRecord: Record<string, unknown> = {
       question: questionText,
       questionType,
@@ -379,13 +652,14 @@ async function parseSavedHtmlTestImport(file: File): Promise<ExportedTestBundle>
     } else if (questionType === "multi") {
       questionRecord.correctAnswerMulti = correctLetters;
     } else {
-      const low = card.getAttribute("data-nat-low");
-      const high = card.getAttribute("data-nat-high");
-      if (low && high && Number(low) !== Number(high)) {
-        questionRecord.correctAnswerMin = Number(low);
-        questionRecord.correctAnswerMax = Number(high);
+      if (importedIntegerRange) {
+        questionRecord.correctAnswerMin = importedIntegerRange.min;
+        questionRecord.correctAnswerMax = importedIntegerRange.max;
       } else {
-        questionRecord.correctAnswer = low && low.trim() ? Number(low) : Number(card.querySelector(".answerline b")?.textContent || 0);
+        questionRecord.correctAnswer =
+          parseImportedNumericValue(card.getAttribute("data-nat-low")) ??
+          parseImportedNumericValue(answerLineText) ??
+          0;
       }
     }
 
@@ -447,20 +721,6 @@ async function parseSavedHtmlTestImport(file: File): Promise<ExportedTestBundle>
   };
 }
 
-const PIE_COLORS = ["#22c55e", "#ef4444"];
-const BAR_COLORS = ["#6366f1", "#f59e0b", "#22c55e", "#ef4444"];
-
-const qTypeLabel: Record<QuestionType, string> = {
-  mcq: "MCQ (Single select)",
-  multi: "Multi-select",
-  integer: "Integer answer",
-};
-const qTypeIcon: Record<QuestionType, React.ReactNode> = {
-  mcq: <CheckCircle2 size={13} />,
-  multi: <CheckSquare size={13} />,
-  integer: <Hash size={13} />,
-};
-
 const EXAM_PRESETS: Record<Exclude<ExamType, "custom">, { label: string; duration: string; passing: string; positive: string; negative: string; sections: Omit<SectionDraft, "id">[] }> = {
   jee: {
     label: "JEE Pattern",
@@ -506,7 +766,7 @@ const EXAM_PRESETS: Record<Exclude<ExamType, "custom">, { label: string; duratio
     negative: "1",
     sections: [
       { title: "Language", description: "50 questions, attempt around 40. MCQ only.", subjectLabel: "Language", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
-      { title: "Domain Subjects", description: "Subject-specific MCQ section. Multiple subjects can be cloned later by planner.", subjectLabel: "Domain Subjects", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
+      { title: "Domain Subjects", description: "Subject-specific MCQ section. Multiple subjects can be cloned later by super admin.", subjectLabel: "Domain Subjects", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
       { title: "General Test", description: "General aptitude and reasoning. MCQ only.", subjectLabel: "General Test", questionCount: "50", marksPerQuestion: "5", negativeMarks: "1", preferredQuestionType: "mcq" },
     ],
   },
@@ -548,7 +808,12 @@ const FALLBACK_TEMPLATES: ExamTemplate[] = Object.entries(EXAM_PRESETS).map(([ke
   passingScore: Number(preset.passing),
   defaultPositiveMarks: Number(preset.positive),
   defaultNegativeMarks: Number(preset.negative),
-  sections: preset.sections,
+  sections: preset.sections.map((section) => ({
+    ...section,
+    questionCount: Number(section.questionCount),
+    marksPerQuestion: Number(section.marksPerQuestion),
+    negativeMarks: Number(section.negativeMarks),
+  })),
 }));
 
 function makeSectionDraft(input?: Partial<SectionDraft>): SectionDraft {
@@ -562,10 +827,6 @@ function makeSectionDraft(input?: Partial<SectionDraft>): SectionDraft {
     negativeMarks: input?.negativeMarks ?? "",
     preferredQuestionType: input?.preferredQuestionType ?? "mcq",
   };
-}
-
-function minutesFromSeconds(seconds: number) {
-  return String(Number((seconds / 60).toFixed(2)));
 }
 
 export default function AdminTests() {
@@ -583,45 +844,26 @@ export default function AdminTests() {
   const [newDefaultPositiveMarks, setNewDefaultPositiveMarks] = useState("1");
   const [newDefaultNegativeMarks, setNewDefaultNegativeMarks] = useState("0");
   const [newScheduled, setNewScheduled] = useState("");
+  const [newCalculatorEnabled, setNewCalculatorEnabled] = useState(false);
   const [sectionDrafts, setSectionDrafts] = useState<SectionDraft[]>([makeSectionDraft()]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importBundle, setImportBundle] = useState<ExportedTestBundle | null>(null);
+  const [importFilename, setImportFilename] = useState("");
+  const [importExamType, setImportExamType] = useState("");
+  const [importScheduled, setImportScheduled] = useState("");
+  const [metadataImportOpen, setMetadataImportOpen] = useState(false);
+  const [metadataImportMode, setMetadataImportMode] = useState<QuestionBulkImportMode>("metadata");
+  const [metadataImportTestId, setMetadataImportTestId] = useState<number | null>(null);
+  const [metadataImportFilename, setMetadataImportFilename] = useState("");
+  const [metadataImportText, setMetadataImportText] = useState("");
+  const [publishResultDialog, setPublishResultDialog] = useState<PublishResultDialogState | null>(null);
 
-  const [expandedTest, setExpandedTest] = useState<number | null>(null);
   const [questionsMap, setQuestionsMap] = useState<Record<number, Question[]>>({});
   const [sectionsMap, setSectionsMap] = useState<Record<number, TestSection[]>>({});
-  const [activeSectionByTest, setActiveSectionByTest] = useState<Record<number, number>>({});
-  const [draftsBySection, setDraftsBySection] = useState<Record<string, QuestionDraftState[]>>({});
   const [exportingTestId, setExportingTestId] = useState<number | null>(null);
-  const [analyticsTest, setAnalyticsTest] = useState<Analytics | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [editingQuestion, setEditingQuestion] = useState<{ testId: number; question: Question } | null>(null);
-  const [editDraft, setEditDraft] = useState<QuestionDraftState | null>(null);
-  const [editTestMeta, setEditTestMeta] = useState<{ id: number; title: string; examType: string } | null>(null);
+  const [exportingTestPdfId, setExportingTestPdfId] = useState<number | null>(null);
   const importTestInputRef = useRef<HTMLInputElement>(null);
-
-  const [addQOpen, setAddQOpen] = useState<number | null>(null);
-  const [qSectionId, setQSectionId] = useState<string>("");
-  const [qSubjectLabel, setQSubjectLabel] = useState("");
-  const [qCode, setQCode] = useState("");
-  const [qSourceType, setQSourceType] = useState("manual");
-  const [qDifficulty, setQDifficulty] = useState("moderate");
-  const [qTopicTag, setQTopicTag] = useState("");
-  const [qEstimatedTime, setQEstimatedTime] = useState("1.5");
-  const [qType, setQType] = useState<QuestionType>("mcq");
-  const [qText, setQText] = useState("");
-  const [qOptions, setQOptions] = useState(["", "", "", ""]);
-  const [qCorrect, setQCorrect] = useState(0);
-  const [qCorrectMulti, setQCorrectMulti] = useState<number[]>([]);
-  const [qCorrectInt, setQCorrectInt] = useState("");
-  const [qIntegerMode, setQIntegerMode] = useState<"exact" | "range">("exact");
-  const [qCorrectIntMin, setQCorrectIntMin] = useState("");
-  const [qCorrectIntMax, setQCorrectIntMax] = useState("");
-  const [qPoints, setQPoints] = useState("1");
-  const [qNegativeMarks, setQNegativeMarks] = useState("0");
-  const [qImageData, setQImageData] = useState<string | null>(null);
-  const [qOptionImages, setQOptionImages] = useState<(string | null)[]>([null, null, null, null]);
-  const activeOptIdxRef = useRef<number>(-1);
-  const imgInputRef = useRef<HTMLInputElement>(null);
-  const optionImgInputRef = useRef<HTMLInputElement>(null);
+  const metadataImportInputRef = useRef<HTMLInputElement>(null);
 
   const { data: tests = [], isLoading } = useQuery<Test[]>({
     queryKey: ["admin-tests"],
@@ -672,340 +914,118 @@ export default function AdminTests() {
     }
   }, [createOpen, examTemplates, newExamType]);
 
-  const updateSectionDraft = (id: string, patch: Partial<SectionDraft>) => {
-    setSectionDrafts((prev) => prev.map((section) => (section.id === id ? { ...section, ...patch } : section)));
-  };
-
-  const getNextSectionForTest = (testId: number) => {
-    const sections = sectionsMap[testId] ?? [];
-    const questions = questionsMap[testId] ?? [];
-    if (sections.length === 0) return null;
-    const sectionCounts = new Map<number, number>();
-    questions.forEach((question) => {
-      if (question.sectionId) {
-        sectionCounts.set(question.sectionId, (sectionCounts.get(question.sectionId) ?? 0) + 1);
-      }
-    });
-    return sections.find((section) => {
-      if (!section.questionCount || section.questionCount <= 0) return false;
-      return (sectionCounts.get(section.id) ?? 0) < section.questionCount;
-    }) ?? sections[0];
-  };
-
-  const generateQuestionCode = (selected: TestSection | null | undefined, testId: number) => {
-    if (!selected) return "";
-    const sectionQuestions = (questionsMap[testId] ?? []).filter((question) => question.sectionId === selected.id);
-    const base =
-      (selected.subjectLabel ?? selected.title)
-        .replace(/[^a-zA-Z0-9]+/g, " ")
-        .trim()
-        .split(/\s+/)
-        .slice(0, 3)
-        .map((part) => part[0]?.toUpperCase() ?? "")
-        .join("") || "Q";
-    return `${base}-${String(sectionQuestions.length + 1).padStart(2, "0")}`;
-  };
-
-  const applySectionDefaults = (selected: TestSection | null | undefined, test: Test) => {
-    setQSectionId(selected ? String(selected.id) : "");
-    setQSubjectLabel(selected?.subjectLabel ?? "");
-    setQCode(generateQuestionCode(selected, test.id));
-    setQPoints(String(selected?.marksPerQuestion ?? test.defaultPositiveMarks ?? 1));
-    setQNegativeMarks(String(selected?.negativeMarks ?? test.defaultNegativeMarks ?? 0));
-    const preferredType = (selected?.meta as Record<string, unknown> | null)?.preferredQuestionType;
-    if (preferredType === "mcq" || preferredType === "multi" || preferredType === "integer") {
-      setQType(preferredType);
-      setQCorrect(0);
-      setQCorrectMulti([]);
-    }
-  };
-
-  const getIdealTimeForDifficulty = (difficulty: string) => {
-    if (difficulty === "easy") return "1";
-    if (difficulty === "tough") return "3";
-    return "1.5";
-  };
-
-  const makeQuestionDraft = (section: TestSection, test: Test, testId: number, slotIndex: number): QuestionDraftState => {
-    const preferredType = (section.meta as Record<string, unknown> | null)?.preferredQuestionType;
-    const questionType: QuestionType =
-      preferredType === "mcq" || preferredType === "multi" || preferredType === "integer" ? preferredType : "mcq";
-
-    return {
-      questionType,
-      question: "",
-      imageData: null,
-      solutionText: "",
-      solutionImageData: null,
-      options: ["", "", "", ""],
-      optionImages: [null, null, null, null],
-      correctAnswer: 0,
-      correctAnswerMulti: [],
-      integerMode: "exact",
-      correctInteger: "",
-      correctIntegerMin: "",
-      correctIntegerMax: "",
-      difficulty: "moderate",
-      chapterName: "",
-      topicTag: "",
-      idealTimeMinutes: "1.5",
-      questionCode: `${generateQuestionCode(section, testId).replace(/\d+$/, "")}${String(slotIndex + 1).padStart(2, "0")}`,
-      subjectLabel: section.subjectLabel ?? section.title,
-      points: String(section.marksPerQuestion ?? test.defaultPositiveMarks ?? 1),
-      negativeMarks: String(section.negativeMarks ?? test.defaultNegativeMarks ?? 0),
-      sourceType: "manual",
-    };
-  };
-
-  const makeDraftFromQuestion = (question: Question): QuestionDraftState => {
-    const meta = (question.meta as Record<string, unknown> | null) ?? null;
-    const difficultyValue = String(meta?.difficulty ?? "moderate").toLowerCase();
-    const difficulty: QuestionDraftState["difficulty"] =
-      difficultyValue === "easy" || difficultyValue === "tough" ? difficultyValue : "moderate";
-    const estimatedTimeSeconds = Number(meta?.estimatedTimeSeconds ?? 0) || 0;
-    const normalizedOptionCount =
-      question.questionType === "integer"
-        ? 0
-        : Math.max(4, question.options.length, question.optionImages?.length ?? 0);
-    const options = Array.from({ length: normalizedOptionCount }, (_, index) => question.options[index] ?? "");
-    const optionImages = Array.from({ length: normalizedOptionCount }, (_, index) => question.optionImages?.[index] ?? null);
-    const integerMode =
-      question.questionType === "integer" && question.correctAnswerMin != null && question.correctAnswerMax != null
-        ? "range"
-        : "exact";
-
-    return {
-      questionType: question.questionType,
-      question: question.question ?? "",
-      imageData: question.imageData ?? null,
-      solutionText: question.solutionText ?? "",
-      solutionImageData: question.solutionImageData ?? null,
-      options,
-      optionImages,
-      correctAnswer: question.correctAnswer ?? 0,
-      correctAnswerMulti: question.correctAnswerMulti ?? [],
-      integerMode,
-      correctInteger: question.questionType === "integer" && integerMode === "exact" ? String(question.correctAnswer ?? "") : "",
-      correctIntegerMin: integerMode === "range" ? String(question.correctAnswerMin ?? "") : "",
-      correctIntegerMax: integerMode === "range" ? String(question.correctAnswerMax ?? "") : "",
-      difficulty,
-      chapterName: String(meta?.chapterName ?? ""),
-      topicTag: String(meta?.topicTag ?? ""),
-      idealTimeMinutes: estimatedTimeSeconds > 0 ? String(Number((estimatedTimeSeconds / 60).toFixed(2))) : getIdealTimeForDifficulty(difficulty),
-      questionCode: question.questionCode ?? "",
-      subjectLabel: question.subjectLabel ?? "",
-      points: String(question.points ?? 1),
-      negativeMarks: String(question.negativeMarks ?? 0),
-      sourceType: question.sourceType ?? "manual",
-    };
-  };
-
-  const handleDifficultyChange = (difficulty: string) => {
-    setQDifficulty(difficulty);
-    setQEstimatedTime(getIdealTimeForDifficulty(difficulty));
-  };
-
-  const getBuilderKey = (testId: number, sectionId: number) => `${testId}:${sectionId}`;
-
-  const getRemainingSlots = (testId: number, section: TestSection) => {
-    const used = (questionsMap[testId] ?? []).filter((question) => question.sectionId === section.id).length;
-    const target = section.questionCount ?? 0;
-    return Math.max(0, target - used);
-  };
-
-  const getUsedSlots = (testId: number, section: TestSection) => {
-    return (questionsMap[testId] ?? []).filter((question) => question.sectionId === section.id).length;
-  };
-
-  const getSectionMetrics = (testId: number, section: TestSection) => {
-    const used = getUsedSlots(testId, section);
-    const total = section.questionCount ?? used;
-    const left = Math.max(0, total - used);
-    const progress = total > 0 ? Math.min(100, (used / total) * 100) : 0;
-    return { used, total, left, progress };
-  };
-
-  const ensureSectionDrafts = (testId: number, test: Test, section: TestSection) => {
-    const key = getBuilderKey(testId, section.id);
-    const remaining = getRemainingSlots(testId, section);
-    setDraftsBySection((prev) => {
-      const existing = prev[key];
-      if (existing && existing.length === remaining) return prev;
-      return {
-        ...prev,
-        [key]: Array.from({ length: remaining }, (_, index) => makeQuestionDraft(section, test, testId, index)),
-      };
-    });
-  };
-
-  const updateDraft = (testId: number, sectionId: number, index: number, patch: Partial<QuestionDraftState>) => {
-    const key = getBuilderKey(testId, sectionId);
-    setDraftsBySection((prev) => ({
-      ...prev,
-      [key]: (prev[key] ?? []).map((draft, draftIndex) => (draftIndex === index ? { ...draft, ...patch } : draft)),
-    }));
-  };
-
-  const handleDraftDifficultyChange = (testId: number, sectionId: number, index: number, difficulty: "easy" | "moderate" | "tough") => {
-    updateDraft(testId, sectionId, index, {
-      difficulty,
-      idealTimeMinutes: getIdealTimeForDifficulty(difficulty),
-    });
-  };
-
-  const toggleDraftMultiOption = (testId: number, sectionId: number, index: number, optionIndex: number) => {
-    const key = getBuilderKey(testId, sectionId);
-    setDraftsBySection((prev) => ({
-      ...prev,
-      [key]: (prev[key] ?? []).map((draft, draftIndex) => {
-        if (draftIndex !== index) return draft;
-        return {
-          ...draft,
-          correctAnswerMulti: draft.correctAnswerMulti.includes(optionIndex)
-            ? draft.correctAnswerMulti.filter((value) => value !== optionIndex)
-            : [...draft.correctAnswerMulti, optionIndex],
-        };
-      }),
-    }));
-  };
-
-  const handleDraftQuestionImage = async (testId: number, sectionId: number, index: number, file?: File | null) => {
-    if (!file) return;
-    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1800, maxHeight: 1800, quality: 0.82 });
-    updateDraft(testId, sectionId, index, { imageData: dataUrl });
-  };
-
-  const handleDraftOptionImage = async (testId: number, sectionId: number, index: number, optionIndex: number, file?: File | null) => {
-    if (!file) return;
-    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.82 });
-    const key = getBuilderKey(testId, sectionId);
-    setDraftsBySection((prev) => ({
-      ...prev,
-      [key]: (prev[key] ?? []).map((draft, draftIndex) => {
-        if (draftIndex !== index) return draft;
-        const nextOptionImages = [...draft.optionImages];
-        nextOptionImages[optionIndex] = dataUrl;
-        return { ...draft, optionImages: nextOptionImages };
-      }),
-    }));
-  };
-
-  const updateEditDraft = (patch: Partial<QuestionDraftState>) => {
-    setEditDraft((prev) => (prev ? { ...prev, ...patch } : prev));
-  };
-
-  const handleEditDifficultyChange = (difficulty: "easy" | "moderate" | "tough") => {
-    updateEditDraft({
-      difficulty,
-      idealTimeMinutes: getIdealTimeForDifficulty(difficulty),
-    });
-  };
-
-  const toggleEditMultiOption = (optionIndex: number) => {
-    setEditDraft((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        correctAnswerMulti: prev.correctAnswerMulti.includes(optionIndex)
-          ? prev.correctAnswerMulti.filter((value) => value !== optionIndex)
-          : [...prev.correctAnswerMulti, optionIndex],
-      };
-    });
-  };
-
-  const handleEditQuestionImage = async (file?: File | null) => {
-    if (!file) return;
-    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1800, maxHeight: 1800, quality: 0.82 });
-    updateEditDraft({ imageData: dataUrl });
-  };
-
-  const handleEditOptionImage = async (optionIndex: number, file?: File | null) => {
-    if (!file) return;
-    const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.82 });
-    setEditDraft((prev) => {
-      if (!prev) return prev;
-      const nextOptionImages = [...prev.optionImages];
-      nextOptionImages[optionIndex] = dataUrl;
-      return { ...prev, optionImages: nextOptionImages };
-    });
-  };
-
-  const canSaveDraft = (draft: QuestionDraftState) => {
-    if (!draft.question.trim() && !draft.imageData) return false;
-    if (draft.questionType === "mcq") {
-      return draft.options.every((option, index) => option.trim() || draft.optionImages[index]) &&
-        Boolean(draft.options[draft.correctAnswer]?.trim() || draft.optionImages[draft.correctAnswer]);
-    }
-    if (draft.questionType === "multi") {
-      return draft.options.every((option, index) => option.trim() || draft.optionImages[index]) && draft.correctAnswerMulti.length > 0;
-    }
-    if (draft.integerMode === "range") {
-      return draft.correctIntegerMin.trim() !== "" && draft.correctIntegerMax.trim() !== "";
-    }
-    return draft.correctInteger.trim() !== "";
-  };
-
-  const buildQuestionPayload = (draft: QuestionDraftState, test: Test, sectionId: number) => {
-    const body: any = {
-      question: draft.question.trim(),
-      questionType: draft.questionType,
-      sectionId,
-      questionCode: draft.questionCode.trim() || null,
-      sourceType: draft.sourceType,
-      subjectLabel: draft.subjectLabel.trim() || null,
-      points: parseFloat(draft.points) || 1,
-      negativeMarks: parseFloat(draft.negativeMarks) || 0,
-      imageData: draft.imageData || null,
-      solutionText: draft.solutionText.trim() || null,
-      solutionImageData: draft.solutionImageData || null,
-      meta: {
-        examType: test.examType ?? "custom",
-        chapterLinked: false,
-        difficulty: draft.difficulty,
-        chapterName: draft.chapterName.trim() || null,
-        topicTag: draft.topicTag.trim() || null,
-        estimatedTimeSeconds: Math.round((parseFloat(draft.idealTimeMinutes) || 0) * 60),
-      },
-    };
-
-    if (draft.questionType === "mcq") {
-      body.options = draft.options;
-      if (draft.optionImages.some(Boolean)) body.optionImages = draft.optionImages;
-      body.correctAnswer = draft.correctAnswer;
-    } else if (draft.questionType === "multi") {
-      body.options = draft.options;
-      if (draft.optionImages.some(Boolean)) body.optionImages = draft.optionImages;
-      body.correctAnswerMulti = draft.correctAnswerMulti;
-    } else {
-      body.options = [];
-      if (draft.integerMode === "range") {
-        body.correctAnswerMin = parseFloat(draft.correctIntegerMin);
-        body.correctAnswerMax = parseFloat(draft.correctIntegerMax);
-      } else {
-        body.correctAnswer = parseFloat(draft.correctInteger) || 0;
-      }
-    }
-
-    return body;
-  };
-
-  const difficultyTone: Record<"easy" | "moderate" | "tough", string> = {
-    easy: "border-emerald-500 bg-emerald-500 text-white",
-    moderate: "border-orange-500 bg-orange-500 text-white",
-    tough: "border-rose-500 bg-rose-500 text-white",
-  };
-
-  const difficultyHoverTone: Record<"easy" | "moderate" | "tough", string> = {
-    easy: "hover:border-emerald-400 hover:bg-emerald-50",
-    moderate: "hover:border-orange-400 hover:bg-orange-50",
-    tough: "hover:border-rose-400 hover:bg-rose-50",
-  };
-
   const totalTests = tests.length;
   const publishedTests = tests.filter((test) => test.isPublished).length;
   const draftTests = totalTests - publishedTests;
-  const chapterLinkedTests = tests.filter((test) => test.chapterId !== null).length;
   const totalQuestions = Object.values(questionsMap).reduce((sum, items) => sum + items.length, 0);
+  const metadataImportTest = metadataImportTestId != null
+    ? tests.find((test) => test.id === metadataImportTestId) ?? null
+    : null;
+  const metadataImportConfig = metadataImportMode === "answers"
+    ? {
+        title: "Import Correct Answers",
+        intro: "Ye import sirf isi test ke correct answers ko update karega.",
+        helper: "Question match `questionCode`/`Q01` ya `questionNumber` ke basis par hoga.",
+        loadedFileText: "Paste correct-answer JSON below for this test.",
+        quickCards: [
+          { label: "Match", value: "`questionCode`, `code`, `questionNumber`, `questionNo`" },
+          { label: "MCQ", value: "`correctAnswer`" },
+          { label: "Multi-select", value: "`correctAnswerMulti` ya `answers`" },
+          { label: "Integer", value: "`correctAnswer`, `correctAnswerMin`, `correctAnswerMax`" },
+        ],
+        example: `[
+  {
+    "questionCode": "Q20",
+    "correctAnswer": "B"
+  },
+  {
+    "questionCode": "Q21",
+    "correctAnswerMulti": ["A", "C"]
+  },
+  {
+    "questionCode": "Q22",
+    "correctAnswerMin": 35.05,
+    "correctAnswerMax": 42.05
+  }
+]`,
+        pasteTitle: "Paste Correct Answer JSON",
+        pasteHelper: "Yahan direct answers paste karo. Existing test ke matched questions update ho jayenge.",
+        submitLabel: "Import Correct Answer",
+        invalidFileTitle: "Invalid correct-answer file",
+        invalidJsonTitle: "Invalid correct-answer JSON",
+      }
+    : {
+        title: "Import Question Metadata",
+        intro: "Ye import sirf isi test ke existing questions ko update karega.",
+        helper: "Naya test create nahi hoga. Match `questionCode`/`Q01` ya `questionNumber` ke basis par hoga.",
+        loadedFileText: "Paste metadata JSON below for this test.",
+        quickCards: [
+          { label: "Match", value: "`questionCode`, `code`, `questionNumber`, `questionNo`" },
+          { label: "Metadata", value: "`subject`, `chapter`, `topic`, `difficulty`, `idealTimeSeconds`" },
+          { label: "Answers", value: "`correctAnswer`, `correctAnswerMulti`, `correctAnswerMin`, `correctAnswerMax`" },
+          { label: "Shapes", value: "root array, `questions`, `items`, `test.questions`" },
+        ],
+        example: `[
+  {
+    "questionCode": "Q20",
+    "subject": "Communication Systems",
+    "chapter": "Digital Modulation",
+    "topic": "PSK & QAM",
+    "difficulty": "moderate",
+    "idealTimeSeconds": 120
+  }
+]`,
+        pasteTitle: "Paste Metadata JSON",
+        pasteHelper: "Yahan direct paste karo. Har line/question same selected test me apply hoga.",
+        submitLabel: "Import Metadata",
+        invalidFileTitle: "Invalid metadata file",
+        invalidJsonTitle: "Invalid metadata JSON",
+      };
+
+  const resetImportDialog = () => {
+    setImportOpen(false);
+    setImportBundle(null);
+    setImportFilename("");
+    setImportExamType("");
+    setImportScheduled("");
+  };
+
+  const resetMetadataImportDialog = () => {
+    setMetadataImportOpen(false);
+    setMetadataImportMode("metadata");
+    setMetadataImportTestId(null);
+    setMetadataImportFilename("");
+    setMetadataImportText("");
+  };
+
+  const openMetadataImportDialog = (testId: number, mode: QuestionBulkImportMode) => {
+    setMetadataImportMode(mode);
+    setMetadataImportTestId(testId);
+    setMetadataImportFilename("");
+    setMetadataImportText("");
+    setMetadataImportOpen(true);
+  };
+
+  const handleMetadataImportFile = async (testId: number, file?: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      if ((!Array.isArray(parsed) && (typeof parsed !== "object" || parsed === null))) {
+        throw new Error("Please upload a JSON object or question metadata array.");
+      }
+      setMetadataImportTestId(testId);
+      setMetadataImportFilename(file.name);
+      setMetadataImportText(text);
+      setMetadataImportOpen(true);
+    } catch (error) {
+      toast({
+        title: metadataImportConfig.invalidFileTitle,
+        description: error instanceof Error ? error.message : "Please upload a valid JSON file.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -1027,6 +1047,7 @@ export default function AdminTests() {
             bulkSupported: true,
             sectionCount: sectionDrafts.filter((section) => (section.subjectLabel.trim() || section.title.trim())).length,
             sourceModes: ["manual", "bulk", "ai"],
+            calculatorEnabled: newCalculatorEnabled,
           },
           scheduledAt: newScheduled || null,
               sections: sectionDrafts
@@ -1050,19 +1071,35 @@ export default function AdminTests() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
-      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setSectionDrafts([makeSectionDraft()]);
+      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setNewCalculatorEnabled(false); setSectionDrafts([makeSectionDraft()]);
       toast({ title: "Test created" });
     },
     onError: (error: Error) => toast({ title: "Failed to create test", description: error.message, variant: "destructive" }),
   });
 
   const importTestMutation = useMutation({
-    mutationFn: async (bundle: ExportedTestBundle) => {
+    mutationFn: async ({
+      bundle,
+      examType,
+      scheduledAt,
+    }: {
+      bundle: ExportedTestBundle;
+      examType: string;
+      scheduledAt: string;
+    }) => {
+      const normalizedBundle: ExportedTestBundle = {
+        ...bundle,
+        test: {
+          ...bundle.test,
+          examType,
+          scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        },
+      };
       const r = await fetch(`${BASE}/api/tests/import`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bundle),
+        body: JSON.stringify(normalizedBundle),
       });
       if (!r.ok) {
         const message = await r.text();
@@ -1072,13 +1109,58 @@ export default function AdminTests() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      resetImportDialog();
       toast({
         title: "Test imported",
-        description: `${data.title} is ready as a draft with ${data.sectionCount} sections and ${data.questionCount} questions.`,
+        description: data.pendingReviewCount > 0
+          ? `${data.title} imported. ${data.pendingReviewCount} question${data.pendingReviewCount === 1 ? "" : "s"} still need manual setup in the builder.`
+          : `${data.title} is ready as a draft with ${data.sectionCount} sections and ${data.questionCount} questions.`,
       });
     },
     onError: (error: Error) => {
       toast({ title: "Import failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const importMetadataMutation = useMutation({
+    mutationFn: async ({ testId, payload, mode }: { testId: number; payload: unknown; mode: QuestionBulkImportMode }) => {
+      const r = await fetch(`${BASE}/api/tests/${testId}/import-question-metadata`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const message = formatApiErrorMessage(
+          await r.text(),
+          `Failed to import ${mode === "answers" ? "correct answers" : "question metadata"}`,
+        );
+        throw new Error(message);
+      }
+      return r.json();
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      resetMetadataImportDialog();
+      const skippedPreview = Array.isArray(data.skippedRows)
+        ? data.skippedRows.filter((value: unknown) => typeof value === "string" && value.trim()).slice(0, 5)
+        : [];
+      const skippedSuffix = data.skippedCount > 0
+        ? skippedPreview.length > 0
+          ? ` (${skippedPreview.join(", ")}${data.skippedCount > skippedPreview.length ? ` + ${data.skippedCount - skippedPreview.length} more` : ""})`
+          : ""
+        : "";
+      toast({
+        title: variables.mode === "answers" ? "Correct answers imported" : "Metadata imported",
+        description: `${data.updatedCount} questions updated${data.skippedCount > 0 ? `, ${data.skippedCount} rows skipped${skippedSuffix}` : ""}${data.unresolvedCount > 0 ? `, ${data.unresolvedCount} still need review` : ""}.`,
+      });
+    },
+    onError: (error: Error, variables) => {
+      toast({
+        title: variables.mode === "answers" ? "Correct-answer import failed" : "Metadata import failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -1088,7 +1170,33 @@ export default function AdminTests() {
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-tests"] }); toast({ title: "Test updated" }); },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      if (variables.isPublished) {
+        const sync = data?.questionBankSync as PublishSyncSummary | null | undefined;
+        if (sync) {
+          setPublishResultDialog({
+            testId: data?.id ?? variables.id,
+            testTitle: data?.title ?? "Test",
+            summary: sync,
+          });
+          return;
+        }
+      }
+      if (!variables.isPublished) {
+        const cleanup = data?.questionBankCleanup as UnpublishCleanupSummary | null | undefined;
+        if (cleanup) {
+          toast({
+            title: "Test unpublished",
+            description: cleanup.removedQuestionCount > 0
+              ? `${cleanup.removedQuestionCount} question${cleanup.removedQuestionCount === 1 ? "" : "s"} removed from Question Bank. Review Bucket hidden for this test.`
+              : "Question Bank sync removed and Review Bucket hidden for this test.",
+          });
+          return;
+        }
+      }
+      toast({ title: variables.isPublished ? "Test published" : "Test unpublished" });
+    },
   });
 
   const deleteTestMutation = useMutation({
@@ -1098,6 +1206,15 @@ export default function AdminTests() {
 
   const slugifyFilename = (value: string) =>
     value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "test";
+
+  const loadTestDetailForExport = async (testId: number) => {
+    const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || "Failed to load test questions");
+    }
+    return response.json() as Promise<{ questions?: Question[]; sections?: TestSection[] }>;
+  };
 
   const handleExportTest = async (test: Test) => {
     setExportingTestId(test.id);
@@ -1129,6 +1246,55 @@ export default function AdminTests() {
     }
   };
 
+  const handleExportTestPdf = async (test: Test) => {
+    setExportingTestPdfId(test.id);
+    try {
+      const detail = await loadTestDetailForExport(test.id);
+      const questions = Array.isArray(detail.questions) ? detail.questions : [];
+      const sections = Array.isArray(detail.sections) ? detail.sections : [];
+
+      if (questions.length === 0) {
+        throw new Error("No questions are available for PDF export.");
+      }
+
+      setQuestionsMap((prev) => ({ ...prev, [test.id]: questions }));
+      setSectionsMap((prev) => ({ ...prev, [test.id]: sections }));
+
+      const sectionOrder = new Map(sections.map((section, index) => [section.id, section.order ?? index]));
+      const orderedQuestions = [...questions].sort((left, right) => {
+        const leftSectionOrder = sectionOrder.get(left.sectionId ?? -1) ?? Number.MAX_SAFE_INTEGER;
+        const rightSectionOrder = sectionOrder.get(right.sectionId ?? -1) ?? Number.MAX_SAFE_INTEGER;
+        if (leftSectionOrder !== rightSectionOrder) return leftSectionOrder - rightSectionOrder;
+        if (left.order !== right.order) return left.order - right.order;
+        return left.id - right.id;
+      });
+
+      const { skippedImageCount } = await exportQuestionsPdf({
+        title: test.title,
+        filename: `${slugifyFilename(test.title)}-questions.pdf`,
+        questions: orderedQuestions.map((question) => ({
+          question: question.question,
+          imageData: question.imageData ?? null,
+        })),
+      });
+
+      toast({
+        title: "PDF exported",
+        description: skippedImageCount > 0
+          ? `${test.title} PDF downloaded. ${skippedImageCount} image${skippedImageCount === 1 ? "" : "s"} could not be included.`
+          : `${test.title} questions PDF downloaded.`,
+      });
+    } catch (error) {
+      toast({
+        title: "PDF export failed",
+        description: error instanceof Error ? error.message : "The questions PDF could not be generated.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingTestPdfId(null);
+    }
+  };
+
   const handleImportTestFile = async (file?: File | null) => {
     if (!file) return;
     try {
@@ -1140,7 +1306,16 @@ export default function AdminTests() {
       if (!parsed?.test || !parsed?.test?.title || !Array.isArray(parsed?.test?.sections) || !Array.isArray(parsed?.test?.questions)) {
         throw new Error("Invalid test export file");
       }
-      importTestMutation.mutate(parsed);
+      setImportBundle(parsed);
+      setImportFilename(file.name);
+      setImportExamType(
+        normalizeExamTypeSelection(
+          parsed.test.examType ?? parsed.source?.examType ?? "",
+          examTemplates,
+        ),
+      );
+      setImportScheduled(formatDateTimeLocalValue(parsed.test.scheduledAt ?? null));
+      setImportOpen(true);
     } catch (error) {
       toast({
         title: "Import failed",
@@ -1150,117 +1325,7 @@ export default function AdminTests() {
     }
   };
 
-  const addQuestionMutation = useMutation({
-    mutationFn: async ({ testId, body }: { testId: number; body: any }) => {
-      const r = await fetch(`${BASE}/api/tests/${testId}/questions`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
-    onSuccess: (data, variables) => {
-      setQuestionsMap((prev) => ({ ...prev, [variables.testId]: [...(prev[variables.testId] ?? []), data] }));
-      toast({ title: "Question added" });
-    },
-    onError: () => toast({ title: "Failed to add question", variant: "destructive" }),
-  });
-
-  const updateQuestionMutation = useMutation({
-    mutationFn: async ({ testId, qid, body }: { testId: number; qid: number; body: any }) => {
-      const r = await fetch(`${BASE}/api/tests/${testId}/questions/${qid}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const message = await r.text();
-        throw new Error(message || "Failed");
-      }
-      return r.json();
-    },
-    onSuccess: (data, variables) => {
-      setQuestionsMap((prev) => ({
-        ...prev,
-        [variables.testId]: (prev[variables.testId] ?? []).map((question) => (
-          question.id === variables.qid ? data : question
-        )),
-      }));
-      setEditingQuestion(null);
-      setEditDraft(null);
-      toast({ title: "Question updated" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to update question", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const deleteQuestionMutation = useMutation({
-    mutationFn: async ({ testId, qid }: { testId: number; qid: number }) => { await fetch(`${BASE}/api/tests/${testId}/questions/${qid}`, { method: "DELETE", credentials: "include" }); },
-    onSuccess: (_, { testId, qid }) => { setQuestionsMap((prev) => ({ ...prev, [testId]: (prev[testId] ?? []).filter((q) => q.id !== qid) })); toast({ title: "Question removed" }); },
-  });
-
-  const updateTestMetaMutation = useMutation({
-    mutationFn: async ({ id, title, examType }: { id: number; title: string; examType: string }) => {
-      const response = await fetch(`${BASE}/api/tests/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), examType }),
-      });
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to update test");
-      }
-      return response.json();
-    },
-    onSuccess: async (updatedTest) => {
-      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
-      if (updatedTest?.id) {
-        const shouldRefreshDetail = isHtmlImportedExamConfig(updatedTest.examConfig);
-        if (shouldRefreshDetail) {
-          const detailResponse = await fetch(`${BASE}/api/tests/${updatedTest.id}`, { credentials: "include" });
-          if (detailResponse.ok) {
-            const detail = await detailResponse.json();
-            setSectionsMap((prev) => ({ ...prev, [updatedTest.id]: detail.sections ?? [] }));
-            setQuestionsMap((prev) => ({ ...prev, [updatedTest.id]: detail.questions ?? prev[updatedTest.id] ?? [] }));
-            setActiveSectionByTest((prev) => ({
-              ...prev,
-              [updatedTest.id]: detail.sections?.[0]?.id ?? prev[updatedTest.id],
-            }));
-          } else {
-            setSectionsMap((prev) => ({ ...prev, [updatedTest.id]: updatedTest.sections ?? [] }));
-            setActiveSectionByTest((prev) => ({
-              ...prev,
-              [updatedTest.id]: updatedTest.sections?.[0]?.id ?? prev[updatedTest.id],
-            }));
-          }
-        } else {
-          setSectionsMap((prev) => ({ ...prev, [updatedTest.id]: updatedTest.sections ?? [] }));
-          setActiveSectionByTest((prev) => ({
-            ...prev,
-            [updatedTest.id]: updatedTest.sections?.[0]?.id ?? prev[updatedTest.id],
-          }));
-        }
-        setDraftsBySection((prev) =>
-          Object.fromEntries(Object.entries(prev).filter(([key]) => !key.startsWith(`${updatedTest.id}:`))),
-        );
-      }
-      setEditTestMeta(null);
-      toast({ title: "Test updated" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to update test", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const resetQuestionForm = () => {
-    setAddQOpen(null); setQType("mcq"); setQText(""); setQOptions(["", "", "", ""]);
-    setQSectionId(""); setQSubjectLabel(""); setQCode(""); setQSourceType("manual"); setQCorrect(0); setQCorrectMulti([]); setQCorrectInt("");
-    setQDifficulty("moderate"); setQTopicTag(""); setQEstimatedTime("1.5");
-    setQIntegerMode("exact"); setQCorrectIntMin(""); setQCorrectIntMax("");
-    setQPoints("1"); setQNegativeMarks("0"); setQImageData(null); setQOptionImages([null, null, null, null]);
-  };
-
-  const loadQuestions = async (testId: number) => {
+  const loadTestSummary = async (testId: number) => {
     if (questionsMap[testId] && sectionsMap[testId]) return;
     const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
     if (!r.ok) return;
@@ -1269,140 +1334,49 @@ export default function AdminTests() {
     setSectionsMap((prev) => ({ ...prev, [testId]: data.sections ?? [] }));
   };
 
-  const openAnalytics = async (test: Test) => {
-    setAnalyticsLoading(true);
-    setAnalyticsTest(null);
-    const r = await fetch(`${BASE}/api/tests/${test.id}/analytics`, { credentials: "include" });
-    setAnalyticsLoading(false);
-    if (!r.ok) { toast({ title: "Failed to load analytics", variant: "destructive" }); return; }
-    setAnalyticsTest(await r.json());
-  };
-
-  const openQuestionEditor = (testId: number, question: Question) => {
-    setEditingQuestion({ testId, question });
-    setEditDraft(makeDraftFromQuestion(question));
-  };
-
-  const toggleExpand = (testId: number) => {
-    if (expandedTest === testId) { setExpandedTest(null); return; }
-    setExpandedTest(testId);
-    loadQuestions(testId);
-  };
+  useEffect(() => {
+    tests.forEach((test) => {
+      if (!questionsMap[test.id] || !sectionsMap[test.id]) {
+        void loadTestSummary(test.id);
+      }
+    });
+  }, [tests, questionsMap, sectionsMap]);
 
   useEffect(() => {
-    if (expandedTest == null) return;
-    const test = tests.find((item) => item.id === expandedTest);
-    const sections = sectionsMap[expandedTest] ?? [];
-    if (!test || sections.length === 0) return;
-
-    const activeSectionId = activeSectionByTest[expandedTest] ?? sections[0].id;
-    if (!activeSectionByTest[expandedTest]) {
-      setActiveSectionByTest((prev) => ({ ...prev, [expandedTest]: sections[0].id }));
-    }
-    const activeSection = sections.find((section) => section.id === activeSectionId) ?? sections[0];
-    ensureSectionDrafts(expandedTest, test, activeSection);
-  }, [expandedTest, tests, sectionsMap, questionsMap, activeSectionByTest]);
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast({ title: "Image too large", description: "Max 5MB", variant: "destructive" }); return; }
-    try {
-      setQImageData(await optimizeImageToDataUrl(file, { maxWidth: 1800, maxHeight: 1800, quality: 0.82 }));
-    } catch {
-      toast({ title: "Image upload failed", description: "Could not process image", variant: "destructive" });
-    }
-    e.target.value = "";
-  };
-
-  const toggleMultiOption = (i: number) => {
-    setQCorrectMulti((prev) => prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]);
-  };
-
-  const canSaveQuestion = () => {
-    if (!qText.trim()) return false;
-    if (qType === "mcq") return qOptions.every((o) => o.trim());
-    if (qType === "multi") return qOptions.every((o) => o.trim()) && qCorrectMulti.length >= 1;
-    if (qType === "integer") {
-      if (qIntegerMode === "range") {
-        return qCorrectIntMin.trim() !== "" && !isNaN(parseFloat(qCorrectIntMin)) &&
-               qCorrectIntMax.trim() !== "" && !isNaN(parseFloat(qCorrectIntMax)) &&
-               parseFloat(qCorrectIntMin) <= parseFloat(qCorrectIntMax);
-      }
-      return qCorrectInt.trim() !== "" && !isNaN(parseFloat(qCorrectInt));
-    }
-    return false;
-  };
-
-  const handleOptionImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { toast({ title: "Image too large", description: "Max 5MB", variant: "destructive" }); return; }
-    try {
-      const dataUrl = await optimizeImageToDataUrl(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.82 });
-      const idx = activeOptIdxRef.current;
-      if (idx < 0) return;
-      setQOptionImages((prev) => { const n = [...prev]; n[idx] = dataUrl; return n; });
-    } catch {
-      toast({ title: "Image upload failed", description: "Could not process image", variant: "destructive" });
-    }
-    e.target.value = "";
-  };
-
-  const activeEditTest = editingQuestion ? tests.find((test) => test.id === editingQuestion.testId) ?? null : null;
+    if (!publishResultDialog) return;
+    const timeout = window.setTimeout(() => {
+      setPublishResultDialog(null);
+    }, 5200);
+    return () => window.clearTimeout(timeout);
+  }, [publishResultDialog]);
 
   return (
-    <div className="space-y-6 bg-[#F5F7FB]">
-      <div className="rounded-[24px] border border-[#E5E7EB] bg-[#FFFFFF] p-6 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_320px]">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-[#FFFFFF] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-[#6B7280]">
-              <ClipboardList size={12} className="text-[#5B4DFF]" />
-              Assessment Core
-            </div>
+    <div className="space-y-6 bg-[#fffaf2]" style={{ fontFamily: "\"Plus Jakarta Sans\", sans-serif" }}>
+      <div className="rounded-[28px] border border-[#eadfcd] bg-white p-6 shadow-[0_20px_40px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h1 className="flex items-center gap-2 text-3xl font-semibold tracking-tight text-[#111827]">
-                <ClipboardList size={24} className="text-[#5B4DFF]" />
-                Tests & Quizzes
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-[#6B7280]">
-                Build test papers in a simple white workspace and let teachers fill planner-defined sections cleanly.
-              </p>
+              <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Tests Dashboard</h1>
+              <p className="mt-1 text-sm text-slate-500">Build, manage, and publish your exam papers.</p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-[#E5E7EB] bg-[#FFFFFF] p-4">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-[#6B7280]">Total Tests</p>
-                <p className="mt-2 text-3xl font-semibold text-[#111827]">{totalTests}</p>
-              </div>
-              <div className="rounded-2xl border border-[#E5E7EB] bg-[#FFFFFF] p-4">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-[#6B7280]">Published</p>
-                <p className="mt-2 text-3xl font-semibold text-[#22C55E]">{publishedTests}</p>
-              </div>
-              <div className="rounded-2xl border border-[#E5E7EB] bg-[#FFFFFF] p-4">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-[#6B7280]">Drafts</p>
-                <p className="mt-2 text-3xl font-semibold text-[#F97316]">{draftTests}</p>
-              </div>
-              <div className="rounded-2xl border border-[#E5E7EB] bg-[#FFFFFF] p-4">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-[#6B7280]">Loaded Questions</p>
-                <p className="mt-2 text-3xl font-semibold text-[#3B82F6]">{totalQuestions}</p>
-              </div>
-            </div>
-          </div>
-          <div className="rounded-3xl border border-[#E5E7EB] bg-[#FFFFFF] p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#6B7280]">Quick Launch</p>
-            <p className="mt-2 text-sm text-[#6B7280]">Create a new planner-structured test or import a saved JSON or HTML test file.</p>
-            <div className="mt-4 space-y-2">
-              <Button onClick={() => setCreateOpen(true)} className="w-full bg-[#5B4DFF] text-white hover:bg-[#4C3FF0]" data-testid="button-create-test">
-                <Plus size={15} className="mr-2" />
-                Create Test
-              </Button>
+            <div className="flex flex-wrap items-center gap-2.5">
               <Button
                 type="button"
                 variant="outline"
-                className="w-full border-[#E5E7EB] text-[#111827] hover:border-[#5B4DFF] hover:bg-[#EEF2FF] hover:text-[#5B4DFF]"
+                className="h-9 gap-2 border-[#eadfcd] bg-white text-sm text-slate-700 hover:border-[#f4c98b] hover:bg-[#fff7ea]"
                 disabled={importTestMutation.isPending}
                 onClick={() => importTestInputRef.current?.click()}
               >
-                <Upload size={15} className="mr-2" />
+                <Upload className="h-4 w-4" />
                 {importTestMutation.isPending ? "Importing..." : "Import Test"}
+              </Button>
+              <Button
+                onClick={() => setCreateOpen(true)}
+                className="h-9 gap-2 bg-[#f97316] text-sm font-semibold text-white hover:bg-[#ea580c]"
+                data-testid="button-create-test"
+              >
+                <Plus className="h-4 w-4" />
+                Create New Test
               </Button>
               <input
                 ref={importTestInputRef}
@@ -1414,6 +1388,58 @@ export default function AdminTests() {
                   event.currentTarget.value = "";
                 }}
               />
+              <input
+                ref={metadataImportInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => {
+                  const targetTestId = metadataImportTestId;
+                  if (targetTestId != null) {
+                    handleMetadataImportFile(targetTestId, event.currentTarget.files?.[0]);
+                  }
+                  event.currentTarget.value = "";
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="flex items-center gap-3 rounded-xl border border-[#eadfcd] bg-white p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
+                <ClipboardList size={18} />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-slate-500">Total Tests</p>
+                <p className="text-2xl font-extrabold leading-tight text-slate-800">{totalTests}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-[#eadfcd] bg-white p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                <CheckCircle2 size={18} />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-slate-500">Published</p>
+                <p className="text-2xl font-extrabold leading-tight text-emerald-600">{publishedTests}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-[#eadfcd] bg-white p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                <FileText size={18} />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-slate-500">Drafts</p>
+                <p className="text-2xl font-extrabold leading-tight text-amber-600">{draftTests}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-xl border border-[#eadfcd] bg-white p-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                <Hash size={18} />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-slate-500">Loaded Questions</p>
+                <p className="text-2xl font-extrabold leading-tight text-orange-600">{totalQuestions}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -1426,523 +1452,253 @@ export default function AdminTests() {
       ) : (
         <div className="space-y-3">
           {tests.map((test) => {
-            const isOpen = expandedTest === test.id;
             const qs = questionsMap[test.id] ?? [];
             const sections = sectionsMap[test.id] ?? [];
+            const isJsonExporting = exportingTestId === test.id;
+            const isPdfExporting = exportingTestPdfId === test.id;
+            const calculatorEnabled = getCalculatorEnabledFromExamConfig(test.examConfig);
+            const reportedQuestions = qs.filter((question) => getOpenReportCount(question) > 0);
+            const openReportedQuestionCount = reportedQuestions.length;
+            const totalOpenReports = reportedQuestions.reduce((sum, question) => sum + getOpenReportCount(question), 0);
+            const firstReportedQuestionId = reportedQuestions[0]?.id ?? null;
+            const totalPlannedQuestions = sections.reduce((sum, section) => sum + Number(section.questionCount ?? 0), 0);
+            const progress = totalPlannedQuestions > 0 ? Math.min(100, (qs.length / totalPlannedQuestions) * 100) : 0;
             return (
-                <Card key={test.id} className="rounded-3xl border border-[#E5E7EB] bg-[#FFFFFF] shadow-sm" data-testid={`test-card-${test.id}`}>
-                  <CardContent className="p-0">
-                  <div className="flex items-center gap-3 p-4">
-                    <button className="flex-1 text-left flex items-center gap-3 min-w-0" onClick={() => toggleExpand(test.id)}>
-                      {isOpen ? <ChevronDown size={16} className="text-muted-foreground shrink-0" /> : <ChevronRight size={16} className="text-muted-foreground shrink-0" />}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm">{test.title}</span>
-                          <Badge variant={test.isPublished ? "default" : "secondary"} className="text-xs">{test.isPublished ? "Published" : "Draft"}</Badge>
-                          {test.subjectName && <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{test.subjectName}</span>}
-                        </div>
-                        <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
-                          <span className="flex items-center gap-1"><Clock size={11} />{test.durationMinutes} min</span>
-                          <span>{test.passingScore == null ? "No pass cutoff" : `Pass: ${test.passingScore}%`}</span>
-                          {test.scheduledAt && <span>{format(new Date(test.scheduledAt), "MMM d, yyyy")}</span>}
-                        </div>
+              <Card key={test.id} className="overflow-hidden rounded-xl border border-[#eadfcd] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.04)]" data-testid={`test-card-${test.id}`}>
+                <CardContent className="p-0">
+                  <div className="h-0.5 bg-[#f4ecdf]">
+                    <div
+                      className="h-full transition-all duration-500"
+                      style={{
+                        width: `${progress}%`,
+                        background: test.isPublished ? "hsl(142 72% 45%)" : "hsl(24 95% 53%)",
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-4 p-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="truncate text-base font-bold text-slate-900">{test.title}</span>
+                        <span
+                          aria-label={test.isPublished ? "Published" : "Draft"}
+                          title={test.isPublished ? "Published" : "Draft"}
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-full border ${
+                            test.isPublished
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-amber-200 bg-amber-50 text-amber-700"
+                          }`}
+                        >
+                          {test.isPublished ? <CheckCircle2 size={12} /> : <FileText size={12} />}
+                        </span>
+                        {test.subjectName ? (
+                          <span className="rounded-full border border-[#eadfcd] bg-[#fff9ef] px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                            {test.subjectName}
+                          </span>
+                        ) : null}
+                        {calculatorEnabled ? (
+                          <span
+                            aria-label="Calculator enabled"
+                            title="Calculator enabled"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"
+                          >
+                            <Calculator size={11} />
+                          </span>
+                        ) : null}
+                        {openReportedQuestionCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setLocation(`/admin/tests/${test.id}/builder?questionId=${firstReportedQuestionId}`)}
+                            className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                            title={`${totalOpenReports} open student report${totalOpenReports === 1 ? "" : "s"}`}
+                          >
+                            <Flag size={11} />
+                            {openReportedQuestionCount} reported
+                          </button>
+                        ) : null}
                       </div>
-                    </button>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button size="sm" variant="ghost" className="h-8 px-2 text-xs gap-1.5 text-[#6B7280]" onClick={() => openAnalytics(test)} data-testid={`button-view-results-${test.id}`}>
-                        <BarChart3 size={13} />Analytics
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 px-2 text-xs gap-1.5 text-[#3B82F6] hover:text-[#2563EB] hover:bg-[#EFF6FF]"
-                        disabled={exportingTestId === test.id}
-                        onClick={() => handleExportTest(test)}
-                      >
-                        <Download size={13} />
-                        {exportingTestId === test.id ? "Exporting..." : "Export"}
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-8 px-2 text-xs gap-1.5 text-[#5B4DFF] hover:text-[#4C3FF0] hover:bg-[#EEF2FF]"
-                        onClick={() => setLocation(`/admin/tests/${test.id}/analytics`)} data-testid={`button-advanced-analytics-${test.id}`}>
-                        <TrendingUp size={13} />Advanced
-                      </Button>
-                      <Button size="sm" variant="ghost" className={`h-8 px-2 text-xs gap-1.5 ${test.isPublished ? "text-[#F97316]" : "text-[#22C55E]"}`}
-                        onClick={() => togglePublish.mutate({ id: test.id, isPublished: !test.isPublished })} data-testid={`button-toggle-publish-${test.id}`}>
-                        {test.isPublished ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-                        {test.isPublished ? "Unpublish" : "Publish"}
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        onClick={() => { if (confirm("Delete this test?")) deleteTestMutation.mutate(test.id); }} data-testid={`button-delete-test-${test.id}`}>
-                        <Trash2 size={13} />
-                      </Button>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                        <span className="flex items-center gap-1"><Clock size={11} />{test.durationMinutes} min</span>
+                        {test.scheduledAt ? <span>{format(new Date(test.scheduledAt), "MMM d, yyyy")}</span> : null}
+                      </div>
+                      {sections.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {sections.map((section) => {
+                            const sectionCount = qs.filter((question) => question.sectionId === section.id).length;
+                            return (
+                              <span
+                                key={section.id}
+                                className="rounded-full border border-[#eadfcd] bg-[#fff9ef] px-2 py-0.5 text-[10px] font-medium text-slate-600"
+                              >
+                                {section.title}: {sectionCount}/{section.questionCount ?? "—"}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <div className="flex items-center gap-2">
+                        {openReportedQuestionCount > 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 gap-1.5 border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 hover:border-rose-300 hover:bg-rose-100 hover:text-rose-800"
+                            onClick={() => setLocation(`/admin/tests/${test.id}/builder?questionId=${firstReportedQuestionId}`)}
+                          >
+                            <Flag size={13} />
+                            Review reports
+                          </Button>
+                        ) : null}
+                        <Button
+                          size="sm"
+                          className="chip-orange-solid h-8 gap-1.5 px-4 text-xs font-semibold"
+                          onClick={() => setLocation(`/admin/tests/${test.id}/builder`)}
+                        >
+                          <PencilLine size={13} />
+                          Edit test
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2 text-xs gap-1.5 text-[#3B82F6] hover:bg-[#EFF6FF] hover:text-[#2563EB]"
+                              disabled={isJsonExporting || isPdfExporting}
+                            >
+                              <Download size={13} />
+                              {isJsonExporting ? "Exporting..." : isPdfExporting ? "PDF..." : "Export"}
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44 border-[#E5E7EB]">
+                            <DropdownMenuItem onClick={() => handleExportTest(test)}>
+                              <Download size={13} />
+                              Export JSON
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleExportTestPdf(test)}>
+                              <FileText size={13} />
+                              Export PDF
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2 text-xs gap-1.5 text-[#5B4DFF] hover:bg-[#EEF2FF] hover:text-[#4C3FF0]"
+                          onClick={() => setLocation(`/admin/tests/${test.id}/analytics`)}
+                          data-testid={`button-advanced-analytics-${test.id}`}
+                        >
+                          <TrendingUp size={13} />
+                          Advanced
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2 text-xs gap-1.5 text-[#7C3AED] hover:bg-[#F3E8FF] hover:text-[#6D28D9]"
+                              disabled={importMetadataMutation.isPending && metadataImportTestId === test.id}
+                            >
+                              <Upload size={13} />
+                              {importMetadataMutation.isPending && metadataImportTestId === test.id ? "Importing..." : "Import"}
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52 border-[#E5E7EB]">
+                            <DropdownMenuItem onClick={() => openMetadataImportDialog(test.id, "metadata")}>
+                              <Upload size={13} />
+                              Import Metadata
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openMetadataImportDialog(test.id, "answers")}>
+                              <Upload size={13} />
+                              Import Correct Answer
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <Button size="sm" variant="ghost" className={`h-8 px-2 text-xs gap-1.5 ${test.isPublished ? "text-[#F97316]" : "text-[#22C55E]"}`}
+                          onClick={() => togglePublish.mutate({ id: test.id, isPublished: !test.isPublished })} data-testid={`button-toggle-publish-${test.id}`}>
+                          {test.isPublished ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                          {test.isPublished ? "Unpublish" : "Publish"}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          onClick={() => { if (confirm("Delete this test?")) deleteTestMutation.mutate(test.id); }} data-testid={`button-delete-test-${test.id}`}>
+                          <Trash2 size={13} />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-
-                  {isOpen && (
-                    <div className="max-h-[76vh] overflow-y-auto border-t border-slate-200 bg-white p-5 space-y-5">
-                      {sections.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-medium">Exam Structure</p>
-                              <InfoTip content="Choose the exam name label for this test. Imported HTML sections stay unchanged." />
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 gap-1.5"
-                              onClick={() => setEditTestMeta({ id: test.id, title: test.title, examType: test.examType ?? "" })}
-                            >
-                              <PencilLine size={13} />
-                              Edit test
-                            </Button>
-                          </div>
-                          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                      {sections.map((section, index) => {
-                              const isActive = (activeSectionByTest[test.id] ?? sections[0]?.id) === section.id;
-                              const { used, total, left, progress } = getSectionMetrics(test.id, section);
-                              return (
-                              <button
-                                key={section.id}
-                                type="button"
-                                onClick={() => {
-                                  setActiveSectionByTest((prev) => ({ ...prev, [test.id]: section.id }));
-                                  ensureSectionDrafts(test.id, test, section);
-                                }}
-                                className={`rounded-[22px] border px-4 py-4 text-left text-xs transition ${isActive ? "border-[#5B4DFF] bg-[#F5F3FF] shadow-[0_12px_28px_rgba(91,77,255,0.10)]" : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-[0_8px_18px_rgba(15,23,42,0.06)]"}`}
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="font-semibold text-sm text-slate-900">{index + 1}. {section.subjectLabel ?? section.title}</p>
-                                  <Badge variant="secondary" className="bg-white text-slate-700 shadow-sm">{section.subjectLabel ?? "General"}</Badge>
-                                </div>
-                                <div className="mt-3 h-2 rounded-full bg-slate-100">
-                                  <div
-                                    className={`h-2 rounded-full transition-all ${isActive ? "bg-[#F97316]" : "bg-[#FDBA74]"}`}
-                                    style={{ width: `${progress}%` }}
-                                  />
-                                </div>
-                                <div className="mt-3 flex items-center justify-between gap-3 text-[11px]">
-                                  <span className="font-medium text-slate-700">{used}/{total || "—"} saved</span>
-                                  <span className={`${left > 0 ? "text-slate-500" : "text-emerald-600"} font-medium`}>{left} left</span>
-                                </div>
-                                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                                  <span className="rounded-full bg-slate-50 px-2 py-1">+ve {section.marksPerQuestion ?? "—"}</span>
-                                  <span className="rounded-full bg-slate-50 px-2 py-1">-ve {section.negativeMarks ?? 0}</span>
-                                  <span className="rounded-full bg-slate-50 px-2 py-1">{String((section.meta as Record<string, unknown> | null)?.preferredQuestionType ?? "mcq").toUpperCase()}</span>
-                                </div>
-                              </button>
-                            )})}
-                          </div>
-                        </div>
-                      )}
-                      {(() => {
-                        const activeSectionId = activeSectionByTest[test.id] ?? sections[0]?.id;
-                        const activeSection = sections.find((section) => section.id === activeSectionId) ?? sections[0];
-                        const sectionKey = activeSection ? getBuilderKey(test.id, activeSection.id) : "";
-                        const sectionDrafts = sectionKey ? (draftsBySection[sectionKey] ?? []) : [];
-                        const remainingSlots = activeSection ? getRemainingSlots(test.id, activeSection) : 0;
-                        return activeSection ? (
-                        <div className="rounded-[28px] border border-slate-200 bg-[#FCFCFE] p-6 shadow-[0_18px_42px_rgba(15,23,42,0.05)]">
-                          <div className="space-y-5">
-                            {sectionDrafts.length === 0 ? (
-                              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-6 text-sm text-emerald-700">
-                                All question slots in this section are complete.
-                              </div>
-                            ) : (
-                              <div className="space-y-5">
-                                {(() => {
-                                  const draft = sectionDrafts[0];
-                                  const draftIndex = 0;
-                                  const savedSectionCount = (questionsMap[test.id] ?? []).filter((question) => question.sectionId === activeSection.id).length;
-                                  const totalSectionQuestions = activeSection.questionCount ?? savedSectionCount + sectionDrafts.length;
-                                  const visibleQuestionNumber = Math.min(savedSectionCount + 1, totalSectionQuestions || savedSectionCount + 1);
-                                  return (
-                                  <div key={`${sectionKey}-${visibleQuestionNumber}`} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                                    <div className="mb-5 rounded-2xl border border-slate-200 bg-[#F8FAFC] px-4 py-4">
-                                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                        <div>
-                                          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Current slot</p>
-                                          <h4 className="mt-1 text-lg font-semibold text-slate-900">Question {visibleQuestionNumber}</h4>
-                                          <p className="mt-1 text-sm text-slate-500">{draft.questionCode} · {draft.subjectLabel}</p>
-                                        </div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">{savedSectionCount}/{totalSectionQuestions} saved</span>
-                                          <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">{remainingSlots} left</span>
-                                          <Badge variant="outline" className="border-[#D6DAFF] bg-white text-[#5B4DFF]">{qTypeLabel[draft.questionType]}</Badge>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <div className="mt-4 space-y-4">
-                                      <Label className="text-xs">Question</Label>
-                                        <Textarea value={draft.question} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { question: e.target.value })} rows={3} className="mt-1 resize-none bg-white" placeholder="Type your question here..." />
-                                      <div className="mt-2 flex items-center gap-3">
-                                        {draft.imageData ? (
-                                          <div className="relative">
-                                            <img src={draft.imageData} alt="" className="h-auto w-auto max-w-full rounded-lg border border-slate-200 object-contain" />
-                                            <button
-                                              type="button"
-                                              onClick={() => updateDraft(test.id, activeSection.id, draftIndex, { imageData: null })}
-                                              className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white"
-                                            >
-                                            <X size={10} />
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-indigo-400 hover:text-indigo-600">
-                                          <ImagePlus size={13} />
-                                          Add image
-                                          <input
-                                            type="file"
-                                            accept="image/*"
-                                            className="hidden"
-                                            onChange={(e) => handleDraftQuestionImage(test.id, activeSection.id, draftIndex, e.target.files?.[0])}
-                                          />
-                                        </label>
-                                      )}
-                                      </div>
-                                    </div>
-
-                                    <div className="grid gap-4 rounded-2xl border border-slate-200 bg-[#FCFCFE] p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_180px] md:items-end">
-                                      <div>
-                                        <Label className="text-xs">Chapter Name</Label>
-                                        <Input
-                                          value={draft.chapterName}
-                                          onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { chapterName: e.target.value })}
-                                          className="mt-1 bg-white"
-                                          placeholder="e.g. Semiconductor Basics"
-                                        />
-                                      </div>
-                                      <div>
-                                        <Label className="text-xs">Topic Name</Label>
-                                        <Input value={draft.topicTag} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { topicTag: e.target.value })} className="mt-1 bg-white" placeholder="e.g. Biasing" />
-                                      </div>
-                                      <div>
-                                        <Label className="text-xs">Difficulty</Label>
-                                        <div className="mt-1 flex items-center gap-2">
-                                          {(["easy", "moderate", "tough"] as const).map((level) => {
-                                            const active = draft.difficulty === level;
-                                            return (
-                                              <button
-                                                key={level}
-                                                type="button"
-                                                onClick={() => handleDraftDifficultyChange(test.id, activeSection.id, draftIndex, level)}
-                                                className={`flex h-7 w-7 items-center justify-center rounded-md border transition ${active ? difficultyTone[level] : `border-slate-300 bg-white text-transparent ${difficultyHoverTone[level]}`}`}
-                                                title={level}
-                                              >
-                                                <CheckCircle2 size={13} className={active ? "text-white" : "text-transparent"} />
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <Label className="text-xs">Ideal Time (minutes)</Label>
-                                        <Input
-                                          type="number"
-                                          min={0}
-                                          step="0.1"
-                                          value={draft.idealTimeMinutes}
-                                          onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { idealTimeMinutes: e.target.value })}
-                                          className="mt-1 bg-white"
-                                        />
-                                      </div>
-                                    </div>
-
-                                    {(draft.questionType === "mcq" || draft.questionType === "multi") && (
-                                      <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-[#FCFCFE] p-4">
-                                        <Label className="text-xs">Options</Label>
-                                        {draft.options.map((option, optionIndex) => {
-                                          const isSelected = draft.questionType === "mcq" ? draft.correctAnswer === optionIndex : draft.correctAnswerMulti.includes(optionIndex);
-                                          return (
-                                            <div key={optionIndex} className="flex items-center gap-2">
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  if (draft.questionType === "mcq") {
-                                                    updateDraft(test.id, activeSection.id, draftIndex, { correctAnswer: optionIndex });
-                                                  } else {
-                                                    toggleDraftMultiOption(test.id, activeSection.id, draftIndex, optionIndex);
-                                                  }
-                                                }}
-                                                className={`flex h-6 w-6 shrink-0 items-center justify-center ${draft.questionType === "mcq" ? "rounded-full border-2" : "rounded border-2"} ${isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-300 bg-white"}`}
-                                              >
-                                                {isSelected && (draft.questionType === "mcq" ? <div className="h-2 w-2 rounded-full bg-white" /> : <CheckCircle2 size={12} className="text-white" />)}
-                                              </button>
-                                              <span className="w-5 text-xs font-semibold">{String.fromCharCode(65 + optionIndex)}.</span>
-                                              <Input
-                                                value={option}
-                                                onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, {
-                                                  options: draft.options.map((existingOption, existingIndex) => existingIndex === optionIndex ? e.target.value : existingOption),
-                                                })}
-                                                className="bg-white"
-                                                placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}
-                                              />
-                                              {draft.optionImages[optionIndex] ? (
-                                                <div className="relative">
-                                                  <img src={draft.optionImages[optionIndex] ?? ""} alt="" className="h-auto w-auto max-w-full rounded border border-slate-200 object-contain" />
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => updateDraft(test.id, activeSection.id, draftIndex, {
-                                                      optionImages: draft.optionImages.map((image, imageIndex) => imageIndex === optionIndex ? null : image),
-                                                    })}
-                                                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white"
-                                                  >
-                                                    <X size={10} />
-                                                  </button>
-                                                </div>
-                                              ) : (
-                                                <label className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-600">
-                                                  <ImagePlus size={13} />
-                                                  <input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    className="hidden"
-                                                    onChange={(e) => handleDraftOptionImage(test.id, activeSection.id, draftIndex, optionIndex, e.target.files?.[0])}
-                                                  />
-                                                </label>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-
-                                    {draft.questionType === "integer" && (
-                                      <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-[#FCFCFE] p-4">
-                                        <div className="flex gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => updateDraft(test.id, activeSection.id, draftIndex, { integerMode: "exact" })}
-                                            className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium ${draft.integerMode === "exact" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white"}`}
-                                          >
-                                            Exact Answer
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => updateDraft(test.id, activeSection.id, draftIndex, { integerMode: "range" })}
-                                            className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium ${draft.integerMode === "range" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white"}`}
-                                          >
-                                            Answer Range
-                                          </button>
-                                        </div>
-                                        {draft.integerMode === "exact" ? (
-                                          <div>
-                                            <Label className="text-xs">Correct Answer</Label>
-                                            <Input type="number" step="any" value={draft.correctInteger} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctInteger: e.target.value })} className="mt-1 w-44 bg-white" />
-                                          </div>
-                                        ) : (
-                                          <div className="grid gap-3 sm:grid-cols-2">
-                                            <div>
-                                              <Label className="text-xs">Minimum</Label>
-                                              <Input type="number" step="any" value={draft.correctIntegerMin} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctIntegerMin: e.target.value })} className="mt-1 bg-white" />
-                                            </div>
-                                            <div>
-                                              <Label className="text-xs">Maximum</Label>
-                                              <Input type="number" step="any" value={draft.correctIntegerMax} onChange={(e) => updateDraft(test.id, activeSection.id, draftIndex, { correctIntegerMax: e.target.value })} className="mt-1 bg-white" />
-                                            </div>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    <div className="mt-5 flex justify-end">
-                                      <Button
-                                        className="rounded-xl bg-[#5B4DFF] px-5 text-white hover:bg-[#4C3FF0]"
-                                        disabled={!canSaveDraft(draft) || addQuestionMutation.isPending}
-                                        onClick={() => addQuestionMutation.mutate({
-                                          testId: test.id,
-                                          body: buildQuestionPayload(draft, test, activeSection.id),
-                                        }, {
-                                          onSuccess: () => {
-                                            setDraftsBySection((prev) => ({
-                                              ...prev,
-                                              [sectionKey]: (prev[sectionKey] ?? []).filter((_, currentIndex) => currentIndex !== draftIndex),
-                                            }));
-                                          },
-                                        })}
-                                      >
-                                        {addQuestionMutation.isPending ? "Saving..." : `Save Question ${visibleQuestionNumber}`}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                  );
-                                })()}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        ) : null;
-                      })()}
-                      {qs.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">No questions yet.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {qs.map((q, idx) => (
-                            <div key={q.id} className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]" data-testid={`question-${q.id}`}>
-                              <div className="flex items-start gap-2">
-                                <span className="mt-0.5 shrink-0 rounded-full bg-[#EEF2FF] px-2 py-1 text-xs font-semibold text-[#5B4DFF]">Q{idx + 1}</span>
-                                <div className="flex-1 min-w-0">
-                                  <div className="mb-2 flex items-start gap-2">
-                                    <RichQuestionContent content={q.question} className="flex-1 text-sm font-medium leading-6 text-slate-900" />
-                                    {q.subjectLabel && <Badge variant="outline" className="border-slate-200 bg-slate-50 text-[10px] text-slate-700">{q.subjectLabel}</Badge>}
-                                    {q.questionCode && <Badge variant="secondary" className="bg-[#EEF2FF] text-[10px] text-[#5B4DFF]">{q.questionCode}</Badge>}
-                                    <span className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium shrink-0 ${q.questionType === "multi" ? "bg-purple-100 text-purple-700" : q.questionType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
-                                      {qTypeIcon[q.questionType ?? "mcq"]}{qTypeLabel[q.questionType ?? "mcq"]}
-                                    </span>
-                                  </div>
-                                  {q.imageData && <div className="mt-1 mb-2"><img src={q.imageData} alt="Q visual" className="max-h-32 rounded-lg border border-border object-contain" /></div>}
-                                  {(q.solutionText || q.solutionImageData) && (
-                                    <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2">
-                                      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                                        <span>Teacher Solution</span>
-                                      </div>
-                                      {q.solutionText && <RichQuestionContent content={q.solutionText} className="mt-1 text-xs leading-6 text-emerald-900" />}
-                                      {q.solutionImageData && (
-                                        <div className="mt-2">
-                                          <img src={q.solutionImageData} alt="Solution" className="max-h-24 rounded border border-emerald-200 object-contain" />
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                  {q.questionType === "integer" ? (
-                                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                      <span className="text-xs text-muted-foreground">Correct answer:</span>
-                                      {(q.correctAnswerMin !== null && q.correctAnswerMin !== undefined && q.correctAnswerMax !== null && q.correctAnswerMax !== undefined) ? (
-                                        <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{q.correctAnswerMin} — {q.correctAnswerMax}</span>
-                                      ) : (
-                                        <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded">{q.correctAnswer}</span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div className="grid grid-cols-2 gap-1 mt-1">
-                                      {q.options.map((opt, i) => {
-                                        const isCorrect = q.questionType === "multi"
-                                          ? (q.correctAnswerMulti ?? []).includes(i)
-                                          : i === q.correctAnswer;
-                                        const optImg = q.optionImages?.[i];
-                                        return (
-                                          <div key={i} className={`text-xs px-2 py-1 rounded flex flex-col gap-1 ${isCorrect ? "bg-green-50 text-green-700 font-medium border border-green-200" : "bg-muted/50 text-muted-foreground"}`}>
-                                            <div className="flex items-center gap-1">
-                                              {isCorrect && <CheckCircle2 size={11} />}
-                                              <span className="shrink-0">{String.fromCharCode(65 + i)}.</span>
-                                              <RichQuestionContent content={opt} className="flex-1" />
-                                            </div>
-                                            {optImg && <img src={optImg} alt="" className="max-h-16 rounded object-contain border border-border/50" />}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                  <p className="mt-2 text-xs text-muted-foreground">
-                                    {(() => {
-                                      const meta = (q.meta as Record<string, unknown> | null) ?? null;
-                                      const chapterName = String(meta?.chapterName ?? "").trim();
-                                      const topicName = String(meta?.topicTag ?? "").trim();
-                                      const detailBits = [
-                                        q.points ? `${q.points} pt${q.points !== 1 ? "s" : ""}` : null,
-                                        `-ve ${Number(q.negativeMarks ?? 0).toFixed(2)}`,
-                                        chapterName || null,
-                                        topicName || null,
-                                        String(meta?.difficulty ?? "moderate"),
-                                        `ideal ${((Number(meta?.estimatedTimeSeconds ?? 0) || 0) / 60).toFixed(1)} min`,
-                                      ].filter(Boolean);
-                                      return detailBits.join(" · ");
-                                    })()}
-                                  </p>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 text-[#5B4DFF] shrink-0 hover:bg-[#EEF2FF] hover:text-[#4C3FF0]"
-                                  onClick={() => openQuestionEditor(test.id, q)}
-                                >
-                                  <PencilLine size={11} />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive shrink-0"
-                                  onClick={() => deleteQuestionMutation.mutate({ testId: test.id, qid: q.id })}>
-                                  <Trash2 size={11} />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  </CardContent>
-                </Card>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
       )}
 
-      <Dialog
-        open={Boolean(editTestMeta)}
-        onOpenChange={(open) => {
-          if (!open && !updateTestMetaMutation.isPending) {
-            setEditTestMeta(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Edit Test</DialogTitle>
-          </DialogHeader>
-          {editTestMeta ? (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                Update the test title and choose the planner exam name. For HTML-imported tests, the section layout stays exactly as imported.
-              </div>
-              <div>
-                <Label className="text-xs">Test Title</Label>
-                <Input
-                  value={editTestMeta.title}
-                  onChange={(e) => setEditTestMeta((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
-                  className="mt-1 bg-white"
-                  placeholder="e.g. CPET 2025"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Exam Name</Label>
-                <Select
-                  value={editTestMeta.examType}
-                  onValueChange={(value) => setEditTestMeta((prev) => (prev ? { ...prev, examType: value } : prev))}
-                >
-                  <SelectTrigger className="mt-1 bg-white">
-                    <SelectValue placeholder="Select planner exam" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {examTemplates.map((template) => (
-                      <SelectItem key={template.id} value={template.key}>
-                        {template.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={updateTestMetaMutation.isPending}
-                  onClick={() => setEditTestMeta(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  disabled={!editTestMeta.title.trim() || !editTestMeta.examType || updateTestMetaMutation.isPending}
-                  onClick={() => updateTestMetaMutation.mutate(editTestMeta)}
-                >
-                  {updateTestMetaMutation.isPending ? "Saving..." : "Save"}
-                </Button>
+      {publishResultDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-[24px] border border-[#eadfcd] bg-[#fffaf2] shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
+            <button
+              type="button"
+              onClick={() => setPublishResultDialog(null)}
+              className="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition hover:bg-white/20"
+              aria-label="Close publish summary"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="bg-[linear-gradient(135deg,#17253d_0%,#243b63_55%,#2f4c7f_100%)] px-5 py-4 text-white">
+              <div className="flex items-center gap-3 pr-10">
+                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/12 text-white backdrop-blur">
+                  <CheckCircle2 size={18} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="truncate text-xl font-extrabold tracking-tight">Test published</h2>
+                  <p className="mt-1 text-sm leading-5 text-white/80">
+                    <span className="font-semibold text-white">{publishResultDialog.testTitle}</span> ka question bank sync complete ho gaya.
+                  </p>
+                </div>
               </div>
             </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Synced</p>
+                  <p className="mt-2 text-2xl font-extrabold text-emerald-800">{publishResultDialog.summary.linkedCount}</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-700">Duplicates</p>
+                  <p className="mt-2 text-2xl font-extrabold text-amber-800">{publishResultDialog.summary.skippedDuplicateCount}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Needs Tagging</p>
+                  <p className="mt-2 text-2xl font-extrabold text-slate-900">{publishResultDialog.summary.skippedNoSubjectCount}</p>
+                </div>
+              </div>
+
+              {publishResultDialog.summary.duplicateQuestions && publishResultDialog.summary.duplicateQuestions.length > 0 ? (
+                <div className="rounded-2xl border border-[#eadfcd] bg-white px-4 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Duplicate Questions</p>
+                  <p className="mt-2 text-sm text-slate-700">
+                    {publishResultDialog.summary.duplicateQuestions.slice(0, 10).map((item) => item.questionNo).join(", ")}
+                    {publishResultDialog.summary.duplicateQuestions.length > 10
+                      ? ` + ${publishResultDialog.summary.duplicateQuestions.length - 10} more`
+                      : ""}
+                  </p>
+                </div>
+              ) : null}
+
+              {publishResultDialog.summary.createdQuestionBankClassCount > 0 ? (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+                  Same exam ka question-bank card missing tha, system ne auto-create kar diya.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ─── Create Test Dialog ─── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -1975,6 +1731,13 @@ export default function AdminTests() {
                   <InfoTip content={`Visible to students who selected ${String(newExamType || "exam").toUpperCase()} during registration or in profile settings.`} />
                 </div>
               </div>
+              <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">Student calculator</p>
+                  <p className="text-xs text-slate-500">Turn on the exam calculator only for tests that need it.</p>
+                </div>
+                <Switch checked={newCalculatorEnabled} onCheckedChange={setNewCalculatorEnabled} />
+              </div>
               <div><Label className="text-xs">Scheduled Date (optional)</Label><Input type="datetime-local" value={newScheduled} onChange={(e) => setNewScheduled(e.target.value)} className="mt-1" /></div>
             <div className="flex gap-2 justify-end pt-1">
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -1987,430 +1750,174 @@ export default function AdminTests() {
       </Dialog>
 
       <Dialog
-        open={Boolean(editingQuestion && editDraft)}
+        open={importOpen}
         onOpenChange={(open) => {
-          if (!open) {
-            setEditingQuestion(null);
-            setEditDraft(null);
+          if (!importTestMutation.isPending) {
+            if (!open) {
+              resetImportDialog();
+            } else {
+              setImportOpen(true);
+            }
           }
         }}
       >
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Question</DialogTitle>
-          </DialogHeader>
-          {editingQuestion && editDraft && activeEditTest ? (
-            <div className="space-y-5">
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B7280]">
-                <Badge variant="outline">{editDraft.subjectLabel || "Section"}</Badge>
-                {editDraft.questionCode && <Badge variant="secondary">{editDraft.questionCode}</Badge>}
-                <Badge variant="outline">{qTypeLabel[editDraft.questionType]}</Badge>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Import Test</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#eadfcd] bg-[#fff9ef] px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Selected File</p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">{importBundle?.test.title ?? "Untitled test"}</p>
+              <p className="mt-1 text-xs text-slate-500">{importFilename}</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Part Of Exam</Label>
+                <Select value={importExamType} onValueChange={setImportExamType}>
+                  <SelectTrigger className="h-11 rounded-xl border-[#eadfcd] bg-white">
+                    <SelectValue placeholder="Select exam" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {examTemplates.map((template) => (
+                      <SelectItem key={template.id} value={template.key}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">Ye decide karega ki imported test kis exam stream ka part hoga.</p>
               </div>
-
-              <div>
-                <Label className="text-xs">Question</Label>
-                <Textarea
-                  value={editDraft.question}
-                  onChange={(e) => updateEditDraft({ question: e.target.value })}
-                  rows={4}
-                  className="mt-1 bg-white"
-                  placeholder="Question text or image-based prompt"
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule Date</Label>
+                <Input
+                  type="datetime-local"
+                  value={importScheduled}
+                  onChange={(event) => setImportScheduled(event.target.value)}
+                  className="h-11 rounded-xl border-[#eadfcd] bg-white"
                 />
+                <p className="text-xs text-slate-500">Blank chhodo to test draft me without schedule import hoga.</p>
               </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="ghost" disabled={importTestMutation.isPending} onClick={() => resetImportDialog()}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!importBundle || !importExamType || importTestMutation.isPending}
+                onClick={() => {
+                  if (!importBundle) return;
+                  importTestMutation.mutate({
+                    bundle: importBundle,
+                    examType: importExamType,
+                    scheduledAt: importScheduled,
+                  });
+                }}
+              >
+                {importTestMutation.isPending ? "Importing..." : "Import Test"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-              <div className="flex flex-wrap gap-3">
-                {editDraft.imageData ? (
-                  <div className="relative rounded-xl border border-slate-200 bg-slate-50 p-2">
-                    <img src={editDraft.imageData} alt="" className="h-auto w-auto max-w-full rounded object-contain" />
-                    <button
-                      type="button"
-                      onClick={() => updateEditDraft({ imageData: null })}
-                      className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white"
-                    >
-                      <X size={11} />
-                    </button>
-                  </div>
-                ) : (
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:border-[#5B4DFF] hover:text-[#5B4DFF]">
-                    <ImagePlus size={14} />
-                    Add image
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handleEditQuestionImage(e.target.files?.[0])} />
-                  </label>
-                )}
+      <Dialog
+        open={metadataImportOpen}
+        onOpenChange={(open) => {
+          if (!importMetadataMutation.isPending) {
+            if (!open) {
+              resetMetadataImportDialog();
+            } else {
+              setMetadataImportOpen(true);
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-5xl overflow-hidden p-0">
+          <div className="grid max-h-[88vh] lg:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="overflow-y-auto border-b border-[#eadfcd] bg-[#fffaf1] p-5 lg:border-b-0 lg:border-r">
+              <div className="rounded-2xl border border-[#eadfcd] bg-white px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Selected Test</p>
+                <p className="mt-2 text-sm font-semibold text-slate-900">{metadataImportTest?.title ?? "Untitled test"}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {metadataImportFilename ? `Loaded file: ${metadataImportFilename}` : metadataImportConfig.loadedFileText}
+                </p>
               </div>
-
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_150px]">
-                <div>
-                  <Label className="text-xs">Chapter Name</Label>
-                  <Input
-                    value={editDraft.chapterName}
-                    onChange={(e) => updateEditDraft({ chapterName: e.target.value })}
-                    className="mt-1 bg-white"
-                    placeholder="e.g. Semiconductor Basics"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Topic Name</Label>
-                  <Input
-                    value={editDraft.topicTag}
-                    onChange={(e) => updateEditDraft({ topicTag: e.target.value })}
-                    className="mt-1 bg-white"
-                    placeholder="e.g. Kirchhoff laws"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Difficulty</Label>
-                  <div className="mt-1 flex items-center gap-2">
-                    {(["easy", "moderate", "tough"] as const).map((level) => {
-                      const active = editDraft.difficulty === level;
-                      return (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => handleEditDifficultyChange(level)}
-                          className={`flex h-7 w-7 items-center justify-center rounded-md border transition ${active ? difficultyTone[level] : `border-slate-300 bg-white text-transparent ${difficultyHoverTone[level]}`}`}
-                          title={level}
-                        >
-                          <CheckCircle2 size={13} className={active ? "text-white" : "text-transparent"} />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Ideal Time (minutes)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.1"
-                    value={editDraft.idealTimeMinutes}
-                    onChange={(e) => updateEditDraft({ idealTimeMinutes: e.target.value })}
-                    className="mt-1 bg-white"
-                  />
-                </div>
+              <div className="mt-4 rounded-2xl bg-slate-950 px-4 py-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">Example</p>
+                <pre className="mt-3 overflow-x-auto text-[11px] leading-5 text-slate-100">
+{metadataImportConfig.example}
+                </pre>
               </div>
-
-              {(editDraft.questionType === "mcq" || editDraft.questionType === "multi") && (
-                <div className="space-y-2">
-                  <Label className="text-xs">Options</Label>
-                  {editDraft.options.map((option, optionIndex) => {
-                    const isSelected =
-                      editDraft.questionType === "mcq"
-                        ? editDraft.correctAnswer === optionIndex
-                        : editDraft.correctAnswerMulti.includes(optionIndex);
-                    return (
-                      <div key={optionIndex} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (editDraft.questionType === "mcq") {
-                              updateEditDraft({ correctAnswer: optionIndex });
-                            } else {
-                              toggleEditMultiOption(optionIndex);
-                            }
-                          }}
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center ${editDraft.questionType === "mcq" ? "rounded-full border-2" : "rounded border-2"} ${isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-300 bg-white"}`}
-                        >
-                          {isSelected && (editDraft.questionType === "mcq" ? <div className="h-2 w-2 rounded-full bg-white" /> : <CheckCircle2 size={12} className="text-white" />)}
-                        </button>
-                        <span className="w-5 text-xs font-semibold">{String.fromCharCode(65 + optionIndex)}.</span>
-                        <Input
-                          value={option}
-                          onChange={(e) => updateEditDraft({
-                            options: editDraft.options.map((existingOption, existingIndex) => existingIndex === optionIndex ? e.target.value : existingOption),
-                          })}
-                          className="bg-white"
-                          placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}
-                        />
-                        {editDraft.optionImages[optionIndex] ? (
-                          <div className="relative">
-                            <img src={editDraft.optionImages[optionIndex] ?? ""} alt="" className="h-auto w-auto max-w-full rounded border border-slate-200 object-contain" />
-                            <button
-                              type="button"
-                              onClick={() => updateEditDraft({
-                                optionImages: editDraft.optionImages.map((image, imageIndex) => imageIndex === optionIndex ? null : image),
-                              })}
-                              className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white"
-                            >
-                              <X size={10} />
-                            </button>
-                          </div>
-                        ) : (
-                          <label className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded border border-dashed border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-600">
-                            <ImagePlus size={13} />
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => handleEditOptionImage(optionIndex, e.target.files?.[0])}
-                            />
-                          </label>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {editDraft.questionType === "integer" && (
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => updateEditDraft({ integerMode: "exact" })}
-                      className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium ${editDraft.integerMode === "exact" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white"}`}
-                    >
-                      Exact Answer
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateEditDraft({ integerMode: "range" })}
-                      className={`flex-1 rounded-lg border-2 px-3 py-2 text-xs font-medium ${editDraft.integerMode === "range" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white"}`}
-                    >
-                      Answer Range
-                    </button>
-                  </div>
-                  {editDraft.integerMode === "exact" ? (
+            </div>
+            <div className="flex min-h-0 flex-col overflow-hidden bg-white">
+              <DialogHeader className="border-b border-[#eadfcd] px-6 py-5 pr-14 text-left">
+                <DialogTitle>{metadataImportConfig.title}</DialogTitle>
+                <p className="mt-1 text-sm text-slate-500">Paste ya load karo, aur selected test ke questions bulk me update ho jayenge.</p>
+              </DialogHeader>
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="rounded-2xl border border-[#cfd4ff] bg-white px-4 py-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <Label className="text-xs">Correct Answer</Label>
-                      <Input type="number" step="any" value={editDraft.correctInteger} onChange={(e) => updateEditDraft({ correctInteger: e.target.value })} className="mt-1 w-44 bg-white" />
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{metadataImportConfig.pasteTitle}</p>
+                      <p className="mt-1 text-xs text-slate-500">{metadataImportConfig.pasteHelper}</p>
                     </div>
-                  ) : (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <Label className="text-xs">Minimum</Label>
-                        <Input type="number" step="any" value={editDraft.correctIntegerMin} onChange={(e) => updateEditDraft({ correctIntegerMin: e.target.value })} className="mt-1 bg-white" />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Maximum</Label>
-                        <Input type="number" step="any" value={editDraft.correctIntegerMax} onChange={(e) => updateEditDraft({ correctIntegerMax: e.target.value })} className="mt-1 bg-white" />
-                      </div>
-                    </div>
-                  )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 border-[#d8dafe] text-xs text-slate-700 hover:bg-[#f8f8ff]"
+                      onClick={() => metadataImportInputRef.current?.click()}
+                      disabled={!metadataImportTestId || importMetadataMutation.isPending}
+                    >
+                      <Upload size={13} />
+                      Load File
+                    </Button>
+                  </div>
+                  <Textarea
+                    value={metadataImportText}
+                    onChange={(event) => setMetadataImportText(event.target.value)}
+                    placeholder={metadataImportConfig.example}
+                    className="mt-4 min-h-[340px] rounded-2xl border-[#7c7cff] bg-white font-mono text-[13px] leading-6 lg:min-h-[420px]"
+                  />
                 </div>
-              )}
-
-              <div className="flex justify-end gap-2">
+              </div>
+              <div className="flex justify-end gap-2 border-t border-[#eadfcd] px-6 py-4">
                 <Button
                   variant="ghost"
-                  onClick={() => {
-                    setEditingQuestion(null);
-                    setEditDraft(null);
-                  }}
+                  disabled={importMetadataMutation.isPending}
+                  onClick={() => resetMetadataImportDialog()}
                 >
                   Cancel
                 </Button>
                 <Button
-                  disabled={!canSaveDraft(editDraft) || updateQuestionMutation.isPending}
-                  onClick={() => updateQuestionMutation.mutate({
-                    testId: editingQuestion.testId,
-                    qid: editingQuestion.question.id,
-                    body: buildQuestionPayload(editDraft, activeEditTest, editingQuestion.question.sectionId ?? 0),
-                  })}
+                  disabled={!metadataImportTestId || !metadataImportText.trim() || importMetadataMutation.isPending}
+                  onClick={() => {
+                    if (!metadataImportTestId || !metadataImportText.trim()) return;
+                    try {
+                      const parsed = JSON.parse(metadataImportText) as unknown;
+                      if ((!Array.isArray(parsed) && (typeof parsed !== "object" || parsed === null))) {
+                        throw new Error("Please paste a JSON object or question metadata array.");
+                      }
+                      importMetadataMutation.mutate({
+                        testId: metadataImportTestId,
+                        payload: parsed,
+                        mode: metadataImportMode,
+                      });
+                    } catch (error) {
+                      toast({
+                        title: metadataImportConfig.invalidJsonTitle,
+                        description: error instanceof Error ? error.message : "Please paste valid JSON.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
                 >
-                  {updateQuestionMutation.isPending ? "Saving..." : "Save Changes"}
+                  {importMetadataMutation.isPending ? "Importing..." : metadataImportConfig.submitLabel}
                 </Button>
               </div>
             </div>
-          ) : null}
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* ─── Analytics Dialog ─── */}
-      <Dialog open={analyticsTest !== null || analyticsLoading} onOpenChange={(o) => { if (!o) setAnalyticsTest(null); }}>
-        <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-0">
-          {analyticsLoading && (
-            <div className="p-8 text-center">
-              <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">Loading analytics...</p>
-            </div>
-          )}
-          {analyticsTest && !analyticsLoading && (
-            <>
-              <div className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">
-                <DialogHeader><DialogTitle className="flex items-center gap-2"><BarChart3 size={18} className="text-primary" />Analytics: {analyticsTest.test.title}</DialogTitle></DialogHeader>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {analyticsTest.total === 0 ? (
-                  <div className="text-center py-12">
-                    <Users size={40} className="mx-auto text-muted-foreground mb-3" />
-                    <p className="text-muted-foreground">No submissions yet.</p>
-                  </div>
-                ) : (
-                  <>
-                    {/* ── Summary Cards ── */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
-                        <Users size={16} className="mx-auto text-blue-600 mb-1" />
-                        <p className="text-2xl font-bold text-blue-700">{analyticsTest.total}</p>
-                        <p className="text-xs text-blue-600">Submissions</p>
-                      </div>
-                      <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-                        <Award size={16} className="mx-auto text-green-600 mb-1" />
-                        <p className="text-2xl font-bold text-green-700">{analyticsTest.passCount}</p>
-                        <p className="text-xs text-green-600">Passed ({Math.round(analyticsTest.passCount / analyticsTest.total * 100)}%)</p>
-                      </div>
-                      <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-center">
-                        <TrendingUp size={16} className="mx-auto text-purple-600 mb-1" />
-                        <p className="text-2xl font-bold text-purple-700">{analyticsTest.avgPercentage}%</p>
-                        <p className="text-xs text-purple-600">Avg Score</p>
-                      </div>
-                      <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-center">
-                        <Target size={16} className="mx-auto text-orange-600 mb-1" />
-                        <p className="text-2xl font-bold text-orange-700">{analyticsTest.test.passingScore == null ? "No cutoff" : `${analyticsTest.test.passingScore}%`}</p>
-                        <p className="text-xs text-orange-600">Passing Mark</p>
-                      </div>
-                    </div>
-
-                    {/* ── Charts Row ── */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {/* Score Distribution */}
-                      <div className="bg-muted/30 rounded-xl p-4">
-                        <p className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart3 size={14} className="text-primary" />Score Distribution</p>
-                        <ResponsiveContainer width="100%" height={160}>
-                          <BarChart data={analyticsTest.scoreDistribution} margin={{ top: 0, right: 4, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                            <XAxis dataKey="range" tick={{ fontSize: 10 }} />
-                            <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                            <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v) => [v, "Students"]} />
-                            <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-
-                      {/* Pass/Fail Pie */}
-                      <div className="bg-muted/30 rounded-xl p-4">
-                        <p className="text-sm font-semibold mb-3 flex items-center gap-1.5"><Award size={14} className="text-primary" />Pass vs Fail</p>
-                        <ResponsiveContainer width="100%" height={160}>
-                          <PieChart>
-                            <Pie data={[{ name: "Passed", value: analyticsTest.passCount }, { name: "Failed", value: analyticsTest.failCount }]}
-                              cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={3} dataKey="value">
-                              {[0, 1].map((i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
-                            </Pie>
-                            <Tooltip contentStyle={{ fontSize: 12 }} />
-                            <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-
-                    {/* ── Per-Question Success Rate ── */}
-                    <div className="bg-muted/30 rounded-xl p-4">
-                      <p className="text-sm font-semibold mb-3 flex items-center gap-1.5"><ListChecks size={14} className="text-primary" />Per-Question Success Rate</p>
-                      <ResponsiveContainer width="100%" height={Math.max(140, analyticsTest.perQuestion.length * 36)}>
-                        <BarChart data={analyticsTest.perQuestion.map((q, i) => ({ name: `Q${i + 1}`, rate: q.successRate, correct: q.correctCount, total: analyticsTest.total }))}
-                          layout="vertical" margin={{ top: 0, right: 40, left: 24, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
-                          <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
-                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={28} />
-                          <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v, _, p) => [`${v}% (${p.payload.correct}/${p.payload.total})`, "Success Rate"]} />
-                          <Bar dataKey="rate" radius={[0, 4, 4, 0]}>
-                            {analyticsTest.perQuestion.map((q, i) => (
-                              <Cell key={i} fill={q.successRate >= 70 ? "#22c55e" : q.successRate >= 40 ? "#f59e0b" : "#ef4444"} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                      <p className="text-xs text-muted-foreground mt-2">Green ≥70% · Orange 40–69% · Red &lt;40%</p>
-                    </div>
-
-                    {/* ── Per-Question Breakdown ── */}
-                    <div>
-                      <p className="text-sm font-semibold mb-3">Question-by-Question Breakdown</p>
-                      <div className="space-y-3">
-                        {analyticsTest.perQuestion.map((q, idx) => (
-                          <div key={q.id} className="border border-border rounded-xl overflow-hidden">
-                            <div className={`px-3 py-2 flex items-start gap-2 ${q.successRate >= 70 ? "bg-green-50" : q.successRate < 40 ? "bg-red-50" : "bg-amber-50"}`}>
-                              <span className="text-xs font-bold text-muted-foreground shrink-0 mt-0.5">Q{idx + 1}</span>
-                              <RichQuestionContent content={q.question} className="text-xs font-medium flex-1 leading-relaxed" />
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium ${q.questionType === "multi" ? "bg-purple-100 text-purple-700" : q.questionType === "integer" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
-                                  {qTypeIcon[q.questionType]}{q.questionType.toUpperCase()}
-                                </span>
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${q.successRate >= 70 ? "bg-green-100 text-green-700" : q.successRate < 40 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-                                  {q.successRate}% correct
-                                </span>
-                              </div>
-                            </div>
-                            {q.imageData && (
-                              <div className="px-3 pt-2">
-                                <img src={q.imageData} alt="Q" className="max-h-32 rounded border border-border object-contain" />
-                              </div>
-                            )}
-                            <div className="p-3 bg-background">
-                              {q.questionType === "integer" ? (
-                                <div className="flex items-center gap-3 text-xs flex-wrap">
-                                  <span className="text-muted-foreground">Correct answer:</span>
-                                  {(q.correctAnswerMin !== null && q.correctAnswerMax !== null) ? (
-                                    <span className="font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">{q.correctAnswerMin} — {q.correctAnswerMax}</span>
-                                  ) : (
-                                    <span className="font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded">{q.correctAnswer}</span>
-                                  )}
-                                  <span className="text-muted-foreground">{q.correctCount}/{analyticsTest.total} got it right</span>
-                                </div>
-                              ) : (
-                                <div className="space-y-1">
-                                  {q.options.map((opt, i) => {
-                                    const isCorrect = q.questionType === "multi" ? (q.correctAnswerMulti ?? []).includes(i) : i === q.correctAnswer;
-                                    const pickCount = q.optionCounts[i] ?? 0;
-                                    const pct = analyticsTest.total > 0 ? Math.round((pickCount / analyticsTest.total) * 100) : 0;
-                                    const optImg = q.optionImages?.[i];
-                                    return (
-                                      <div key={i} className="flex items-center gap-2">
-                                        <span className={`text-xs font-semibold w-5 shrink-0 ${isCorrect ? "text-green-700" : "text-muted-foreground"}`}>{String.fromCharCode(65 + i)}.</span>
-                                        <div className={`flex-1 flex items-center gap-1.5 ${isCorrect ? "text-green-700 font-medium" : "text-muted-foreground"}`}>
-                                          <RichQuestionContent content={opt} className="text-xs" />
-                                          {optImg && <img src={optImg} alt="" className="h-6 w-6 rounded object-cover border border-border/50 shrink-0" />}
-                                        </div>
-                                        {isCorrect && <CheckCircle2 size={12} className="text-green-600 shrink-0" />}
-                                        <div className="w-20 h-4 bg-muted rounded-full overflow-hidden shrink-0">
-                                          <div className={`h-full rounded-full ${isCorrect ? "bg-green-500" : "bg-gray-400"}`} style={{ width: `${pct}%` }} />
-                                        </div>
-                                        <span className="text-xs text-muted-foreground w-16 text-right shrink-0">{pct}% ({pickCount})</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* ── Student Leaderboard ── */}
-                    <div>
-                      <p className="text-sm font-semibold mb-3 flex items-center gap-1.5"><Users size={14} className="text-primary" />Student Results</p>
-                      <div className="border border-border rounded-xl overflow-hidden">
-                        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 bg-muted/50 text-xs text-muted-foreground font-medium">
-                          <span>Student</span><span>Score</span><span>%</span><span>Result</span>
-                        </div>
-                        {[...analyticsTest.submissions].sort((a, b) => b.percentage - a.percentage).map((s) => (
-                          <div key={s.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2.5 border-t border-border items-center hover:bg-muted/20">
-                            <div>
-                              <p className="text-sm font-medium">{s.studentName}</p>
-                              <p className="text-xs text-muted-foreground">@{s.studentUsername}</p>
-                            </div>
-                            <span className="text-sm font-semibold">{s.score}/{s.totalPoints}</span>
-                            <span className={`text-sm font-bold ${analyticsTest.test.passingScore == null || s.percentage >= analyticsTest.test.passingScore ? "text-green-600" : "text-red-600"}`}>{s.percentage}%</span>
-                            <div>
-                              {s.passed
-                                ? <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle2 size={12} />Pass</span>
-                                : <span className="flex items-center gap-1 text-xs text-red-600 font-medium"><XCircle size={12} />Fail</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1.5 text-right">Sorted by score (highest first)</p>
-                    </div>
-                  </>
-                )}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

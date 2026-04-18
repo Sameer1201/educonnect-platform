@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Bell, Check, Trash2, X, Settings, ExternalLink } from "lucide-react";
+import { Bell, Check, Trash2, X, ExternalLink } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -37,7 +37,6 @@ export default function NotificationBell() {
   const hasUserInteractedRef = useRef(false);
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [, navigate] = useLocation();
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
   const playNotificationSound = () => {
@@ -143,11 +142,6 @@ export default function NotificationBell() {
           if (notif.type === "test") {
             qc.invalidateQueries({ queryKey: ["student-tests"] });
           }
-          // If an assignment was posted, refresh student assignments
-          if (notif.type === "assignment") {
-            qc.invalidateQueries({ queryKey: ["student-assignments"] });
-          }
-
           // Show toast
           playNotificationSound();
           toast({
@@ -300,7 +294,7 @@ export default function NotificationBell() {
           )}
         </div>
 
-        <div className="px-4 py-2.5 border-t border-border flex items-center justify-between">
+        <div className="px-4 py-2.5 border-t border-border">
           <Link
             href="/activity"
             onClick={() => setOpen(false)}
@@ -308,9 +302,6 @@ export default function NotificationBell() {
           >
             <ExternalLink size={11} /> View all activity
           </Link>
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-            <Settings size={11} /> Always on
-          </span>
         </div>
       </PopoverContent>
     </Popover>

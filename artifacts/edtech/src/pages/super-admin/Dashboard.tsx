@@ -12,14 +12,14 @@ import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { APP_NAME } from "@/lib/brand";
 import {
-  AreaChart, Area, PieChart, Pie, Cell,
+  AreaChart, Area,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
   Users, UserCheck, BookOpen, Zap, Clock, CheckCircle,
   TrendingUp, Bell, LifeBuoy, Trophy, GraduationCap,
-  Medal, FileText, ClipboardList, MessageSquare, ArrowRight,
-  Shield, Activity, Star, Flame, Plus, ChevronRight,
+  Medal, FileText, ClipboardList, ArrowRight,
+  Shield, Activity, Flame, Plus, ChevronRight,
 } from "lucide-react";
 
 /* ─── helpers ─── */
@@ -158,8 +158,8 @@ export default function SuperAdminDashboard() {
       toast({
         title: updated.learningAccessEnabled ? "Learning access enabled" : "Focus mode enabled",
         description: updated.learningAccessEnabled
-          ? "Classes and assignments are visible again for teachers and students."
-          : "Teachers and students will now focus on community, question bank, and tests.",
+          ? "The legacy learning access flag is enabled again."
+          : "The platform is now focused on question bank and tests.",
       });
     },
     onError: (err: Error) => {
@@ -178,7 +178,7 @@ export default function SuperAdminDashboard() {
       { id, data: { status: "approved" } },
       {
         onSuccess: () => {
-          toast({ title: "Student approved", description: `${name} can now access classes.` });
+          toast({ title: "Student approved", description: `${name} can now access the platform.` });
           refetch();
           queryClient.invalidateQueries({ queryKey: getListUsersQueryKey({ role: "student" }) });
         },
@@ -261,9 +261,6 @@ export default function SuperAdminDashboard() {
     Students: s.students,
     Admins: s.admins,
   }));
-
-  const pieData = (d.classBreakdown ?? []).filter((b: any) => b.value > 0);
-  const PIE_COLORS = ["#6366f1", "#ef4444", "#10b981"];
 
   return (
     <DashboardScene accent="from-orange-500/18 via-red-500/12 to-violet-500/12">
@@ -351,7 +348,7 @@ export default function SuperAdminDashboard() {
           <div>
             <p className="text-sm font-semibold">Teacher + Student Learning Access</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Turn off classes and assignments for teachers and students so current focus stays on community, question bank, and tests.
+              Turn off legacy learning flows for teachers and students so current focus stays on question bank and tests.
             </p>
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3">
@@ -455,10 +452,10 @@ export default function SuperAdminDashboard() {
           color="from-amber-500 to-orange-500"
         />
         <QuickAction
-          href="/super-admin/support"
-          icon={<LifeBuoy size={16} className="text-rose-600" />}
-          label="Support Tickets"
-          desc={`${d.openTickets} open ticket${d.openTickets !== 1 ? "s" : ""}`}
+          href="/super-admin/activity"
+          icon={<Activity size={16} className="text-rose-600" />}
+          label="Activity"
+          desc="Review recent platform activity"
           color="from-rose-600 to-pink-600"
         />
       </div>
@@ -598,54 +595,8 @@ export default function SuperAdminDashboard() {
         </TiltCard>
       </div>
 
-      {/* ── Bottom row: class breakdown + recent people ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-        {/* Class breakdown donut */}
-        <TiltCard>
-        <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <BookOpen size={14} className="text-indigo-500" /> Class Breakdown
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0 flex flex-col items-center">
-            {pieData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={140}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={64}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {pieData.map((_: any, i: number) => (
-                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip contentStyle={{ fontSize: "11px", borderRadius: "8px" }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex gap-4 flex-wrap justify-center mt-1">
-                  {pieData.map((b: any, i: number) => (
-                    <div key={b.label} className="flex items-center gap-1.5 text-xs">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i] }} />
-                      <span className="text-muted-foreground">{b.label}:</span>
-                      <span className="font-semibold">{b.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="h-40 flex items-center justify-center text-muted-foreground text-xs">No classes yet</div>
-            )}
-          </CardContent>
-        </Card>
-        </TiltCard>
+      {/* ── Bottom row: recent people ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
         {/* Recent admins */}
         <TiltCard>

@@ -20,6 +20,9 @@ export interface StudentProfileDetails {
     provider: string;
   };
   hearAboutUs: string;
+  dashboard?: {
+    dailyQuestionGoal?: number;
+  };
 }
 
 export interface AuthUser extends ApiUser {

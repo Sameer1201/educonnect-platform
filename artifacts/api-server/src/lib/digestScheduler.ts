@@ -1,5 +1,5 @@
 import { db, notificationsTable, notificationPreferencesTable } from "@workspace/db";
-import { eq, and, gte, sql } from "drizzle-orm";
+import { eq, and, gte } from "drizzle-orm";
 import { pushNotification } from "./pushNotification";
 
 async function generateWeeklyDigests() {

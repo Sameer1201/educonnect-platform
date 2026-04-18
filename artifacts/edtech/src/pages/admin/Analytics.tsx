@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  PieChart, Pie, Cell, Legend, LineChart, Line, Area, AreaChart,
+  PieChart, Pie, Cell,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -321,11 +320,6 @@ function StudentsTab({ data }: { data: AnalyticsData }) {
     if (score >= 40) return "from-amber-500 to-orange-600";
     return "from-red-500 to-rose-600";
   }
-
-  const radarData = topStudents.slice(0, 5).map((s) => ({
-    student: s.fullName.split(" ")[0],
-    score: s.avgScore,
-  }));
 
   return (
     <div className="space-y-5">

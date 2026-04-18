@@ -136,6 +136,13 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
+  if (user.role === "planner") {
+    res.clearCookie("userId");
+    res.clearCookie("userRole");
+    res.status(403).json({ error: "Planner role is no longer supported on this platform" });
+    return;
+  }
+
   if (user.role === "student" && user.status === "pending") {
     res.status(401).json({ error: "Your account is pending approval. Please wait for admin to approve." });
     return;
@@ -255,7 +262,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   res.status(201).json(serializeUser(newUser));
 });
 
-router.post("/auth/logout", async (req, res): Promise<void> => {
+router.post("/auth/logout", async (_req, res): Promise<void> => {
   res.clearCookie("userId");
   res.clearCookie("userRole");
   res.json({ message: "Logged out successfully" });
@@ -267,7 +274,10 @@ router.patch("/auth/profile", async (req, res): Promise<void> => {
   const userId = parseInt(userIdCookie, 10);
   if (isNaN(userId)) { res.status(401).json({ error: "Not authenticated" }); return; }
 
-  const { fullName, phone, avatarUrl, additionalExams } = req.body;
+  const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!existingUser) { res.status(404).json({ error: "User not found" }); return; }
+
+  const { fullName, phone, avatarUrl, additionalExams, dailyQuestionGoal } = req.body;
   const updates: Record<string, any> = {};
   if (typeof fullName === "string" && fullName.trim()) updates.fullName = fullName.trim();
   if (typeof phone === "string") updates.phone = phone.trim() || null;
@@ -279,13 +289,28 @@ router.patch("/auth/profile", async (req, res): Promise<void> => {
       .filter(Boolean)
       .filter((exam, index, all) => all.indexOf(exam) === index);
   }
+  if (dailyQuestionGoal !== undefined) {
+    const parsedGoal = Number(dailyQuestionGoal);
+    if (!Number.isInteger(parsedGoal) || parsedGoal <= 0 || parsedGoal > 5000) {
+      res.status(400).json({ error: "Daily question goal must be between 1 and 5000" }); return;
+    }
+
+    const existingProfileData = parseStudentProfileData(existingUser.studentProfileData ?? null);
+    const nextProfileData = {
+      ...(existingProfileData && typeof existingProfileData === "object" ? existingProfileData : {}),
+      dashboard: {
+        ...(existingProfileData?.dashboard && typeof existingProfileData.dashboard === "object" ? existingProfileData.dashboard : {}),
+        dailyQuestionGoal: parsedGoal,
+      },
+    };
+    updates.studentProfileData = JSON.stringify(nextProfileData);
+  }
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "No valid fields to update" }); return;
   }
 
   const [updated] = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
-  if (!updated) { res.status(404).json({ error: "User not found" }); return; }
   res.json(serializeUser(updated));
 });
 
@@ -390,6 +415,13 @@ router.get("/auth/me", async (req, res): Promise<void> => {
   if (!user) {
     res.clearCookie("userId");
     res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  if (user.role === "planner") {
+    res.clearCookie("userId");
+    res.clearCookie("userRole");
+    res.status(403).json({ error: "Planner role is no longer supported on this platform" });
     return;
   }
 

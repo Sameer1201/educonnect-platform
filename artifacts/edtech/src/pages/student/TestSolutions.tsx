@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import {
   ArrowLeft,
   BookOpen,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
+  Flag,
 } from "lucide-react";
 import { QuestionAnalysisSummary } from "@/components/student/QuestionAnalysisSummary";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type SolutionQuestion = {
   id: number;
@@ -31,8 +43,23 @@ type SolutionQuestion = {
   solutionText?: string | null;
   solutionImageData?: string | null;
   solutionSource?: "teacher" | "ai" | "none";
+  report?: QuestionReport | null;
   meta?: Record<string, unknown> | null;
   order?: number | null;
+};
+
+type QuestionReport = {
+  id: number;
+  questionId: number;
+  testId: number;
+  reportedBy: number;
+  teacherId: number;
+  reason: string;
+  status: "open" | "resolved" | "rejected";
+  teacherNote?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  reporterName?: string;
 };
 
 type SolutionSection = {
@@ -212,25 +239,50 @@ function getSubjectAccent(label: string, index: number): SubjectAccent {
   return SUBJECT_ACCENTS[index % SUBJECT_ACCENTS.length];
 }
 
-function getQuestionButtonClass(active: boolean, question: EnrichedQuestion) {
+function getQuestionButtonClass(active: boolean) {
   if (active) {
     return "h-10 w-10 rounded-[10px] border border-[#1F2A37] bg-[#1F2A37] text-sm font-semibold text-white shadow-[inset_0_-3px_0_0_#111827]";
   }
   return "h-10 w-10 rounded-[10px] border border-[#E5EBF5] bg-[#F7FAFF] text-sm font-semibold text-[#334155] transition hover:border-[#DCE5F2] hover:bg-[#EEF4FF] hover:text-[#1F2937] hover:shadow-[inset_0_-3px_0_0_#1F2937]";
 }
 
+function getReportStatusMeta(status?: string | null) {
+  if (status === "resolved") {
+    return {
+      label: "Report fixed",
+      chipClass: "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]",
+      buttonClass: "border-[#BBF7D0] bg-white text-[#15803D] hover:bg-[#F0FDF4]",
+    };
+  }
+  if (status === "rejected") {
+    return {
+      label: "Report rejected",
+      chipClass: "border-[#FDE68A] bg-[#FFF7D6] text-[#B45309]",
+      buttonClass: "border-[#FDE68A] bg-white text-[#B45309] hover:bg-[#FFF7D6]",
+    };
+  }
+  return {
+    label: "Report issue",
+    chipClass: "border-[#E2E8F0] bg-[#F8FAFC] text-[#475569]",
+    buttonClass: "border-[#D6DFEA] bg-white text-[#334155] hover:bg-[#F8FAFC]",
+  };
+}
+
 export default function StudentTestSolutions() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const solutionRef = useRef<HTMLDivElement | null>(null);
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
   const [activeSubject, setActiveSubject] = useState("");
-  const [activeChapter, setActiveChapter] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [hoveredFilter, setHoveredFilter] = useState<FilterKey | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [isAtSolutionSection, setIsAtSolutionSection] = useState(false);
+  const [pendingReportQuestion, setPendingReportQuestion] = useState<EnrichedQuestion | null>(null);
+  const [reportReason, setReportReason] = useState("");
 
   const analysisQuery = useQuery({
     queryKey: ["student-analysis", id],
@@ -258,6 +310,54 @@ export default function StudentTestSolutions() {
     enabled: !!id,
   });
 
+  const reportQuestionMutation = useMutation({
+    mutationFn: async ({ questionId, reason }: { questionId: number; reason: string }) => {
+      const response = await fetch(`${BASE}/api/tests/questions/${questionId}/report`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to submit report");
+      }
+      return payload as QuestionReport;
+    },
+    onSuccess: (report, variables) => {
+      queryClient.setQueryData<any>(["student-analysis-solutions", id], (current: any) => {
+        if (!current?.sections) return current;
+        return {
+          ...current,
+          sections: current.sections.map((section: SolutionSection) => ({
+            ...section,
+            items: (section.items ?? []).map((question: SolutionQuestion) =>
+              question.id === variables.questionId
+                ? { ...question, report }
+                : question,
+            ),
+          })),
+        };
+      });
+      setPendingReportQuestion(null);
+      setReportReason("");
+      toast({
+        title: "Report sent",
+        description: "The teacher has been notified about this question.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Unable to send report",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["student-analysis-solutions", id] });
+    },
+  });
+
   const questionStateMap = useMemo(() => {
     const map = new Map<number, QuestionState>();
     (analysisQuery.data?.perQuestion ?? []).forEach((item: QuestionState) => map.set(item.id, item));
@@ -271,7 +371,6 @@ export default function StudentTestSolutions() {
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .map((section) => {
         const label = section.subjectLabel ?? section.title;
-        const chapterMap = new Map<string, EnrichedQuestion[]>();
         const items = (section.items ?? []).map((question) => {
           const state = questionStateMap.get(question.id);
           const userStatus: EnrichedQuestion["userStatus"] = state?.isSkipped
@@ -294,10 +393,6 @@ export default function StudentTestSolutions() {
             classWrongCount: state?.classWrongCount,
           };
           runningNumber += 1;
-          const chapterName = getTopicLine(enriched).split(" • ")[0] || label;
-          const bucket = chapterMap.get(chapterName) ?? [];
-          bucket.push(enriched);
-          chapterMap.set(chapterName, bucket);
           return enriched;
         });
 
@@ -305,10 +400,6 @@ export default function StudentTestSolutions() {
           id: section.id,
           label,
           items,
-          chapters: [...chapterMap.entries()].map(([chapterLabel, chapterItems]) => ({
-            label: chapterLabel,
-            items: chapterItems,
-          })),
         };
       });
   }, [questionStateMap, solutionsQuery.data?.sections]);
@@ -326,33 +417,10 @@ export default function StudentTestSolutions() {
     [activeSubject, grouped],
   );
 
-  const chapterOptions = useMemo(() => {
-    if (!selectedSubject) return [];
-    return selectedSubject.chapters.map((chapter) => ({
-      ...chapter,
-      filteredItems: chapter.items.filter((entry) => matchesFilter(entry, filter)),
-    }));
-  }, [filter, selectedSubject]);
-
-  useEffect(() => {
-    if (!chapterOptions.length) {
-      setActiveChapter("");
-      return;
-    }
-    const firstChapter = chapterOptions.find((chapter) => chapter.filteredItems.length > 0) ?? chapterOptions[0];
-    setActiveChapter((current) => (chapterOptions.some((chapter) => chapter.label === current) ? current : firstChapter.label));
-  }, [chapterOptions]);
-
-  const selectedChapter = useMemo(() => {
-    if (!chapterOptions.length) return null;
-    return (
-      chapterOptions.find((chapter) => chapter.label === activeChapter) ??
-      chapterOptions.find((chapter) => chapter.filteredItems.length > 0) ??
-      chapterOptions[0]
-    );
-  }, [activeChapter, chapterOptions]);
-
-  const visibleItems = useMemo(() => selectedChapter?.filteredItems ?? [], [selectedChapter]);
+  const visibleItems = useMemo(
+    () => (selectedSubject?.items ?? []).filter((entry) => matchesFilter(entry, filter)),
+    [filter, selectedSubject],
+  );
 
   useEffect(() => {
     if (!visibleItems.length) {
@@ -500,11 +568,30 @@ export default function StudentTestSolutions() {
 
             {currentQuestion ? (
               <>
-                <div className="flex items-center gap-3 border-b border-[#E2E8F0] bg-white px-5 py-3">
-                  <span className="text-sm font-bold text-[#111827]">Q{currentQuestion.displayNumber}</span>
-                  <span className="rounded bg-[#F1F5F9] px-2 py-0.5 text-xs font-medium uppercase tracking-[0.08em] text-[#475569]">
-                    {getDifficulty(currentQuestion)}
-                  </span>
+                <div className="flex items-center justify-between gap-3 border-b border-[#E2E8F0] bg-white px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold text-[#111827]">Q{currentQuestion.displayNumber}</span>
+                    <span className="rounded bg-[#F1F5F9] px-2 py-0.5 text-xs font-medium uppercase tracking-[0.08em] text-[#475569]">
+                      {getDifficulty(currentQuestion)}
+                    </span>
+                    {currentQuestion.report ? (
+                      <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getReportStatusMeta(currentQuestion.report.status).chipClass}`}>
+                        {getReportStatusMeta(currentQuestion.report.status).label}
+                      </span>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingReportQuestion(currentQuestion);
+                      setReportReason("");
+                    }}
+                    disabled={currentQuestion.report?.status === "open" || reportQuestionMutation.isPending}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${getReportStatusMeta(currentQuestion.report?.status).buttonClass}`}
+                  >
+                    <Flag className="h-3.5 w-3.5" />
+                    {currentQuestion.report?.status === "open" ? "Reported" : currentQuestion.report ? "Report again" : "Report"}
+                  </button>
                 </div>
 
                 <div ref={scrollRegionRef} className="no-scrollbar flex-1 overflow-y-auto bg-white pb-28" id="test-solutions-scroll-region">
@@ -750,30 +837,18 @@ export default function StudentTestSolutions() {
               </div>
 
               <div className="no-scrollbar flex-1 space-y-5 overflow-y-auto px-3 py-3">
-                {chapterOptions.map((chapter) => {
-                  const items = chapter.filteredItems;
-                  if (!items.length) return null;
-                  return (
-                    <section key={chapter.label}>
-                      <div className="mb-3 text-xs font-semibold text-[#111827]">{chapter.label}</div>
-                      <div className="grid grid-cols-5 gap-2">
-                        {items.map((entry) => (
-                          <button
-                            key={entry.id}
-                            type="button"
-                            onClick={() => {
-                              setActiveChapter(chapter.label);
-                              setSelectedQuestionId(entry.id);
-                            }}
-                            className={getQuestionButtonClass(entry.id === currentQuestion?.id, entry)}
-                          >
-                            {entry.displayNumber}
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  );
-                })}
+                <div className="grid grid-cols-5 gap-2">
+                  {visibleItems.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => setSelectedQuestionId(entry.id)}
+                      className={getQuestionButtonClass(entry.id === currentQuestion?.id)}
+                    >
+                      {entry.displayNumber}
+                    </button>
+                  ))}
+                </div>
               </div>
             </aside>
           ) : (
@@ -787,6 +862,93 @@ export default function StudentTestSolutions() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(pendingReportQuestion)}
+        onOpenChange={(open) => {
+          if (!open && !reportQuestionMutation.isPending) {
+            setPendingReportQuestion(null);
+            setReportReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md rounded-[24px] border border-[#E2E8F0] bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)]" hideClose>
+          <div className="p-6">
+            <DialogHeader className="space-y-2 text-left">
+              <DialogTitle className="text-xl font-semibold text-[#111827]">Report this question?</DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-[#64748B]">
+                Your report goes directly to the teacher who created this test question.
+              </DialogDescription>
+            </DialogHeader>
+
+            {pendingReportQuestion ? (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+                    <span>{pendingReportQuestion.sectionLabel}</span>
+                    <span className="text-[#CBD5E1]">•</span>
+                    <span>{getTopicLine(pendingReportQuestion)}</span>
+                  </div>
+                  <RichQuestionContent
+                    content={pendingReportQuestion.question}
+                    className="line-clamp-3 text-sm leading-7 text-[#111827]"
+                  />
+                </div>
+
+                {pendingReportQuestion.report ? (
+                  <div className={`rounded-2xl border px-4 py-3 text-sm ${getReportStatusMeta(pendingReportQuestion.report.status).chipClass}`}>
+                    <p className="font-semibold">{getReportStatusMeta(pendingReportQuestion.report.status).label}</p>
+                    <p className="mt-1 text-xs opacity-80">{pendingReportQuestion.report.reason}</p>
+                    {pendingReportQuestion.report.teacherNote ? (
+                      <p className="mt-2 text-xs font-medium opacity-90">Teacher note: {pendingReportQuestion.report.teacherNote}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#64748B]">What should the teacher check?</p>
+                  <Textarea
+                    value={reportReason}
+                    onChange={(event) => setReportReason(event.target.value)}
+                    placeholder="Example: image is wrong, option mismatch, solution is incorrect, or question text has an issue."
+                    className="min-h-[120px] rounded-2xl border-[#D6DFEA] bg-white text-sm leading-6"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <DialogFooter className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end sm:space-x-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPendingReportQuestion(null);
+                  setReportReason("");
+                }}
+                disabled={reportQuestionMutation.isPending}
+                className="rounded-full border-[#D6DFEA] px-5"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (pendingReportQuestion) {
+                    reportQuestionMutation.mutate({
+                      questionId: pendingReportQuestion.id,
+                      reason: reportReason.trim(),
+                    });
+                  }
+                }}
+                disabled={!pendingReportQuestion || reportQuestionMutation.isPending}
+                className="rounded-full bg-[#111827] px-5 text-white hover:bg-[#0F172A]"
+              >
+                {reportQuestionMutation.isPending ? "Sending..." : "Send Report"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

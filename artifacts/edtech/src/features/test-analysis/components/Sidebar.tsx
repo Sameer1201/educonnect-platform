@@ -8,11 +8,13 @@ import {
   GitBranch,
   AlignLeft,
   LayoutGrid,
+  BrainCircuit,
 } from "lucide-react";
 import { testData } from "@/data/testData";
 
 const personalNavItems = [
   { id: "overview",     label: "Overview",            icon: LayoutGrid  },
+  { id: "advanced",     label: "Advanced Insights",   icon: BrainCircuit },
   { id: "performance",  label: "Performance Analysis", icon: TrendingUp  },
   { id: "time",         label: "Time Analysis",        icon: Clock       },
   { id: "attempt",      label: "Attempt Analysis",     icon: Target      },
@@ -81,7 +83,7 @@ export default function Sidebar({ activeTab, onTabChange, mode, onModeChange, on
           className="flex-1 flex items-center justify-center rounded-full py-1.5 text-sm font-semibold transition-all"
           style={
             mode === "personal"
-              ? { background: "#5B4DFF", color: "#fff", boxShadow: "0 4px 10px rgba(91,77,255,0.28)" }
+              ? { background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)", color: "#fff", boxShadow: "0 4px 10px rgba(217,119,6,0.28)" }
               : { background: "transparent", color: "#4B5563" }
           }
         >
@@ -99,7 +101,7 @@ export default function Sidebar({ activeTab, onTabChange, mode, onModeChange, on
           className="flex-1 flex items-center justify-center rounded-full py-1.5 text-sm font-semibold transition-all"
           style={
             mode === "comparative"
-              ? { background: "#5B4DFF", color: "#fff", boxShadow: "0 4px 10px rgba(91,77,255,0.28)" }
+              ? { background: "linear-gradient(135deg, #F59E0B 0%, #D97706 100%)", color: "#fff", boxShadow: "0 4px 10px rgba(217,119,6,0.28)" }
               : { background: "transparent", color: "#4B5563" }
           }
         >

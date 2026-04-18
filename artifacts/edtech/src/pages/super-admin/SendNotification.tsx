@@ -16,7 +16,7 @@ import {
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type Target = "all" | "admins" | "students";
-type NotifType = "system" | "class" | "assignment" | "grade" | "test" | "community";
+type NotifType = "system" | "grade" | "test";
 
 const TARGETS: { value: Target; label: string; desc: string; icon: React.ReactNode; color: string }[] = [
   {
@@ -44,11 +44,8 @@ const TARGETS: { value: Target; label: string; desc: string; icon: React.ReactNo
 
 const TYPES: { value: NotifType; label: string; color: string }[] = [
   { value: "system", label: "System", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
-  { value: "class", label: "Class", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
-  { value: "assignment", label: "Assignment", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
   { value: "grade", label: "Grade", color: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
   { value: "test", label: "Test", color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
-  { value: "community", label: "Community", color: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300" },
 ];
 
 interface HistoryEntry {
@@ -130,7 +127,7 @@ export default function SendNotification() {
           </div>
           <h1 className="text-2xl font-bold">Send Notification</h1>
           <p className="text-white/60 text-sm mt-1">
-            Compose and broadcast notifications to admins, students, or everyone on the platform.
+            Broadcast test, grade, or system updates to admins, students, or everyone on the platform.
           </p>
         </div>
         <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-10 translate-x-10" />
@@ -253,7 +250,7 @@ export default function SendNotification() {
             <Input
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              placeholder="e.g. /schedule or /community"
+              placeholder="e.g. /schedule or /leaderboard"
               data-testid="input-notif-link"
             />
           </div>

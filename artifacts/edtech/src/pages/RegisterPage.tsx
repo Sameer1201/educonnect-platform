@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle } from "lucide-react";
 import { Link } from "wouter";
-import { APP_NAME } from "@/lib/brand";
 import { BrandLogo } from "@/components/ui/brand-logo";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");

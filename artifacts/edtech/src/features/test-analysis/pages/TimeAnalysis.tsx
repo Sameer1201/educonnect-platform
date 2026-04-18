@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import type { ViewMode } from "@/App";
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
+import { getSubjectTheme } from "@/lib/subject-theme";
 
 const CELL_BORDER = "1px solid #e5e7eb";
 
@@ -38,57 +39,17 @@ const studentIcons: Record<string, React.ReactNode> = {
   ),
 };
 
-const subjectIcons: Record<string, React.ReactNode> = {
-  overall: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-    </svg>
-  ),
-  physics: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth={1.8}>
-      <circle cx="12" cy="12" r="9" /><path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636l12.728 12.728" /><circle cx="12" cy="12" r="2" />
-    </svg>
-  ),
-  chemistry: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-    </svg>
-  ),
-  math: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth={1.8}>
-      <line x1="4" y1="9" x2="20" y2="9" strokeLinecap="round" />
-      <line x1="4" y1="15" x2="14" y2="15" strokeLinecap="round" />
-      <line x1="4" y1="6" x2="4" y2="12" strokeLinecap="round" />
-      <line x1="19" y1="12" x2="19" y2="18" strokeLinecap="round" />
-      <line x1="16" y1="15" x2="22" y2="15" strokeLinecap="round" />
-    </svg>
-  ),
-};
-
 function subjectColor(tab: string) {
-  const value = tab.toLowerCase();
-  if (value === "overall") return "#6366f1";
-  if (value.includes("physics")) return "#22c55e";
-  if (value.includes("chem")) return "#f97316";
-  if (value.includes("math")) return "#3b82f6";
-  if (value.includes("aptitude")) return "#0ea5e9";
-  if (value.includes("core")) return "#8b5cf6";
-  const palette = ["#6366f1", "#22c55e", "#f97316", "#3b82f6", "#8b5cf6", "#0ea5e9"];
-  const hash = [...tab].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-  return palette[hash % palette.length];
+  return getSubjectTheme(tab).color;
 }
 
 function tabIcon(tab: string) {
   const color = subjectColor(tab);
-  const value = tab.toLowerCase();
-  if (value === "overall") return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>;
-  if (value.includes("aptitude") || value.includes("technical") || value.includes("core") || value.includes("engineering math") || value.includes("mathematics")) {
-    return <span className="inline-flex" style={{ color }}><SubjectSectionIcon label={tab} className="w-4 h-4" /></span>;
-  }
-  if (value.includes("physics")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><circle cx="12" cy="12" r="9" /><path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636l12.728 12.728" /><circle cx="12" cy="12" r="2" /></svg>;
-  if (value.includes("chem")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>;
-  if (value.includes("math")) return <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8}><line x1="4" y1="9" x2="20" y2="9" strokeLinecap="round" /><line x1="4" y1="15" x2="14" y2="15" strokeLinecap="round" /><line x1="4" y1="6" x2="4" y2="12" strokeLinecap="round" /><line x1="19" y1="12" x2="19" y2="18" strokeLinecap="round" /><line x1="16" y1="15" x2="22" y2="15" strokeLinecap="round" /></svg>;
-  return <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white" style={{ background: color }}>{tab.trim().charAt(0).toUpperCase() || "S"}</span>;
+  return (
+    <span className="inline-flex" style={{ color }}>
+      <SubjectSectionIcon label={tab} className="w-4 h-4" />
+    </span>
+  );
 }
 
 const thStyle: React.CSSProperties = {
@@ -109,28 +70,30 @@ type CompSeriesKey = (typeof COMP_SERIES)[number]["key"];
 function SubjectTabs({ active, onChange }: { active: CompTab; onChange: (t: CompTab) => void }) {
   const tabs = [...new Set(["Overall", ...timeData.breakdown.filter((row) => row.subject !== "Overall").map((row) => row.subject)])] as CompTab[];
   return (
-    <div className="flex gap-1 border-b border-gray-200">
-      {tabs.map((tab) => {
-        const isActive = tab === active;
-        const color = subjectColor(tab);
-        return (
-          <button
-            key={tab}
-            onClick={() => onChange(tab)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-all"
-            style={{
-              borderRadius: "6px 6px 0 0",
-              marginBottom: -1,
-              borderBottom: isActive ? `2px solid ${color}` : "2px solid transparent",
-              color: isActive ? color : "#6b7280",
-              background: isActive ? `${color}0d` : "transparent",
-            }}
-          >
-            {tabIcon(tab)}
-            {tab}
-          </button>
-        );
-      })}
+    <div className="overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none]">
+      <div className="flex min-w-max gap-1 border-b border-gray-200">
+        {tabs.map((tab) => {
+          const isActive = tab === active;
+          const color = subjectColor(tab);
+          return (
+            <button
+              key={tab}
+              onClick={() => onChange(tab)}
+              className="flex shrink-0 items-center gap-1.5 px-3 py-2 text-sm font-medium transition-all"
+              style={{
+                borderRadius: "6px 6px 0 0",
+                marginBottom: -1,
+                borderBottom: isActive ? `2px solid ${color}` : "2px solid transparent",
+                color: isActive ? color : "#6b7280",
+                background: isActive ? `${color}0d` : "transparent",
+              }}
+            >
+              {tabIcon(tab)}
+              {tab}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -212,7 +175,8 @@ function SmallTab({
   );
 }
 
-function ComparativeView({ subjectTab }: { subjectTab: CompTab }) {
+function ComparativeView({ defaultTab }: { defaultTab: CompTab }) {
+  const [subjectTab, setSubjectTab] = useState<CompTab>(defaultTab);
   const breakdownRows = comparativeTimeData.breakdown[subjectTab];
   const [hourTab, setHourTab] = useState<HourTab>("Overall");
   const [graphTab, setGraphTab] = useState<GraphTab>("Correct");
@@ -242,7 +206,7 @@ function ComparativeView({ subjectTab }: { subjectTab: CompTab }) {
       <div className="bg-white rounded-xl overflow-hidden" style={{ border: CELL_BORDER, borderTop: "3px solid #111827" }}>
         <div style={{ padding: "16px 24px 0" }}>
           <h3 className="text-base font-bold text-gray-900 mb-3">Time Breakdown</h3>
-          <SubjectTabs active={subjectTab} onChange={() => {}} />
+          <SubjectTabs active={subjectTab} onChange={setSubjectTab} />
         </div>
         <div className="overflow-x-auto">
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -349,7 +313,6 @@ export default function TimeAnalysis({ mode }: { mode?: ViewMode }) {
   const tabs = useMemo(() => [...new Set(["Overall", ...timeData.breakdown.filter((row) => row.subject !== "Overall").map((row) => row.subject)])] as CompTab[], [timeData.breakdown]);
   const [swTab, setSwTab] = useState("Time Spent");
   const [qualTab, setQualTab] = useState(tabs[0] ?? "Overall");
-  const [subjectTab, setSubjectTab] = useState<CompTab>(tabs[0] ?? "Overall");
 
   const LINE_SERIES = [
     { key: "correct",   label: "Correct",   color: "#22c55e" },
@@ -367,22 +330,20 @@ export default function TimeAnalysis({ mode }: { mode?: ViewMode }) {
   const qual = timeData.qualityOfTime.data[qualTab as keyof typeof timeData.qualityOfTime.data];
 
   const swChartData = timeData.subjectChart.map((s) => {
-    if (swTab === "Time Spent") return { name: s.name, value: s.time, color: s.color, unit: "mins" };
+    const theme = getSubjectTheme(s.name);
+    if (swTab === "Time Spent") return { name: s.name, value: s.time, color: theme.color, unit: "mins" };
     if (swTab === "Questions Attempted") {
       const row = timeData.breakdown.find((r) => r.subject === s.name);
-      return { name: s.name, value: row?.qsAttempted ?? 0, color: s.color, unit: "Qs" };
+      return { name: s.name, value: row?.qsAttempted ?? 0, color: theme.color, unit: "Qs" };
     }
     const row = timeData.breakdown.find((r) => r.subject === s.name);
-    return { name: s.name, value: row?.accuracy ?? 0, color: s.color, unit: "%" };
+    return { name: s.name, value: row?.accuracy ?? 0, color: theme.color, unit: "%" };
   });
 
   if (mode === "comparative") {
     return (
       <div className="flex flex-col gap-5">
-        <div className="bg-white rounded-xl overflow-hidden" style={{ border: CELL_BORDER }}>
-          <SubjectTabs active={subjectTab} onChange={setSubjectTab} />
-        </div>
-        <ComparativeView subjectTab={subjectTab} />
+        <ComparativeView defaultTab={tabs[0] ?? "Overall"} />
       </div>
     );
   }
@@ -407,11 +368,21 @@ export default function TimeAnalysis({ mode }: { mode?: ViewMode }) {
             <tbody>
               {timeData.breakdown.map((row) => {
                 const pct = row.accuracy;
+                const theme = getSubjectTheme(row.subject);
                 return (
                   <tr key={row.subject}>
                     <td style={{ border: CELL_BORDER, padding: "14px 20px" }}>
                       <div className="flex items-center gap-2.5">
-                        {subjectIcons[row.icon] ?? tabIcon(row.subject)}
+                        <span
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-full border"
+                          style={{
+                            backgroundColor: theme.softBgStrong,
+                            borderColor: theme.softBorder,
+                            color: theme.color,
+                          }}
+                        >
+                          <SubjectSectionIcon label={row.subject} className="h-3.5 w-3.5" />
+                        </span>
                         <span className="text-sm font-semibold text-gray-800">{row.subject}</span>
                       </div>
                     </td>
@@ -425,8 +396,8 @@ export default function TimeAnalysis({ mode }: { mode?: ViewMode }) {
                     </td>
                     <td style={{ border: CELL_BORDER, padding: 0, minWidth: 140 }}>
                       <div className="relative flex items-center overflow-hidden" style={{ padding: "14px 20px", minHeight: 52 }}>
-                        <div className="absolute inset-y-0 left-0" style={{ width: `${pct}%`, background: "rgba(99,102,241,0.08)" }} />
-                        <div className="absolute inset-y-0" style={{ left: `${pct}%`, width: "2.5px", background: "#6366f1", transform: "translateX(-100%)" }} />
+                        <div className="absolute inset-y-0 left-0" style={{ width: `${pct}%`, background: theme.softBg }} />
+                        <div className="absolute inset-y-0" style={{ left: `${pct}%`, width: "2.5px", background: theme.color, transform: "translateX(-100%)" }} />
                         <span className="relative z-10 text-sm font-bold text-gray-900">{row.accuracy}%</span>
                       </div>
                     </td>

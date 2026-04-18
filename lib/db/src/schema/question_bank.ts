@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean, unique } from "drizzle-orm/pg-core";
 import { classesTable } from "./classes";
 import { subjectsTable } from "./subjects";
 import { chaptersTable } from "./chapters";
@@ -24,6 +24,8 @@ export const questionBankQuestionsTable = pgTable("question_bank_questions", {
   points: integer("points").notNull().default(1),
   order: integer("order").notNull().default(0),
   imageData: text("image_data"),
+  sourceTestId: integer("source_test_id"),
+  sourceTestQuestionId: integer("source_test_question_id"),
   createdBy: integer("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -50,6 +52,26 @@ export const questionBankSavedQuestionsTable = pgTable("question_bank_saved_ques
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const questionBankQuestionProgressTable = pgTable("question_bank_question_progress", {
+  id: serial("id").primaryKey(),
+  questionId: integer("question_id").notNull().references(() => questionBankQuestionsTable.id, { onDelete: "cascade" }),
+  studentId: integer("student_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  classId: integer("class_id").notNull().references(() => classesTable.id, { onDelete: "cascade" }),
+  subjectId: integer("subject_id").notNull().references(() => subjectsTable.id, { onDelete: "cascade" }),
+  chapterId: integer("chapter_id").notNull().references(() => chaptersTable.id, { onDelete: "cascade" }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  correctCount: integer("correct_count").notNull().default(0),
+  incorrectCount: integer("incorrect_count").notNull().default(0),
+  lastAnswer: text("last_answer"),
+  lastIsCorrect: boolean("last_is_correct").notNull().default(false),
+  firstAttemptedAt: timestamp("first_attempted_at", { withTimezone: true }).notNull().defaultNow(),
+  lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }).notNull().defaultNow(),
+  solvedAt: timestamp("solved_at", { withTimezone: true }),
+}, (t) => [
+  unique("question_bank_question_progress_unique").on(t.questionId, t.studentId),
+]);
+
 export type QuestionBankQuestion = typeof questionBankQuestionsTable.$inferSelect;
 export type QuestionBankReport = typeof questionBankReportsTable.$inferSelect;
 export type QuestionBankSavedQuestion = typeof questionBankSavedQuestionsTable.$inferSelect;
+export type QuestionBankQuestionProgress = typeof questionBankQuestionProgressTable.$inferSelect;

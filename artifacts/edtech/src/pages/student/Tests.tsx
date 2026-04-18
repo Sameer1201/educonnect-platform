@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { filterReviewBucketEntries, getReviewBucketRemovedQuestionIds } from "@/lib/reviewBucket";
 import {
   ClipboardList, Clock, CheckCircle2, AlertCircle, BookOpen,
-  Hash, CheckSquare, Timer, Brain,
-  Calculator, PanelRightClose, PanelRightOpen, Circle, Square,
-  CalendarClock, ChevronDown, HelpCircle, PlayCircle, Trophy, X
+  Calculator, PanelRightOpen,
+  ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Info, PlayCircle, X, Search, FileText
 } from "lucide-react";
 import { differenceInDays, format } from "date-fns";
 
@@ -61,6 +60,7 @@ interface TestDetail {
   id: number; title: string; description: string | null; durationMinutes: number;
   examHeader?: string | null; examSubheader?: string | null;
   instructions?: string | null;
+  examConfig?: Record<string, unknown> | null;
   passingScore: number | null; questions: Question[]; sections?: TestSectionItem[]; submission: SubmissionData | null;
   className?: string | null; subjectName?: string | null; chapterName?: string | null;
 }
@@ -80,16 +80,12 @@ interface InteractionLogEntry {
   at: number;
   questionId: number;
   sectionLabel: string;
-  action: "open" | "answer" | "clear" | "review";
+  action: "open" | "answer" | "clear" | "review" | "save";
+  answerSnapshot?: AnswerValue | null;
+  reviewState?: "marked" | "removed";
 }
 
 type TestPreviewAction = "result" | "resume" | "start";
-
-function formatSeconds(secs: number): string {
-  if (secs < 60) return `${secs}s`;
-  const m = Math.floor(secs / 60), s = secs % 60;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
-}
 
 function getDefaultInstructionItems(durationMinutes: number) {
   return [
@@ -117,6 +113,19 @@ function extractAdditionalInstructionItems(storedInstructions: string | null | u
   return matchesDefaultPrefix ? allItems.slice(defaultItems.length) : allItems;
 }
 
+function getCalculatorEnabledFromExamConfig(value: unknown) {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as Record<string, unknown>;
+      return Boolean(parsed?.calculatorEnabled);
+    } catch {
+      return false;
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Boolean((value as Record<string, unknown>).calculatorEnabled);
+}
+
 function getNumericAnswerValue(answer: AnswerValue | undefined): string {
   if (answer === undefined || answer === null) return "";
   return String(answer);
@@ -125,6 +134,43 @@ function getNumericAnswerValue(answer: AnswerValue | undefined): string {
 function hasMeaningfulNumericAnswer(answer: AnswerValue | undefined): boolean {
   const value = getNumericAnswerValue(answer).trim();
   return value !== "" && value !== "-" && value !== "." && value !== "-.";
+}
+
+function cloneAnswerValue(answer: AnswerValue | undefined): AnswerValue | undefined {
+  return Array.isArray(answer) ? [...answer] : answer;
+}
+
+function getAnswerSnapshot(answer: AnswerValue | null | undefined): AnswerValue | null {
+  if (answer === undefined || answer === null) return null;
+  return cloneAnswerValue(answer) ?? null;
+}
+
+function cloneAnswerRecord(answerRecord?: Record<number, AnswerValue> | null): Record<number, AnswerValue> {
+  if (!answerRecord) return {};
+  return Object.entries(answerRecord).reduce<Record<number, AnswerValue>>((acc, [questionId, answer]) => {
+    const cloned = cloneAnswerValue(answer);
+    if (cloned !== undefined) {
+      acc[Number(questionId)] = cloned;
+    }
+    return acc;
+  }, {});
+}
+
+function syncQuestionAnswerFromSource(
+  answerRecord: Record<number, AnswerValue>,
+  questionId: number,
+  sourceRecord: Record<number, AnswerValue>,
+): Record<number, AnswerValue> {
+  const next = { ...answerRecord };
+  if (Object.prototype.hasOwnProperty.call(sourceRecord, questionId)) {
+    const cloned = cloneAnswerValue(sourceRecord[questionId]);
+    if (cloned !== undefined) {
+      next[questionId] = cloned;
+    }
+  } else {
+    delete next[questionId];
+  }
+  return next;
 }
 
 function getNegativeMark(question: Question): string {
@@ -396,21 +442,6 @@ function StudentTestSeriesCard({
     ? differenceInDays(new Date(test.scheduledAt), new Date())
     : 0;
 
-  const answeredCount = (() => {
-    if (!detail?.submission?.answers) return 0;
-    try {
-      const parsed = JSON.parse(detail.submission.answers) as Record<string, AnswerValue>;
-      return detail.questions.filter((question) => {
-        const answer = parsed[String(question.id)];
-        if (question.questionType === "multi") return Array.isArray(answer) && answer.length > 0;
-        if (question.questionType === "integer") return hasMeaningfulNumericAnswer(answer);
-        return answer !== undefined && answer !== null && answer !== "";
-      }).length;
-    } catch {
-      return 0;
-    }
-  })();
-
   const completionPercent = detail?.submission?.percentage != null ? Math.round(detail.submission.percentage) : null;
   const scoredMarks = detail?.submission?.score;
   const totalMarks = detail?.submission?.totalPoints;
@@ -484,6 +515,107 @@ function StudentTestSeriesCard({
   );
 }
 
+function TruncatedPentagonBadge({
+  count,
+  variant,
+  size = "md",
+}: {
+  count: number;
+  variant: "answered" | "not-answered";
+  size?: "sm" | "md" | "lg";
+}) {
+  const gradientId = useId().replace(/:/g, "");
+  const shineId = `${gradientId}-shine`;
+  const countLabel = String(count);
+  const dimensions = variant === "not-answered"
+    ? size === "sm"
+      ? "h-[30px] w-[30px]"
+      : size === "lg"
+        ? "h-[56px] w-[56px]"
+        : "h-[52px] w-[52px]"
+    : size === "sm"
+      ? "h-8 w-8"
+      : size === "lg"
+        ? "h-[56px] w-[56px]"
+        : "h-[52px] w-[52px]";
+  const fontSize = countLabel.length >= 3
+    ? size === "sm"
+      ? "text-[9px]"
+      : size === "lg"
+        ? "text-[8px]"
+        : "text-[10px]"
+    : countLabel.length === 2
+      ? size === "sm"
+        ? "text-[11px]"
+        : size === "lg"
+          ? "text-[11px]"
+          : "text-[14px]"
+      : size === "sm"
+        ? "text-xs"
+      : size === "lg"
+          ? "text-[11px]"
+          : "text-lg";
+  const textOffset = variant === "answered"
+    ? size === "sm"
+      ? "-translate-y-px"
+      : size === "lg"
+        ? "-translate-y-[1.5px]"
+        : "-translate-y-[1px]"
+    : size === "sm"
+      ? "translate-y-[0.5px]"
+      : size === "lg"
+        ? "translate-y-[1.5px]"
+        : "translate-y-[1px]";
+  const outerPath = variant === "answered"
+    ? "M2 38V14L10 2H34L42 14V38H2Z"
+    : "M1 1H43V26L31 39H13L1 26V1Z";
+  const innerPath = variant === "answered"
+    ? "M4 36V15L11 4H33L40 15V36H4Z"
+    : "M3 3H41V25L30 36H14L3 25V3Z";
+  const outerFill = variant === "answered" ? "#7FAE45" : "#DD6A27";
+  const gradientStart = variant === "answered" ? "#A6D15E" : "#FF7424";
+  const gradientEnd = variant === "answered" ? "#89B647" : "#EA5A10";
+
+  return (
+    <span className={`relative inline-flex items-center justify-center ${dimensions} select-none`}>
+      <svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 44 40"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="absolute inset-0 h-full w-full"
+        aria-hidden="true"
+      >
+        <path d={outerPath} fill={outerFill} />
+        <path d={innerPath} fill={`url(#${gradientId})`} />
+        {variant === "not-answered" && (
+          <>
+            <path d="M4 4H40V6.5H4Z" fill={`url(#${shineId})`} />
+            <path d="M4 7H40" stroke="#FFB38D" strokeOpacity="0.7" strokeWidth="1" />
+          </>
+        )}
+        <defs>
+          <linearGradient id={gradientId} x1="22" y1="4" x2="22" y2="36" gradientUnits="userSpaceOnUse">
+            <stop stopColor={gradientStart} />
+            {variant === "not-answered" && <stop offset="0.54" stopColor="#F04A00" />}
+            <stop offset="1" stopColor={gradientEnd} />
+          </linearGradient>
+          {variant === "not-answered" && (
+            <linearGradient id={shineId} x1="22" y1="4" x2="22" y2="6.5" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#FFF3EB" stopOpacity="0.95" />
+              <stop offset="1" stopColor="#FFF3EB" stopOpacity="0" />
+            </linearGradient>
+          )}
+        </defs>
+      </svg>
+      <span className={`relative z-10 font-bold leading-none text-white ${fontSize} ${textOffset}`}>
+        {countLabel}
+      </span>
+    </span>
+  );
+}
+
 export default function StudentTests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -495,6 +627,7 @@ export default function StudentTests() {
 
   const [activeTest, setActiveTest] = useState<TestDetail | null>(null);
   const [answers, setAnswers] = useState<Record<number, AnswerValue>>({});
+  const [savedAnswers, setSavedAnswers] = useState<Record<number, AnswerValue>>({});
   const [timeLeft, setTimeLeft] = useState(0);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [visitedSet, setVisitedSet] = useState<Set<number>>(new Set());
@@ -504,8 +637,12 @@ export default function StudentTests() {
   const [showCalculator, setShowCalculator] = useState(false);
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
+  const [openSectionInfoId, setOpenSectionInfoId] = useState<number | null>(null);
+  const [sectionInfoPopupLeft, setSectionInfoPopupLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const integerInputRef = useRef<HTMLInputElement | null>(null);
+  const sectionInfoCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sectionInfoAreaRef = useRef<HTMLDivElement | null>(null);
 
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
@@ -516,8 +653,8 @@ export default function StudentTests() {
   const saveDraft = (test: TestDetail, draft: SavedTestDraft) => {
     localStorage.setItem(getDraftKey(test.id), JSON.stringify(draft));
   };
-  const buildCurrentDraft = (test: TestDetail, overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
-    answers,
+  const buildCurrentDraft = (overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
+    answers: savedAnswers,
     timeLeft,
     currentQuestionIndex,
     visitedQuestionIds: Array.from(visitedSet),
@@ -544,15 +681,29 @@ export default function StudentTests() {
     return Math.max(0, activeTest.durationMinutes * 60 - timeLeft);
   };
 
-  const logInteraction = (questionId: number, action: InteractionLogEntry["action"], testOverride?: TestDetail) => {
-    const sourceTest = testOverride ?? activeTest;
+  const logInteraction = (
+    questionId: number,
+    action: InteractionLogEntry["action"],
+    options?: {
+      testOverride?: TestDetail;
+      answerSnapshot?: AnswerValue | null;
+      reviewState?: InteractionLogEntry["reviewState"];
+    },
+  ) => {
+    const sourceTest = options?.testOverride ?? activeTest;
     if (!sourceTest) return;
     const entry: InteractionLogEntry = {
-      at: testOverride ? 0 : getElapsedSeconds(),
+      at: options?.testOverride ? 0 : getElapsedSeconds(),
       questionId,
       sectionLabel: getQuestionSectionLabel(sourceTest, questionId),
       action,
     };
+    if (options && "answerSnapshot" in options) {
+      entry.answerSnapshot = getAnswerSnapshot(options.answerSnapshot);
+    }
+    if (options?.reviewState) {
+      entry.reviewState = options.reviewState;
+    }
     setInteractionLog((prev) => [...prev, entry]);
   };
 
@@ -705,9 +856,11 @@ export default function StudentTests() {
       ? Math.min(parsedDraft?.currentQuestionIndex ?? 0, Math.max(cleanTest.questions.length - 1, 0))
       : 0;
     const initialQuestion = cleanTest.questions[initialIndex];
+    const initialSavedAnswers = cloneAnswerRecord(shouldResume ? parsedDraft?.answers : undefined);
 
     setActiveTest(cleanTest);
-    setAnswers(shouldResume ? parsedDraft?.answers ?? {} : {});
+    setAnswers(initialSavedAnswers);
+    setSavedAnswers(initialSavedAnswers);
     setTimeLeft(shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60);
     setQuestionTimings(shouldResume ? parsedDraft?.questionTimings ?? {} : {});
     setInteractionLog(
@@ -718,6 +871,7 @@ export default function StudentTests() {
             questionId: initialQuestion.id,
             sectionLabel: getQuestionSectionLabel(cleanTest, initialQuestion.id),
             action: "open" as const,
+            answerSnapshot: getAnswerSnapshot(initialSavedAnswers[initialQuestion.id]),
           }] : []),
     );
     timingActiveRef.current = null;
@@ -732,6 +886,7 @@ export default function StudentTests() {
     setShowSubmitReview(false);
     setPaletteCollapsed(false);
     setMobilePaletteOpen(false);
+    setShowCalculator(false);
   };
 
   const openTestWithMode = async (testId: number, draftMode: "prompt" | "resume" | "fresh") => {
@@ -748,9 +903,11 @@ export default function StudentTests() {
         const cleanTest: TestDetail = { ...data, submission: null };
         const initialIndex = Math.min(parsedDraft.currentQuestionIndex ?? 0, Math.max(cleanTest.questions.length - 1, 0));
         const initialQuestion = cleanTest.questions[initialIndex];
+        const initialSavedAnswers = cloneAnswerRecord(parsedDraft.answers);
 
         setActiveTest(cleanTest);
-        setAnswers(parsedDraft.answers ?? {});
+        setAnswers(initialSavedAnswers);
+        setSavedAnswers(initialSavedAnswers);
         setTimeLeft(Math.max(parsedDraft.timeLeft ?? cleanTest.durationMinutes * 60, 0));
         setQuestionTimings(parsedDraft.questionTimings ?? {});
         setInteractionLog(parsedDraft.interactionLog ?? []);
@@ -762,26 +919,13 @@ export default function StudentTests() {
         setShowSubmitReview(false);
         setPaletteCollapsed(false);
         setMobilePaletteOpen(false);
+        setShowCalculator(false);
         return;
       }
       launchTestAttempt(data, false);
       return;
     }
     launchTestAttempt(data, draftMode === "prompt");
-  };
-
-  const openTest = async (testId: number) => {
-    await openTestWithMode(testId, "prompt");
-  };
-
-  const reattemptTest = async (testId: number) => {
-    const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
-    if (!r.ok) {
-      toast({ title: "Could not open reattempt", variant: "destructive" });
-      return;
-    }
-    const data: TestDetail = await r.json();
-    launchTestAttempt({ ...data, submission: null }, false);
   };
 
   useEffect(() => {
@@ -794,8 +938,12 @@ export default function StudentTests() {
 
   useEffect(() => {
     if (!activeTest || activeTest.submission) return;
-    saveDraft(activeTest, buildCurrentDraft(activeTest));
-  }, [activeTest, answers, timeLeft, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
+    saveDraft(activeTest, buildCurrentDraft());
+  }, [activeTest, savedAnswers, timeLeft, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
+
+  useEffect(() => () => {
+    if (sectionInfoCloseTimeoutRef.current) clearTimeout(sectionInfoCloseTimeoutRef.current);
+  }, []);
 
   const startInteraction = (qId: number) => {
     const now = Date.now();
@@ -829,7 +977,7 @@ export default function StudentTests() {
 
   const getPaletteStatus = (question: Question): PaletteStatus => {
     const visited = visitedSet.has(question.id);
-    const answered = isAnswered(question, answers[question.id]);
+    const answered = isAnswered(question, savedAnswers[question.id]);
     const review = reviewSet.has(question.id);
     if (!visited) return "not-visited";
     if (answered && review) return "answered-review";
@@ -838,6 +986,16 @@ export default function StudentTests() {
     return "not-answered";
   };
 
+  const getSectionPaletteCounts = (questionEntries: Array<{ question: Question; globalIndex: number }>) => {
+    const statuses = questionEntries.map(({ question }) => getPaletteStatus(question));
+    return {
+      answered: statuses.filter((status) => status === "answered").length,
+      notAnswered: statuses.filter((status) => status === "not-answered").length,
+      notVisited: statuses.filter((status) => status === "not-visited").length,
+      review: statuses.filter((status) => status === "review").length,
+      answeredReview: statuses.filter((status) => status === "answered-review").length,
+    };
+  };
   const submitMutation = useMutation({
     mutationFn: async () => {
       if (!activeTest) throw new Error("No test");
@@ -846,7 +1004,7 @@ export default function StudentTests() {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          answers,
+          answers: savedAnswers,
           questionTimings: finalTimings,
           flaggedQuestions: [],
           visitedQuestionIds: Array.from(visitedSet),
@@ -872,10 +1030,6 @@ export default function StudentTests() {
 
   const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
-  const answeredCount = activeTest?.questions.filter((q) => {
-    const a = answers[q.id];
-    return isAnswered(q, a);
-  }).length ?? 0;
   const totalQ = activeTest?.questions.length ?? 0;
   const sectionGroups = activeTest
     ? ((activeTest.sections?.length
@@ -903,62 +1057,114 @@ export default function StudentTests() {
         .filter((section) => section.questionEntries.length > 0))
     : [];
 
-  const setMcqAnswer = (qId: number, idx: number) => { startInteraction(qId); logInteraction(qId, "answer"); setAnswers(p => ({ ...p, [qId]: idx })); };
+  const setMcqAnswer = (qId: number, idx: number) => {
+    startInteraction(qId);
+    logInteraction(qId, "answer", { answerSnapshot: idx });
+    setAnswers((p) => ({ ...p, [qId]: idx }));
+  };
   const toggleMultiAnswer = (qId: number, idx: number) => {
     startInteraction(qId);
-    logInteraction(qId, "answer");
-    setAnswers(p => { const cur = (p[qId] as number[] | undefined) ?? []; return { ...p, [qId]: cur.includes(idx) ? cur.filter(x => x !== idx) : [...cur, idx] }; });
+    const current = ((answers[qId] as number[] | undefined) ?? []);
+    const nextAnswer = current.includes(idx) ? current.filter((x) => x !== idx) : [...current, idx];
+    logInteraction(qId, "answer", { answerSnapshot: nextAnswer });
+    setAnswers((p) => ({ ...p, [qId]: nextAnswer }));
   };
   const setIntegerAnswer = (qId: number, val: string) => {
     startInteraction(qId);
     const sanitized = val.replace(/\s+/g, "");
     if (!/^-?(?:\d+)?(?:\.\d*)?$/.test(sanitized)) return;
     if (sanitized === "") {
-      logInteraction(qId, "clear");
+      logInteraction(qId, "clear", { answerSnapshot: null });
       setAnswers(p => { const n = { ...p }; delete n[qId]; return n; });
       return;
     }
-    logInteraction(qId, "answer");
+    logInteraction(qId, "answer", { answerSnapshot: sanitized });
     setAnswers(p => ({ ...p, [qId]: sanitized }));
   };
 
-  const goToQuestion = (index: number) => {
+  const commitQuestionAnswer = (question: Question) => {
+    const nextSavedAnswers = { ...savedAnswers };
+    const nextAnswer = cloneAnswerValue(answers[question.id]);
+    if (isAnswered(question, nextAnswer)) {
+      nextSavedAnswers[question.id] = nextAnswer as AnswerValue;
+    } else {
+      delete nextSavedAnswers[question.id];
+    }
+    setSavedAnswers(nextSavedAnswers);
+    setAnswers((prev) => syncQuestionAnswerFromSource(prev, question.id, nextSavedAnswers));
+    return nextSavedAnswers;
+  };
+
+  const goToQuestion = (index: number, options?: { savedAnswersOverride?: Record<number, AnswerValue> }) => {
     if (!activeTest) return;
     const bounded = Math.max(0, Math.min(index, activeTest.questions.length - 1));
+    const current = activeTest.questions[currentQuestionIndex];
     const question = activeTest.questions[bounded];
+    const sourceAnswers = options?.savedAnswersOverride ?? savedAnswers;
+    if (current && current.id !== question.id) {
+      setAnswers((prev) => {
+        const restoredCurrent = syncQuestionAnswerFromSource(prev, current.id, sourceAnswers);
+        return syncQuestionAnswerFromSource(restoredCurrent, question.id, sourceAnswers);
+      });
+    }
     setCurrentQuestionIndex(bounded);
     setMobilePaletteOpen(false);
     setVisitedSet((prev) => new Set(prev).add(question.id));
-    logInteraction(question.id, "open");
+    logInteraction(question.id, "open", {
+      answerSnapshot: sourceAnswers[question.id] ?? null,
+    });
     startInteraction(question.id);
   };
 
   const clearResponse = (question: Question) => {
-    logInteraction(question.id, "clear");
+    logInteraction(question.id, "clear", {
+      answerSnapshot: null,
+      reviewState: reviewSet.has(question.id) ? "removed" : undefined,
+    });
+    setSavedAnswers((prev) => {
+      const next = { ...prev };
+      delete next[question.id];
+      return next;
+    });
     setAnswers((prev) => {
       const next = { ...prev };
       delete next[question.id];
       return next;
     });
+    setReviewSet((prev) => {
+      const next = new Set(prev);
+      next.delete(question.id);
+      return next;
+    });
+    setVisitedSet((prev) => new Set(prev).add(question.id));
   };
 
   const saveAndNext = () => {
     if (!activeTest) return;
     const current = activeTest.questions[currentQuestionIndex];
+    const nextSavedAnswers = commitQuestionAnswer(current);
+    logInteraction(current.id, "save", {
+      answerSnapshot: nextSavedAnswers[current.id] ?? null,
+      reviewState: reviewSet.has(current.id) ? "removed" : undefined,
+    });
     setReviewSet((prev) => {
       const next = new Set(prev);
       next.delete(current.id);
       return next;
     });
-    if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1);
+    if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1, { savedAnswersOverride: nextSavedAnswers });
   };
 
   const markForReviewAndNext = () => {
     if (!activeTest) return;
     const current = activeTest.questions[currentQuestionIndex];
-    logInteraction(current.id, "review");
+    const nextSavedAnswers = commitQuestionAnswer(current);
+    logInteraction(current.id, "review", {
+      answerSnapshot: nextSavedAnswers[current.id] ?? answers[current.id] ?? null,
+      reviewState: "marked",
+    });
     setReviewSet((prev) => new Set(prev).add(current.id));
-    if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1);
+    if (currentQuestionIndex < activeTest.questions.length - 1) goToQuestion(currentQuestionIndex + 1, { savedAnswersOverride: nextSavedAnswers });
   };
 
   const previousQuestion = () => {
@@ -976,7 +1182,13 @@ export default function StudentTests() {
   const currentSectionQuestionNumber = currentQuestion
     ? Math.max(1, currentSectionQuestions.findIndex((entry) => entry.question.id === currentQuestion.id) + 1)
     : 1;
-  const currentSectionAnsweredCount = currentSectionQuestions.filter(({ question }) => isAnswered(question, answers[question.id])).length;
+  const openSectionInfoSection = openSectionInfoId !== null
+    ? sectionGroups.find((section) => section.id === openSectionInfoId) ?? null
+    : null;
+  const openSectionInfoCounts = openSectionInfoSection
+    ? getSectionPaletteCounts(openSectionInfoSection.questionEntries)
+    : null;
+  const currentSectionAnsweredCount = currentSectionQuestions.filter(({ question }) => isAnswered(question, savedAnswers[question.id])).length;
   const currentSectionNotVisitedCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "not-visited").length;
   const currentSectionNotAnsweredCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "not-answered").length;
   const currentSectionAnsweredReviewCount = currentSectionQuestions.filter(({ question }) => getPaletteStatus(question) === "answered-review").length;
@@ -1009,39 +1221,61 @@ export default function StudentTests() {
     setShowCalculator(true);
   };
 
-  const paletteStyle: Record<PaletteStatus, string> = {
-    "not-visited": "border-slate-400 bg-slate-100 text-slate-700",
-    "not-answered": "border-orange-500 bg-orange-500 text-white",
-    "answered": "border-lime-500 bg-lime-500 text-white",
-    "review": "border-violet-600 bg-violet-600 text-white",
-    "answered-review": "border-violet-600 bg-violet-600 text-white",
+  const openSectionInfo = (sectionId: number, anchorEl?: HTMLElement | null) => {
+    if (sectionInfoCloseTimeoutRef.current) clearTimeout(sectionInfoCloseTimeoutRef.current);
+    setOpenSectionInfoId(sectionId);
+    if (anchorEl && sectionInfoAreaRef.current) {
+      const areaRect = sectionInfoAreaRef.current.getBoundingClientRect();
+      const anchorRect = anchorEl.getBoundingClientRect();
+      const popupWidth = 480;
+      const maxLeft = Math.max(0, areaRect.width - popupWidth);
+      const rawLeft = anchorRect.left - areaRect.left;
+      setSectionInfoPopupLeft(Math.max(0, Math.min(rawLeft, maxLeft)));
+    }
   };
 
-  const renderPaletteBadge = (number: number, status: PaletteStatus, size: "sm" | "md" = "md") => {
-    const baseSize = size === "sm" ? "h-7 w-7 text-[11px]" : "h-10 w-10 text-sm";
+  const scheduleCloseSectionInfo = () => {
+    if (sectionInfoCloseTimeoutRef.current) clearTimeout(sectionInfoCloseTimeoutRef.current);
+    sectionInfoCloseTimeoutRef.current = setTimeout(() => {
+      setOpenSectionInfoId(null);
+      sectionInfoCloseTimeoutRef.current = null;
+    }, 120);
+  };
+
+  const paletteStyle: Record<PaletteStatus, string> = {
+    "not-visited": "border-[#b7c2cf] bg-slate-100 text-slate-700",
+    "not-answered": "border-orange-500 bg-orange-500 text-white",
+    "answered": "border-lime-500 bg-lime-500 text-white",
+    "review": "border-[#9a79f7] bg-violet-600 text-white",
+    "answered-review": "border-[#9a79f7] bg-violet-600 text-white",
+  };
+
+  const renderPaletteBadge = (number: number, status: PaletteStatus, size: "sm" | "md" | "lg" = "md") => {
+    const baseSize = size === "sm"
+      ? "h-7 w-7 text-[11px]"
+      : size === "lg"
+        ? "h-[54px] w-[54px] text-[11px]"
+        : "h-[50px] w-[50px] text-[16px]";
     const label = <span className="relative z-10 font-bold">{number}</span>;
 
-    if (status === "not-visited" || status === "answered") {
-      return <span className={`inline-flex items-center justify-center rounded-sm border shadow-sm ${baseSize} ${paletteStyle[status]}`}>{label}</span>;
-    }
-
-    if (status === "review") {
-      return <span className={`inline-flex items-center justify-center rounded-full border shadow-sm ${baseSize} ${paletteStyle[status]}`}>{label}</span>;
+    if (status === "answered") {
+      return <TruncatedPentagonBadge count={number} variant="answered" size={size} />;
     }
 
     if (status === "not-answered") {
-      return (
-        <span
-          className={`relative inline-flex items-center justify-center border shadow-sm ${baseSize} ${paletteStyle[status]}`}
-          style={{ clipPath: "polygon(16% 0%, 84% 0%, 100% 20%, 100% 76%, 50% 100%, 0% 76%, 0% 20%)" }}
-        >
-          {label}
-        </span>
-      );
+      return <TruncatedPentagonBadge count={number} variant="not-answered" size={size} />;
+    }
+
+    if (status === "not-visited") {
+      return <span className={`inline-flex items-center justify-center rounded-sm border ${baseSize} ${paletteStyle[status]}`}>{label}</span>;
+    }
+
+    if (status === "review") {
+      return <span className={`inline-flex items-center justify-center rounded-full border ${baseSize} ${paletteStyle[status]}`}>{label}</span>;
     }
 
     return (
-      <span className={`relative inline-flex items-center justify-center rounded-full border shadow-sm ${baseSize} ${paletteStyle[status]}`}>
+      <span className={`relative inline-flex items-center justify-center rounded-full border ${baseSize} ${paletteStyle[status]}`}>
         {label}
         <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border border-white bg-lime-400" />
       </span>
@@ -1051,7 +1285,7 @@ export default function StudentTests() {
   const exitTest = () => {
     if (!activeTest || submitMutation.isPending) return;
     const finalTimings = finalizeTimings();
-    saveDraft(activeTest, buildCurrentDraft(activeTest, { questionTimings: finalTimings }));
+    saveDraft(activeTest, buildCurrentDraft({ questionTimings: finalTimings }));
     if (timerRef.current) clearInterval(timerRef.current);
     setMobilePaletteOpen(false);
     setShowCalculator(false);
@@ -1060,8 +1294,15 @@ export default function StudentTests() {
   };
   const examHeading = activeTest?.examHeader?.trim() || activeTest?.description?.trim() || activeTest?.title || "Exam Interface";
   const examSubheading = activeTest?.examSubheader?.trim() || activeTest?.className || activeTest?.subjectName || activeTest?.chapterName || "Online Test";
+  const candidateDisplayName = user?.fullName ?? user?.username ?? "John Smith";
+  const isTimerUrgent = timeLeft <= 300;
+  const questionWatermarkLines = useMemo(
+    () => [user?.email?.trim(), user?.phone?.trim()].filter((value): value is string => Boolean(value)),
+    [user?.email, user?.phone],
+  );
   const defaultInstructionItems = getDefaultInstructionItems(activeTest?.durationMinutes ?? 30);
   const additionalInstructionItems = extractAdditionalInstructionItems(activeTest?.instructions, activeTest?.durationMinutes ?? 30);
+  const calculatorEnabled = getCalculatorEnabledFromExamConfig(activeTest?.examConfig);
 
   const applyIntegerEdit = (transform: (value: string, start: number, end: number) => { value: string; caret: number }) => {
     if (!currentQuestion || currentQuestion.questionType !== "integer") return;
@@ -1164,7 +1405,7 @@ export default function StudentTests() {
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
                   className={`rounded-full px-6 py-2.5 text-base font-semibold transition-colors ${
                     isActive
-                      ? "bg-[#5B4DFF] text-white shadow-[0_10px_30px_rgba(91,77,255,0.28)]"
+                      ? "chip-orange-solid"
                       : "text-[#64748B] hover:text-[#0F172A]"
                   }`}
                 >
@@ -1209,7 +1450,7 @@ export default function StudentTests() {
               </p>
               {(activeTab !== "all" || subjectFilter !== "all") && (
                 <Button
-                  className="mt-6 rounded-full bg-[#5B4DFF] px-5 text-white hover:bg-[#4C3FF2]"
+                  className="chip-orange-solid mt-6 rounded-full px-5"
                   onClick={() => {
                     setActiveTab("all");
                     setSubjectFilter("all");
@@ -1222,7 +1463,7 @@ export default function StudentTests() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {filteredTests.map((test, index) => {
+            {filteredTests.map((test) => {
               const status = getStudentTestStatus(test);
               const detail = testDetailQueries[tests.findIndex((entry) => entry.id === test.id)]?.data;
               return (
@@ -1416,16 +1657,18 @@ export default function StudentTests() {
                   <div className="flex items-center justify-between gap-2 bg-[#d7edf6] px-3 py-2 sm:px-4">
                     <p className="min-w-0 truncate text-[14px] font-bold text-[#4d4d4d] sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
                     {!showInstructions && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={openScientificCalculator}
-                          className="inline-flex items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
-                        >
-                          <Calculator size={13} />
-                          Calculator
-                        </button>
-                        <div className={`shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px] ${timeLeft <= 60 ? "text-red-700" : "text-[#2b2b2b]"}`}>
+                      <div className="flex items-center gap-2 md:hidden">
+                        {calculatorEnabled ? (
+                          <button
+                            type="button"
+                            onClick={openScientificCalculator}
+                            className="inline-flex items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
+                          >
+                            <Calculator size={13} />
+                            Calculator
+                          </button>
+                        ) : null}
+                        <div className={`shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px] ${isTimerUrgent ? "animate-pulse text-red-700" : "text-[#2b2b2b]"}`}>
                           <Clock size={13} /> Time Left : {formatTime(timeLeft)}
                         </div>
                       </div>
@@ -1442,6 +1685,7 @@ export default function StudentTests() {
                         </div>
                         <div className="space-y-4 text-[14px] leading-7 text-black">
                           <p><strong>Please read the following carefully.</strong></p>
+                          <p><strong>Calculator:</strong> {calculatorEnabled ? "An on-screen calculator is available for this test." : "Calculator use is disabled for this test."}</p>
                           <ol className="list-decimal space-y-3 pl-5">
                             {defaultInstructionItems.map((item) => (
                               <li key={item}>{item}</li>
@@ -1582,31 +1826,92 @@ export default function StudentTests() {
                     </div>
                   </div>
                 ) : currentQuestion ? (
-                  <div className="flex min-h-0 flex-1 overflow-hidden">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="flex min-h-0 flex-1 overflow-hidden">
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white md:border-r md:border-slate-300">
-                      <div className="border-b border-slate-300 bg-white px-2 py-2">
-                        <p className="px-1 text-sm font-bold text-[#5b5b5b]">Sections</p>
-                        <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 text-xs font-medium">
-                          {sectionGroups.map((section) => {
-                            const isActiveSection = currentSection?.id === section.id;
-                            return (
-                              <button
-                                key={section.id}
-                                type="button"
-                                onClick={() => {
-                                  const firstQuestion = section.questionEntries[0];
-                                  if (firstQuestion) goToQuestion(firstQuestion.globalIndex);
-                                }}
-                                className={`whitespace-nowrap rounded-sm border px-3 py-2 shadow-sm transition-colors ${
-                                  isActiveSection
-                                    ? "border-[#7aa9d4] bg-[#7aa9d4] text-white"
-                                    : "border-slate-300 bg-white text-[#4b6f96] hover:border-[#7aa9d4]"
-                                }`}
-                              >
-                                {section.label}
-                              </button>
-                            );
-                          })}
+                      <div className="border-b border-slate-300 bg-white px-1.5 py-1.5">
+                        <div className="flex items-center justify-between gap-2 px-0.5">
+                          <p className="text-[13px] font-bold text-[#5b5b5b]">Sections</p>
+                          {calculatorEnabled ? (
+                            <button
+                              type="button"
+                              onClick={openScientificCalculator}
+                              className="hidden md:flex h-7 w-7 items-center justify-center rounded-[4px] border border-[#f7d28f] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:bg-[#fff8eb]"
+                              aria-label="Open calculator"
+                            >
+                              <Calculator className="h-4 w-4 text-[#f59e0b]" strokeWidth={2.25} />
+                            </button>
+                          ) : (
+                            <span className="hidden md:block h-7 w-7" />
+                          )}
+                        </div>
+                        <div ref={sectionInfoAreaRef} className="-mx-1.5 mt-1.5 relative flex items-center border-y border-slate-300 bg-white overflow-visible">
+                          <div className="min-w-0 flex-1 overflow-x-auto overflow-y-visible px-2 py-1">
+                            <div className="flex min-w-max items-center gap-2 text-xs font-medium">
+                              {sectionGroups.map((section) => {
+                                const isActiveSection = currentSection?.id === section.id;
+                                const isInfoOpen = openSectionInfoId === section.id;
+                                return (
+                                  <div key={section.id} className="relative shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenSectionInfoId(null);
+                                        const firstQuestion = section.questionEntries[0];
+                                        if (firstQuestion) goToQuestion(firstQuestion.globalIndex);
+                                      }}
+                                      className={`whitespace-nowrap rounded-sm border pl-3 pr-10 py-1.5 shadow-sm transition-colors ${
+                                        isActiveSection
+                                          ? "border-[#7aa9d4] bg-[#7aa9d4] text-white"
+                                          : "border-slate-300 bg-white text-[#4b6f96] hover:border-[#7aa9d4]"
+                                      }`}
+                                    >
+                                      <span className="block max-w-[190px] truncate">{section.label}</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onMouseEnter={(event) => openSectionInfo(section.id, event.currentTarget.parentElement)}
+                                      onMouseLeave={scheduleCloseSectionInfo}
+                                      onFocus={(event) => openSectionInfo(section.id, event.currentTarget.parentElement)}
+                                      onBlur={scheduleCloseSectionInfo}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openSectionInfo(section.id, event.currentTarget.parentElement);
+                                      }}
+                                      className={`absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-[#78b2eb] bg-[#70b6f4] text-white transition-colors hover:bg-[#62acef] ${
+                                        isActiveSection ? "border-[#8dc3f6] bg-[#7ec0f5]" : ""
+                                      }`}
+                                      aria-label={`Show ${section.label} details`}
+                                    >
+                                      <Info className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          {openSectionInfoSection && openSectionInfoCounts && (
+                            <div
+                              className="absolute top-full z-40 mt-2 w-[280px] overflow-hidden rounded-md border border-[#aebcc6] bg-[#dff1fa] shadow-none"
+                              style={{ left: `${sectionInfoPopupLeft}px` }}
+                              onMouseEnter={() => openSectionInfo(openSectionInfoSection.id)}
+                              onMouseLeave={scheduleCloseSectionInfo}
+                            >
+                              <div className="border-b border-[#aebcc6] px-3 py-2 text-[13px] font-semibold text-black">
+                                {openSectionInfoSection.label}
+                              </div>
+                              <div className="space-y-2 px-3 py-2">
+                                <div className="flex items-center gap-2">{renderPaletteBadge(openSectionInfoCounts.answered, "answered", "sm")}<p className="text-[13px] font-medium leading-5 text-[#2f2f2f]">Answered</p></div>
+                                <div className="flex items-center gap-2">{renderPaletteBadge(openSectionInfoCounts.notAnswered, "not-answered", "sm")}<p className="text-[13px] font-medium leading-5 text-[#2f2f2f]">Not Answered</p></div>
+                                <div className="flex items-center gap-2">{renderPaletteBadge(openSectionInfoCounts.notVisited, "not-visited", "sm")}<p className="text-[13px] font-medium leading-5 text-[#2f2f2f]">Not Visited</p></div>
+                                <div className="flex items-center gap-2">{renderPaletteBadge(openSectionInfoCounts.review, "review", "sm")}<p className="text-[13px] font-medium leading-5 text-[#2f2f2f]">Marked for Review</p></div>
+                                <div className="flex items-center gap-2">{renderPaletteBadge(openSectionInfoCounts.answeredReview, "answered-review", "sm")}<p className="text-[13px] font-medium leading-5 text-[#2f2f2f]">Answered & Marked for Review</p></div>
+                              </div>
+                            </div>
+                          )}
+                          <div className={`hidden h-[48px] shrink-0 items-center px-3 text-[13px] font-bold md:flex ${isTimerUrgent ? "animate-pulse text-red-700" : "text-[#2f2f2f]"}`}>
+                            Time Left : {formatTime(timeLeft)}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between border-b border-slate-300 bg-white px-2 py-2">
@@ -1626,13 +1931,30 @@ export default function StudentTests() {
                         </button>
                       </div>
 
-                      <div className="border-b border-slate-300 px-2 py-2 text-[16px] font-bold text-black sm:text-[18px]">
-                        Question No. {currentSectionQuestionNumber}
-                      </div>
+                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-3 py-2 sm:px-4 sm:py-3">
+                        <div className="relative mx-auto max-w-none overflow-hidden">
+                          {questionWatermarkLines.length > 0 && (
+                            <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+                              <div className="grid min-h-full grid-cols-2 justify-items-center gap-x-14 gap-y-16 px-2 py-5 sm:grid-cols-3 sm:gap-x-20 sm:gap-y-20 lg:grid-cols-4">
+                                {Array.from({ length: 12 }).map((_, index) => (
+                                  <div
+                                    key={index}
+                                    className="flex min-h-[88px] min-w-[150px] select-none flex-col items-center justify-center whitespace-nowrap text-center text-[14px] font-semibold leading-[1.15] tracking-[0.01em] text-[#b9c7db]/45 sm:min-h-[104px] sm:min-w-[190px] sm:text-[16px]"
+                                    style={{ transform: "rotate(-47deg)", transformOrigin: "center" }}
+                                  >
+                                    {questionWatermarkLines.map((line, lineIndex) => (
+                                      <span key={`${index}-${lineIndex}`}>{line}</span>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
-                      <div className="min-h-0 flex-1 overflow-y-auto bg-white p-3 sm:p-4">
-                        <div className="relative mx-auto max-w-none border border-slate-200 bg-white p-3 shadow-sm before:pointer-events-none before:absolute before:inset-0 before:bg-[repeating-linear-gradient(-60deg,transparent,transparent_180px,rgba(40,70,110,0.06)_180px,rgba(40,70,110,0.06)_240px)] sm:p-6">
-                          <div className="space-y-4">
+                          <div className="relative z-10 space-y-4">
+                            <div className="text-[12px] font-semibold text-black sm:text-[13px]">
+                              Question No. {currentSectionQuestionNumber}
+                            </div>
                             <RichQuestionContent content={currentQuestion.question} className="text-[15px] leading-7 text-slate-900 sm:text-base" />
                             {currentQuestion.imageData && <img src={currentQuestion.imageData} alt="" className="max-h-[420px] w-full rounded-xl border border-slate-200 object-contain bg-white" />}
 
@@ -1648,17 +1970,40 @@ export default function StudentTests() {
                                       key={i}
                                       type="button"
                                       onClick={() => currentQuestion.questionType === "multi" ? toggleMultiAnswer(currentQuestion.id, i) : setMcqAnswer(currentQuestion.id, i)}
-                                      className={`relative w-full border-0 p-2 text-left transition-colors ${selected ? "bg-[#f5f8fd]" : "bg-transparent hover:bg-[#f9fbff]"}`}
+                                      className="relative w-full border-0 bg-transparent px-1 py-2 text-left"
                                       data-testid={`option-${currentQuestion.id}-${i}`}
                                     >
-                                      <div className="flex items-start gap-3">
-                                        <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center ${currentQuestion.questionType === "multi" ? "rounded-sm" : "rounded-full"} border text-xs font-bold ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-slate-600"}`}>
-                                          {currentQuestion.questionType === "multi" ? (selected ? <CheckSquare size={12} /> : <Square size={12} />) : (selected ? <Circle size={12} fill="currentColor" /> : <Circle size={12} />)}
-                                        </div>
+                                      <div className="flex items-start gap-4">
+                                        {currentQuestion.questionType === "multi" ? (
+                                          <span
+                                            className={`mt-[6px] flex h-7 w-7 shrink-0 items-center justify-center border-[2px] ${
+                                              selected ? "border-[#1f7aff] bg-[#1f7aff]" : "border-[#9ca3af] bg-white"
+                                            }`}
+                                            aria-hidden="true"
+                                          >
+                                            {selected ? <span className="text-[16px] font-bold leading-none text-white">✓</span> : null}
+                                          </span>
+                                        ) : (
+                                          <span
+                                            className={`relative mt-[5px] h-7 w-7 shrink-0 rounded-full border-[3px] ${
+                                              selected ? "border-[#1677ff]" : "border-[#a8adb4]"
+                                            } bg-white`}
+                                            aria-hidden="true"
+                                          >
+                                            {selected ? (
+                                              <span className="absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1677ff]" />
+                                            ) : null}
+                                          </span>
+                                        )}
                                         <div className="min-w-0 flex-1">
-                                          <div className="flex items-start gap-2">
-                                            <span className="font-semibold text-slate-700">{String.fromCharCode(65 + i)}.</span>
-                                            <RichQuestionContent content={opt} className="text-sm text-slate-800" />
+                                          <div
+                                            className="pt-[1px] text-[21px] leading-[1.45] text-[#161616] sm:text-[24px]"
+                                            style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}
+                                          >
+                                            <RichQuestionContent
+                                              content={opt}
+                                              className="[&_*]:font-inherit [&_*]:text-inherit [&_*]:leading-inherit"
+                                            />
                                           </div>
                                           {optImg && <img src={optImg} alt="" className="mt-3 max-h-40 rounded-lg border border-slate-200 object-contain bg-white" />}
                                         </div>
@@ -1670,7 +2015,7 @@ export default function StudentTests() {
                             )}
 
                             {currentQuestion.questionType === "integer" && (
-                              <div className="mx-auto w-[176px] border border-[#ececec] bg-[#efefef] px-[10px] py-[8px] sm:mx-0 sm:w-[182px]">
+                              <div className="mx-auto w-[142px] border border-[#ececec] bg-[#efefef] px-[7px] py-[6px] sm:mx-0 sm:w-[146px]">
                                 <input
                                   ref={integerInputRef}
                                   type="text"
@@ -1678,19 +2023,19 @@ export default function StudentTests() {
                                   value={integerDisplayValue}
                                   onChange={(e) => setIntegerAnswer(currentQuestion.id, e.target.value)}
                                   placeholder=""
-                                  className="h-[40px] w-full rounded-[4px] border-2 border-[#7a7a7a] bg-white px-[8px] text-left text-[24px] font-semibold leading-none text-black outline-none focus:border-[#7a7a7a]"
+                                  className="h-[30px] w-full rounded-[4px] border-2 border-[#7a7a7a] bg-white px-[6px] text-left text-[18px] font-semibold leading-none text-black outline-none focus:border-[#7a7a7a]"
                                   data-testid={`integer-input-${currentQuestion.id}`}
                                 />
-                                  <div className="mt-[18px] flex flex-col items-center gap-[8px]">
+                                  <div className="mt-[10px] flex flex-col items-center gap-[6px]">
                                     <button
                                       type="button"
                                       onClick={backspaceIntegerChar}
-                                      className="flex h-[56px] w-[148px] items-center justify-center rounded-[12px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[24px] font-bold tracking-[-0.02em] text-black hover:bg-[#e1ddee] sm:h-[62px] sm:w-[152px] sm:text-[28px]"
+                                      className="flex h-[32px] w-[94px] items-center justify-center rounded-[8px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[12px] font-bold tracking-[-0.02em] text-black hover:bg-[#e1ddee] sm:h-[34px] sm:w-[98px] sm:text-[13px]"
                                     >
                                       Backspace
                                     </button>
 
-                                    <div className="grid grid-cols-3 gap-[10px]">
+                                    <div className="grid grid-cols-3 gap-[6px]">
                                     {[
                                       ["7", "8", "9"],
                                       ["4", "5", "6"],
@@ -1701,25 +2046,25 @@ export default function StudentTests() {
                                         key={key}
                                         type="button"
                                         onClick={() => insertIntegerChar(key)}
-                                        className="flex h-[46px] w-[46px] items-center justify-center rounded-[10px] border-2 border-[#7a7a7a] bg-[#f8f8f8] text-[22px] font-bold leading-none text-black hover:bg-white sm:h-[48px] sm:w-[48px] sm:text-[24px]"
+                                        className="flex h-[34px] w-[34px] items-center justify-center rounded-[8px] border-2 border-[#7a7a7a] bg-[#f8f8f8] text-[16px] font-bold leading-none text-black hover:bg-white sm:h-[36px] sm:w-[36px] sm:text-[18px]"
                                       >
                                         {key}
                                       </button>
                                     ))}
                                   </div>
 
-                                  <div className="grid grid-cols-2 gap-[10px]">
+                                  <div className="grid grid-cols-2 gap-[6px]">
                                     <button
                                       type="button"
                                       onClick={() => moveIntegerCaret("left")}
-                                      className="flex h-[50px] w-[64px] items-center justify-center rounded-[10px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[26px] font-bold leading-none text-black hover:bg-[#e1ddee] sm:h-[52px] sm:text-[28px]"
+                                      className="flex h-[28px] w-[40px] items-center justify-center rounded-[7px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[16px] font-bold leading-none text-black hover:bg-[#e1ddee] sm:h-[30px] sm:w-[42px] sm:text-[18px]"
                                     >
                                       ←
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => moveIntegerCaret("right")}
-                                      className="flex h-[50px] w-[64px] items-center justify-center rounded-[10px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[26px] font-bold leading-none text-black hover:bg-[#e1ddee] sm:h-[52px] sm:text-[28px]"
+                                      className="flex h-[28px] w-[40px] items-center justify-center rounded-[7px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[16px] font-bold leading-none text-black hover:bg-[#e1ddee] sm:h-[30px] sm:w-[42px] sm:text-[18px]"
                                     >
                                       →
                                     </button>
@@ -1728,7 +2073,7 @@ export default function StudentTests() {
                                   <button
                                     type="button"
                                     onClick={clearIntegerAnswer}
-                                    className="flex h-[56px] w-[142px] items-center justify-center rounded-[12px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[24px] font-bold tracking-[-0.02em] text-black hover:bg-[#e1ddee] sm:h-[62px] sm:w-[144px] sm:text-[28px]"
+                                    className="flex h-[32px] w-[92px] items-center justify-center rounded-[8px] border-2 border-[#7a7a7a] bg-[#e8e5f1] text-[12px] font-bold tracking-[-0.02em] text-black hover:bg-[#e1ddee] sm:h-[34px] sm:w-[96px] sm:text-[13px]"
                                   >
                                     Clear All
                                   </button>
@@ -1739,9 +2084,9 @@ export default function StudentTests() {
                         </div>
                       </div>
 
-                      <div className="border-t border-slate-300 bg-white px-2 py-3">
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                      <div className="border-t border-slate-300 bg-white px-2 py-3 md:hidden">
+                        <div className="space-y-2 md:hidden">
+                          <div className="grid grid-cols-2 gap-2">
                             <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
                               Exit
                             </Button>
@@ -1753,13 +2098,13 @@ export default function StudentTests() {
                             </Button>
                             <Button
                               variant="outline"
-                              className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3] md:hidden"
+                              className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]"
                               onClick={() => setMobilePaletteOpen(true)}
                             >
                               Palette
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+                          <div className="grid grid-cols-1 gap-2">
                             <Button variant="outline" className="rounded-none border border-[#bdbdbd] bg-white text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
                             </Button>
@@ -1768,6 +2113,7 @@ export default function StudentTests() {
                             </Button>
                           </div>
                         </div>
+
                       </div>
                     </div>
 
@@ -1790,14 +2136,14 @@ export default function StudentTests() {
                               Close
                             </button>
                           </div>
-                          <div className="max-h-[calc(78vh-57px)] overflow-y-auto">
-                            <div className="border-b border-[#c8c8c8] bg-white p-4">
-                              <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-                                <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionAnsweredCount, "answered")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
-                                <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionNotAnsweredCount, "not-answered")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
-                                <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionNotVisitedCount, "not-visited")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
-                                <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionReviewCount, "review")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
-                                <div className="col-span-2 flex items-start gap-2">{renderPaletteBadge(currentSectionAnsweredReviewCount, "answered-review")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review</p></div></div>
+                          <div className="no-scrollbar max-h-[calc(78vh-57px)] overflow-y-auto">
+                            <div className="border-b border-[#c8c8c8] bg-white px-3 py-3">
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 text-[11px]">
+                                <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionAnsweredCount, "answered", "sm")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
+                                <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionNotAnsweredCount, "not-answered", "sm")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
+                                <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionNotVisitedCount, "not-visited", "sm")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
+                                <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionReviewCount, "review", "sm")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
+                                <div className="col-span-2 flex items-start gap-1.5">{renderPaletteBadge(currentSectionAnsweredReviewCount, "answered-review", "sm")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review</p></div></div>
                               </div>
                             </div>
 
@@ -1815,7 +2161,8 @@ export default function StudentTests() {
                                     key={question.id}
                                     type="button"
                                     onClick={() => goToQuestion(globalIndex)}
-                                    className={`flex h-11 items-center justify-center ${isCurrent ? "ring-2 ring-[#f28a27] ring-offset-1" : ""}`}
+                                    className="flex h-[56px] items-center justify-center bg-transparent outline-none focus:outline-none focus-visible:outline-none"
+                                    aria-current={isCurrent ? "true" : undefined}
                                   >
                                     {renderPaletteBadge(index + 1, status)}
                                   </button>
@@ -1828,86 +2175,120 @@ export default function StudentTests() {
                     )}
 
                     {!paletteCollapsed && (
-                      <aside className="hidden min-h-0 w-[260px] shrink-0 flex-col border-l border-[#2f2f2f] bg-[#d9eaf5] md:flex">
-                        <div className="border-b border-[#c8c8c8] bg-[#f7f7f7] p-4">
-                          <div className="mb-4 flex items-start gap-3 rounded-none bg-white p-0">
-                            <div className="flex h-24 w-20 items-center justify-center overflow-hidden rounded-sm border border-[#7f7f7f] bg-white shadow-inner">
+                      <aside className="relative hidden min-h-0 w-[244px] shrink-0 flex-col border-l border-[#b8b8b8] bg-[#d9eaf5] md:flex">
+                        <button
+                          type="button"
+                          onClick={() => setPaletteCollapsed(true)}
+                          className="absolute left-0 top-1/2 z-20 flex h-[44px] w-[18px] -translate-x-full -translate-y-1/2 items-center justify-center rounded-l-[3px] bg-black text-white hover:bg-[#111111]"
+                          aria-label="Collapse question palette"
+                        >
+                          <ChevronRight className="h-[13px] w-[13px]" strokeWidth={2.5} />
+                        </button>
+
+                        <div className="border-b border-[#c8c8c8] bg-[#eef3f8]">
+                          <div className="flex min-w-0 items-start gap-3 px-2.5 py-2.5">
+                            <div className="flex h-[94px] w-[80px] shrink-0 items-center justify-center overflow-hidden border border-[#b7b7b7] bg-white shadow-inner">
                               {user && (user as any).avatarUrl ? (
-                                <img src={(user as any).avatarUrl} alt={user.fullName ?? user.username ?? "Candidate"} className="h-full w-full object-cover" />
+                                <img src={(user as any).avatarUrl} alt={candidateDisplayName} className="h-full w-full object-cover" />
                               ) : (
-                                <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#dce8f4,#8ea4bf_65%,#5d728e)] text-[10px] font-bold text-white">
+                                <div className="flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_50%_35%,#eef2f8,#98a8bc_65%,#5d728e)] text-[10px] font-bold text-white">
                                   PHOTO
                                 </div>
                               )}
                             </div>
-                            <div className="min-w-0">
-                              <p className="text-lg font-bold text-[#3f4d5c]">Candidate</p>
-                              <p className="mt-1 text-sm font-semibold text-[#607a98]">{user?.fullName ?? user?.username ?? "John Smith"}</p>
+                            <div className="min-w-0 pt-1.5">
+                              <p className="truncate text-[15px] font-bold leading-tight text-[#2f3b48]">{candidateDisplayName}</p>
                             </div>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">Question Palette</p>
-                              <p className="text-xs text-slate-500">{currentSectionAnsweredCount}/{currentSectionQuestions.length} answered</p>
-                            </div>
-                            <button type="button" onClick={() => setPaletteCollapsed(true)} className="rounded-none border border-slate-300 bg-black p-2 text-white hover:bg-slate-800">
-                              <PanelRightClose size={16} />
-                            </button>
                           </div>
                         </div>
+
                         <div className="flex min-h-0 flex-1 flex-col bg-[#d9eaf5]">
-                          <div className="overflow-y-auto space-y-0">
-                          <div className="border-b border-[#c8c8c8] bg-white p-4">
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionAnsweredCount, "answered")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
-                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionNotAnsweredCount, "not-answered")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
-                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionNotVisitedCount, "not-visited")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
-                            <div className="flex items-start gap-2">{renderPaletteBadge(currentSectionReviewCount, "review")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
-                            <div className="col-span-2 flex items-start gap-2">{renderPaletteBadge(currentSectionAnsweredReviewCount, "answered-review")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review (will also be evaluated)</p></div></div>
-                          </div>
-                          </div>
-
-                          <div className="bg-[#d9eaf5]">
-                            <p className="bg-[#2a85b8] px-3 py-2 text-sm font-bold text-white">{currentSection?.label ?? activeTest.subjectName ?? "Section"}</p>
-                            <p className="px-4 py-3 text-[13px] font-semibold text-black">Choose a Question</p>
+                          <div className="shrink-0 border-b border-[#c8c8c8] bg-white px-3 py-3">
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-3 text-[11px]">
+                              <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionAnsweredCount, "answered", "sm")}<div><p className="font-medium leading-4 text-black">Answered</p></div></div>
+                              <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionNotAnsweredCount, "not-answered", "sm")}<div><p className="font-medium leading-4 text-black">Not Answered</p></div></div>
+                              <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionNotVisitedCount, "not-visited", "sm")}<div><p className="font-medium leading-4 text-black">Not Visited</p></div></div>
+                              <div className="flex items-start gap-1.5">{renderPaletteBadge(currentSectionReviewCount, "review", "sm")}<div><p className="font-medium leading-4 text-black">Marked for Review</p></div></div>
+                              <div className="col-span-2 flex items-start gap-1.5">{renderPaletteBadge(currentSectionAnsweredReviewCount, "answered-review", "sm")}<div><p className="font-medium leading-4 text-black">Answered & Marked for Review (will also be evaluated)</p></div></div>
+                            </div>
                           </div>
 
-                          <div className="grid grid-cols-4 gap-2 px-4 pb-4">
-                            {currentSectionQuestions.map(({ question, globalIndex }, index) => {
-                              const status = getPaletteStatus(question);
-                              const isCurrent = currentQuestion.id === question.id;
-                              return (
-                                <button
-                                  key={question.id}
-                                  type="button"
-                                  onClick={() => goToQuestion(globalIndex)}
-                                  className={`flex h-11 items-center justify-center ${isCurrent ? "ring-2 ring-[#f28a27] ring-offset-1" : ""}`}
-                                >
-                                  {renderPaletteBadge(index + 1, status)}
-                                </button>
-                              );
-                            })}
+                          <div className="shrink-0 bg-[#d9eaf5]">
+                            <p className="bg-[#2a85b8] px-3 py-3 text-[16px] font-bold text-white">{currentSection?.label ?? activeTest.subjectName ?? "Section"}</p>
+                            <p className="px-3 py-3 text-[13px] font-semibold text-black">Choose a Question</p>
                           </div>
+
+                          <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                            <div className="grid grid-cols-4 gap-1.5 px-3 pb-3">
+                              {currentSectionQuestions.map(({ question, globalIndex }, index) => {
+                                const status = getPaletteStatus(question);
+                                const isCurrent = currentQuestion.id === question.id;
+                                return (
+                                  <button
+                                    key={question.id}
+                                    type="button"
+                                    onClick={() => goToQuestion(globalIndex)}
+                                    className="flex h-16 items-center justify-center bg-transparent outline-none focus:outline-none focus-visible:outline-none"
+                                    aria-current={isCurrent ? "true" : undefined}
+                                  >
+                                    {renderPaletteBadge(index + 1, status, "lg")}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                        <div className="border-t border-[#c8c8c8] bg-[#d9eaf5] p-4">
-                          <Button
-                            className="w-full rounded-none border border-[#8fb4d6] bg-[#78a7d3] text-white shadow-none hover:bg-[#6897c4]"
-                            onClick={openSubmitReview}
-                            disabled={submitMutation.isPending}
-                            data-testid="button-submit-test"
-                          >
-                            Final Submit
-                          </Button>
                         </div>
                       </aside>
                     )}
 
                     {paletteCollapsed && (
-                      <button type="button" onClick={() => setPaletteCollapsed(false)} className="hidden md:flex h-full w-10 shrink-0 items-center justify-center border-l border-slate-300 bg-slate-200 text-slate-700">
-                        <PanelRightOpen size={18} />
+                      <button type="button" onClick={() => setPaletteCollapsed(false)} className="hidden md:flex h-full w-4 shrink-0 items-center justify-center border-l border-slate-300 bg-slate-200 text-slate-700">
+                        <PanelRightOpen size={12} />
                       </button>
                     )}
+                    </div>
+
+                    <div className="hidden border-t border-[#c8c8c8] bg-white md:flex">
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-4 px-4 py-1.5">
+                        <div className="flex items-start gap-4">
+                          <Button
+                            variant="outline"
+                            className="h-[40px] min-w-[232px] rounded-[2px] border border-[#c2c2c2] bg-white px-5 text-[13px] font-medium text-[#2f2f2f] shadow-none hover:bg-[#f7f7f7]"
+                            onClick={markForReviewAndNext}
+                          >
+                            {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="h-[40px] min-w-[166px] rounded-[2px] border border-[#c2c2c2] bg-white px-5 text-[13px] font-medium text-[#2f2f2f] shadow-none hover:bg-[#f7f7f7]"
+                            onClick={() => clearResponse(currentQuestion)}
+                          >
+                            Clear Response
+                          </Button>
+                        </div>
+
+                        <Button
+                          className="h-[40px] min-w-[116px] rounded-[2px] border border-[#1e618a] bg-[#2b84b9] px-4 text-[13px] font-medium text-white shadow-none hover:bg-[#236f9c]"
+                          onClick={saveAndNext}
+                        >
+                          {currentQuestionIndex === totalQ - 1 ? "Save Response" : "Save & Next"}
+                        </Button>
+                      </div>
+
+                      {!paletteCollapsed && (
+                        <div className="flex w-[244px] shrink-0 items-center justify-center border-l border-[#c8c8c8] bg-[#d9eaf5] px-4 py-1.5">
+                          <Button
+                            className="h-[40px] w-[96px] rounded-[2px] border border-[#79aacb] bg-[#6ea9cd] text-[13px] font-medium text-white shadow-none hover:bg-[#6198ba]"
+                            onClick={openSubmitReview}
+                            disabled={submitMutation.isPending}
+                            data-testid="button-submit-test"
+                          >
+                            Submit
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 ) : null}
               </div>

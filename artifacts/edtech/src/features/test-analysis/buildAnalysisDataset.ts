@@ -1,12 +1,14 @@
 import type {
+  AdvancedInsightsDataShape,
   AnalysisDataset,
   BreakdownRow,
   ComparativeAttemptDataShape,
-  ComparativeDataShape,
   ComparativeDifficultyDataShape,
   ComparativeTimeDataShape,
   DifficultyDataShape,
   JourneyInterval,
+  QuestionHistoryEvent,
+  QuestionHistoryItem,
   QQuality,
   QStatus,
   QsSubject,
@@ -29,19 +31,31 @@ interface InteractionLogEntry {
   at: number;
   questionId: number;
   sectionLabel: string;
-  action: "open" | "answer" | "clear" | "review" | "flag";
+  action: "open" | "answer" | "clear" | "review" | "save" | "flag";
+  answerSnapshot?: unknown;
+  reviewState?: "marked" | "removed";
 }
 
 interface AnalysisQuestion {
   id: number;
   order: number;
+  question?: string | null;
+  options?: string[] | null;
+  optionImages?: (string | null)[] | null;
   sectionId?: number | null;
   subjectLabel?: string | null;
+  subjectName?: string | null;
+  chapterName?: string | null;
+  topicTag?: string | null;
   meta?: Record<string, unknown> | null;
   questionType?: string | null;
   points: number;
   negativeMarks?: number | null;
   myAnswer: unknown;
+  correctAnswer?: number | null;
+  correctAnswerMulti?: number[] | null;
+  correctAnswerMin?: number | null;
+  correctAnswerMax?: number | null;
   isCorrect: boolean;
   isSkipped: boolean;
   isFlagged: boolean;
@@ -86,6 +100,11 @@ interface AnalysisResponse {
     percentile: number;
   };
   perQuestion: AnalysisQuestion[];
+  advancedInsights?: AdvancedInsightsDataShape | null;
+}
+
+interface BuildAnalysisDatasetOptions {
+  expandTechnical?: boolean;
 }
 
 const SUBJECT_COLORS = ["#22c55e", "#f97316", "#3b82f6", "#8b5cf6", "#0ea5e9", "#ec4899"];
@@ -100,17 +119,17 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function titleCase(value: string | null | undefined) {
-  if (!value) return "";
-  return value
-    .replace(/[_-]+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
 function safeLabel(value: string | null | undefined, fallback: string) {
   const trimmed = String(value ?? "").trim();
   return trimmed || fallback;
+}
+
+function firstTrimmedLabel(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
 }
 
 function formatSeconds(seconds: number) {
@@ -120,8 +139,11 @@ function formatSeconds(seconds: number) {
   return `${mins} min ${secs} sec`;
 }
 
-function formatMinutes(seconds: number) {
-  return round((seconds || 0) / 60, 1);
+function formatEventTime(seconds: number) {
+  const safe = Math.max(0, Math.round(seconds || 0));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
 function formatPhaseLabel(startSeconds: number, endSeconds: number) {
@@ -180,6 +202,37 @@ function getQuestionSectionLabel(question: AnalysisQuestion, sectionsById: Map<n
   return safeLabel(question.subjectLabel, fallback);
 }
 
+function isBroadSectionLabel(label: string | null | undefined) {
+  const value = String(label ?? "").trim().toLowerCase();
+  if (!value) return true;
+  return ["technical", "core", "general", "section", "subject"].includes(value);
+}
+
+function isTechnicalSectionLabel(label: string | null | undefined) {
+  return String(label ?? "").trim().toLowerCase().includes("technical");
+}
+
+function getQuestionDetailedSubjectLabel(question: AnalysisQuestion, sectionsById: Map<number, AnalysisSection>, fallback: string) {
+  const sectionLabel = getQuestionSectionLabel(question, sectionsById, fallback);
+  const resolvedSubject = firstTrimmedLabel(
+    question.subjectName,
+    String(question.meta?.subjectName ?? ""),
+  );
+
+  if (resolvedSubject) return resolvedSubject;
+
+  const resolvedChapter = firstTrimmedLabel(
+    question.chapterName,
+    String(question.meta?.chapterName ?? ""),
+  );
+
+  if (resolvedChapter && isBroadSectionLabel(sectionLabel)) {
+    return resolvedChapter;
+  }
+
+  return sectionLabel;
+}
+
 function getAttemptQuality(question: {
   isCorrect: boolean;
   isSkipped: boolean;
@@ -234,6 +287,60 @@ function getQuestionTypeLabel(type: string | null | undefined) {
   return "MCQ";
 }
 
+function formatAnswerLabel(
+  question: Pick<AnalysisQuestion, "questionType" | "options" | "correctAnswer" | "correctAnswerMulti" | "correctAnswerMin" | "correctAnswerMax">,
+  answer: unknown,
+) {
+  if (answer === undefined || answer === null || answer === "" || (Array.isArray(answer) && answer.length === 0)) {
+    return "Not answered";
+  }
+
+  const questionType = String(question.questionType ?? "mcq").toLowerCase();
+  if (questionType === "multi") {
+    if (!Array.isArray(answer)) return "Not answered";
+    return answer
+      .map((value) => {
+        const index = Number(value);
+        return Number.isFinite(index) ? String.fromCharCode(65 + index) : String(value);
+      })
+      .join(", ");
+  }
+
+  if (questionType === "integer" || questionType === "nat") {
+    return String(answer);
+  }
+
+  const index = Number(answer);
+  if (!Number.isFinite(index)) return String(answer);
+  return String.fromCharCode(65 + index);
+}
+
+function formatCorrectAnswerLabel(question: Pick<AnalysisQuestion, "questionType" | "correctAnswer" | "correctAnswerMulti" | "correctAnswerMin" | "correctAnswerMax" | "options">) {
+  const questionType = String(question.questionType ?? "mcq").toLowerCase();
+  if (questionType === "multi") {
+    const values = question.correctAnswerMulti ?? [];
+    if (!values.length) return "Pending";
+    return values.map((value) => String.fromCharCode(65 + Number(value))).join(", ");
+  }
+  if (questionType === "integer" || questionType === "nat") {
+    if (question.correctAnswerMin != null && question.correctAnswerMax != null && question.correctAnswerMin !== question.correctAnswerMax) {
+      return `${question.correctAnswerMin} to ${question.correctAnswerMax}`;
+    }
+    return String(question.correctAnswerMin ?? question.correctAnswerMax ?? question.correctAnswer ?? "Pending");
+  }
+  if (question.correctAnswer == null) return "Pending";
+  return String.fromCharCode(65 + Number(question.correctAnswer));
+}
+
+function getTimelineTitle(action: InteractionLogEntry["action"], reviewState?: InteractionLogEntry["reviewState"]) {
+  if (action === "open") return "Opened question";
+  if (action === "answer") return "Updated answer";
+  if (action === "clear") return "Cleared response";
+  if (action === "save") return reviewState === "removed" ? "Saved and removed review" : "Saved answer";
+  if (action === "review") return reviewState === "removed" ? "Removed from review" : "Marked for review";
+  return "Updated question";
+}
+
 function buildPhaseWindows(totalSeconds: number, parts: number) {
   const safeTotal = Math.max(parts, totalSeconds);
   const chunk = safeTotal / parts;
@@ -259,7 +366,7 @@ function pickFinalEventTime(
   return 0;
 }
 
-export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDataset {
+export function buildAnalysisDataset(response: AnalysisResponse, options: BuildAnalysisDatasetOptions = {}): AnalysisDataset {
   const sections = [...(response.sections ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const sectionsById = new Map(sections.map((section) => [section.id, section]));
   const visitedSet = new Set((response.submission.visitedQuestionIds ?? []).map(Number));
@@ -273,7 +380,11 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
     .slice()
     .sort((a, b) => a.order - b.order)
     .map((question) => {
-      const subject = getQuestionSectionLabel(question, sectionsById, response.test.title || "Section");
+      const sectionSubject = getQuestionSectionLabel(question, sectionsById, response.test.title || "Section");
+      const detailSubject = getQuestionDetailedSubjectLabel(question, sectionsById, response.test.title || "Section");
+      const subject = options.expandTechnical && isTechnicalSectionLabel(sectionSubject)
+        ? detailSubject
+        : sectionSubject;
       const difficulty = getDifficulty(question.meta);
       const idealSeconds = getIdealSeconds(question.meta, difficulty);
       const timeSpent = Number(question.myTime || 0);
@@ -299,6 +410,7 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
       return {
         ...question,
         subject,
+        detailSubject,
         color: colorForLabel(subject),
         icon: iconKeyForLabel(subject),
         difficulty,
@@ -315,8 +427,22 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
           review,
         }),
         scoreImpact: question.isCorrect ? Number(question.points || 0) : attempted ? -Number(question.negativeMarks || 0) : 0,
-        chapter: safeLabel(String(question.meta?.chapterName ?? ""), "Unspecified"),
-        topic: safeLabel(String(question.meta?.topicTag ?? ""), "General"),
+        chapter: safeLabel(
+          firstTrimmedLabel(
+            question.chapterName,
+            String(question.meta?.chapterName ?? ""),
+          ),
+          "Unspecified",
+        ),
+        topic: safeLabel(
+          firstTrimmedLabel(
+            question.topicTag,
+            String(question.meta?.topicTag ?? ""),
+            String(question.meta?.topicName ?? ""),
+            String(question.meta?.topic ?? ""),
+          ),
+          "General",
+        ),
         typeLabel: getQuestionTypeLabel(question.questionType),
         interactionTime: pickFinalEventTime(question.id, interactionLog, timeSpent, cumulativeTime),
       };
@@ -379,7 +505,16 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
     chemistry: topThree[2] ? { label: topThree[2].label, score: topThree[2].score, max: topThree[2].max, percentile: topThree[2].percentile } : { label: "Section 3", score: 0, max: 0, percentile: 0 },
   };
 
-  const timeBreakdown = [overallBreakdown, ...sectionLabels.map((label) => {
+  const timeBreakdown = [
+    {
+      subject: "Overall",
+      icon: "overall",
+      timeSpent: round(totalSpentSeconds / 60),
+      qsAttempted: attemptedCount,
+      totalQs: normalizedQuestions.length,
+      accuracy: attemptedCount > 0 ? round((response.submission.correctCount / attemptedCount) * 100, 1) : 0,
+    },
+    ...sectionLabels.map((label) => {
     const questions = groupedBySection.get(label) ?? [];
     const attempted = questions.filter((question) => question.attempted).length;
     const correct = questions.filter((question) => question.isCorrect).length;
@@ -392,14 +527,8 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
       totalQs: Math.max(DEFAULT_TOTAL_QS, questions.length),
       accuracy,
     };
-  })].map((row, index) => index === 0 ? {
-    subject: "Overall",
-    icon: "overall",
-    timeSpent: round(totalSpentSeconds / 60),
-    qsAttempted: attemptedCount,
-    totalQs: normalizedQuestions.length,
-    accuracy: attemptedCount > 0 ? round((response.submission.correctCount / attemptedCount) * 100, 1) : 0,
-  } : row);
+  }),
+  ];
 
   const qualityTabs = ["Overall", ...sectionLabels];
   const buildQualityRow = (questions: typeof normalizedQuestions): {
@@ -541,20 +670,103 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
     return acc;
   }, {});
 
+  const questionHistoryData: QuestionHistoryItem[] = normalizedQuestions.map((question) => {
+    const finalAnswerLabel = formatAnswerLabel(question, question.myAnswer);
+    const events: QuestionHistoryEvent[] = interactionLog
+      .filter((entry) => entry.questionId === question.id)
+      .sort((left, right) => left.at - right.at)
+      .reduce<QuestionHistoryEvent[]>((acc, entry) => {
+        const previousAnswerLabel = acc[acc.length - 1]?.answerLabel ?? null;
+        let answerLabel: string | null = null;
+
+        if (entry.answerSnapshot !== undefined) {
+          answerLabel = formatAnswerLabel(question, entry.answerSnapshot);
+        } else if (entry.action === "clear") {
+          answerLabel = "Not answered";
+        } else if (entry.action === "open") {
+          answerLabel = previousAnswerLabel ?? "Not answered";
+        } else if (entry.action === "answer" || entry.action === "save" || entry.action === "review") {
+          answerLabel = previousAnswerLabel ?? finalAnswerLabel;
+        }
+
+        if (answerLabel === "Not answered" && (entry.action === "answer" || entry.action === "save" || entry.action === "review") && finalAnswerLabel !== "Not answered") {
+          answerLabel = finalAnswerLabel;
+        }
+
+        acc.push({
+          atSeconds: entry.at,
+          atLabel: formatEventTime(entry.at),
+          action: entry.action === "flag" ? "review" : entry.action,
+          title: getTimelineTitle(entry.action, entry.reviewState),
+          answerLabel,
+          reviewState: entry.reviewState,
+        });
+        return acc;
+      }, []);
+
+    const quality: QuestionHistoryItem["quality"] = question.isSkipped
+      ? "skipped"
+      : (question.quality ?? "perfect");
+    const hasFinalAnswer = question.attempted && finalAnswerLabel !== "Not answered";
+
+    return {
+      questionId: question.id,
+      questionNo: question.order,
+      subject: question.subject,
+      chapter: question.chapter,
+      topic: question.topic,
+      question: question.question ?? "",
+      questionType: question.typeLabel as QuestionHistoryItem["questionType"],
+      status: question.journeyStatus,
+      quality,
+      finalAnswerLabel,
+      correctAnswerLabel: formatCorrectAnswerLabel(question),
+      reviewActive: question.review,
+      openedCount: questionOpenCounts[question.id] ?? 1,
+      totalTimeLabel: formatSeconds(question.myTime),
+      options: (question.options ?? []).map((content, index) => {
+        const selected = hasFinalAnswer && (
+          question.questionType === "multi"
+            ? Array.isArray(question.myAnswer) && question.myAnswer.includes(index)
+            : Number(question.myAnswer) === index
+        );
+        const correct =
+          question.questionType === "multi"
+            ? Array.isArray(question.correctAnswerMulti) && question.correctAnswerMulti.includes(index)
+            : Number(question.correctAnswer) === index;
+        return {
+          key: String.fromCharCode(65 + index),
+          content,
+          image: question.optionImages?.[index] ?? null,
+          isSelected: selected,
+          isCorrect: correct,
+        };
+      }),
+      events,
+    };
+  });
+
   const questionJourneyData: JourneyInterval[] = sixWindows.map((window, index) => {
     const inWindow = normalizedQuestions.filter((question) => {
       const at = question.interactionTime || question.myTime;
       return at >= window.start && at < window.end;
     });
+    const icon: JourneyInterval["icon"] = index === 0 ? "flag" : "clock";
     return {
       label: formatRangeLabel(window.start, window.end),
-      icon: index === 0 ? "flag" : "clock",
-      visits: inWindow.map((question) => ({
-        questionNo: question.order,
-        status: question.journeyStatus,
-        quality: question.isSkipped ? "skipped" : (question.quality ?? "perfect"),
-        timesOpened: questionOpenCounts[question.id] ?? 1,
-      })),
+      icon,
+      visits: inWindow.map((question) => {
+        const quality: JourneyInterval["visits"][number]["quality"] = question.isSkipped
+          ? "skipped"
+          : (question.quality ?? "perfect");
+        return {
+          questionId: question.id,
+          questionNo: question.order,
+          status: question.journeyStatus,
+          quality,
+          timesOpened: questionOpenCounts[question.id] ?? 1,
+        };
+      }),
     };
   }).filter((interval) => interval.visits.length > 0);
 
@@ -585,8 +797,9 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
     }
 
     const runs: Array<{ label: string; questionIds: Set<number>; start: number; end: number }> = [];
+    const subjectByQuestionId = new Map(normalizedQuestions.map((question) => [question.id, question.subject]));
     for (const entry of interactionLog) {
-      const label = safeLabel(entry.sectionLabel, "Section");
+      const label = safeLabel(subjectByQuestionId.get(entry.questionId), safeLabel(entry.sectionLabel, "Section"));
       const current = runs[runs.length - 1];
       if (!current || current.label !== label) {
         runs.push({ label, questionIds: new Set([entry.questionId]), start: entry.at, end: entry.at });
@@ -804,7 +1017,16 @@ export function buildAnalysisDataset(response: AnalysisResponse): AnalysisDatase
     comparativeDifficultyData,
     qsByQsData: qsByQsSubjects,
     questionJourneyData,
+    questionHistoryData,
     completeBreakdownData,
     subjectMovementData,
+    advancedInsightsData: response.advancedInsights ?? {
+      historyDepth: 0,
+      masteryMap: [],
+      forgettingCurve: [],
+      speedVsAccuracy: [],
+      errorRecurrence: [],
+      revisionRoadmap: [],
+    },
   };
 }

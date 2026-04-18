@@ -8,6 +8,12 @@ import {
 import { eq, inArray } from "drizzle-orm";
 
 const router = Router();
+type EnrollmentRow = typeof enrollmentsTable.$inferSelect;
+type TestRow = typeof testsTable.$inferSelect;
+type AssignmentRow = typeof assignmentsTable.$inferSelect;
+type AttendanceRow = typeof attendanceTable.$inferSelect;
+type TestSubmissionRow = typeof testSubmissionsTable.$inferSelect;
+type AssignmentSubmissionRow = typeof assignmentSubmissionsTable.$inferSelect;
 
 router.get("/teacher-performance", async (req, res): Promise<void> => {
   const userId = req.cookies?.userId;
@@ -48,7 +54,12 @@ router.get("/teacher-performance", async (req, res): Promise<void> => {
         db.select().from(assignmentsTable).where(inArray(assignmentsTable.classId, classIds)),
         db.select().from(attendanceTable).where(inArray(attendanceTable.classId, classIds)),
       ])
-    : [[], [], [], []];
+    : [
+        [] as EnrollmentRow[],
+        [] as TestRow[],
+        [] as AssignmentRow[],
+        [] as AttendanceRow[],
+      ];
 
   const testIds = allTests.map((t) => t.id);
   const assignmentIds = allAssignments.map((a) => a.id);
@@ -56,10 +67,10 @@ router.get("/teacher-performance", async (req, res): Promise<void> => {
   const [testSubs, assignSubs] = await Promise.all([
     testIds.length > 0
       ? db.select().from(testSubmissionsTable).where(inArray(testSubmissionsTable.testId, testIds))
-      : [],
+      : Promise.resolve<TestSubmissionRow[]>([]),
     assignmentIds.length > 0
       ? db.select().from(assignmentSubmissionsTable).where(inArray(assignmentSubmissionsTable.assignmentId, assignmentIds))
-      : [],
+      : Promise.resolve<AssignmentSubmissionRow[]>([]),
   ]);
 
   /* --- 3. Aggregate per teacher --- */
@@ -70,7 +81,7 @@ router.get("/teacher-performance", async (req, res): Promise<void> => {
     const myEnrollments = allEnrollments.filter((e) => myClassIds.includes(e.classId));
     const uniqueStudents = new Set(myEnrollments.map((e) => e.studentId)).size;
 
-    const myTests = allTests.filter((t) => myClassIds.includes(t.classId));
+    const myTests = allTests.filter((t) => t.classId !== null && myClassIds.includes(t.classId));
     const myTestIds = myTests.map((t) => t.id);
 
     const myAssignments = allAssignments.filter((a) => myClassIds.includes(a.classId));

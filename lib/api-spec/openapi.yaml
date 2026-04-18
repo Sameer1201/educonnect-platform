@@ -536,19 +536,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/StudentDashboard"
 
-  /dashboard/hr:
-    get:
-      operationId: getHRDashboard
-      tags: [dashboard]
-      summary: HR dashboard stats (super admin only)
-      responses:
-        "200":
-          description: HR dashboard
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HRDashboard"
-
   /feedback:
     post:
       operationId: submitFeedback
@@ -1013,72 +1000,6 @@ components:
         - liveClasses
         - upcomingClasses
         - availableClasses
-
-    HRDashboard:
-      type: object
-      properties:
-        totalTeachers:
-          type: integer
-        totalStudents:
-          type: integer
-        totalClasses:
-          type: integer
-        avgClassesPerTeacher:
-          type: number
-        teacherStats:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              fullName:
-                type: string
-              username:
-                type: string
-              email:
-                type: string
-              subject:
-                type: ["string", "null"]
-              classCount:
-                type: integer
-              studentCount:
-                type: integer
-              liveClasses:
-                type: integer
-            required:
-              - id
-              - fullName
-              - username
-              - email
-              - classCount
-              - studentCount
-              - liveClasses
-        topStudentsByEnrollment:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              fullName:
-                type: string
-              username:
-                type: string
-              enrolledCount:
-                type: integer
-            required:
-              - id
-              - fullName
-              - username
-              - enrolledCount
-      required:
-        - totalTeachers
-        - totalStudents
-        - totalClasses
-        - avgClassesPerTeacher
-        - teacherStats
-        - topStudentsByEnrollment
 
     FeedbackItem:
       type: object

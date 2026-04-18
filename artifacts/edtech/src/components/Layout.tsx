@@ -1,27 +1,23 @@
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout } from "@workspace/api-client-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { useDeadlineAlerts } from "@/hooks/useDeadlineAlerts";
+import { useQueryClient } from "@tanstack/react-query";
 import { useQuestionBankTargetAlerts } from "@/hooks/useQuestionBankTargetAlerts";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import StudentOnboardingGate from "@/components/student/StudentOnboardingGate";
-import { APP_NAME } from "@/lib/brand";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import {
-  LayoutDashboard, Users, BookOpen, GraduationCap,
-  LogOut, Menu, X, UserCheck, TrendingUp, LifeBuoy, Star,
-  MessageSquare, DollarSign, ClipboardList, CalendarDays, Activity,
-  FileText, BarChart2, ChevronLeft, ChevronRight, Zap,
-  Bell, Medal, CreditCard,
+  LayoutDashboard, Users, BookOpen,
+  LogOut, Menu, X, UserCheck,
+  ClipboardList, CalendarDays, Activity,
+  ChevronLeft, ChevronRight,
+  Bell, Medal,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 
 const NotificationBell = lazy(() => import("@/components/NotificationBell"));
 const LeaderboardPanel = lazy(() => import("@/components/LeaderboardPanel"));
 const CommandPalette = lazy(() => import("@/components/CommandPalette"));
-const DeadlineAlertPopup = lazy(() => import("@/components/DeadlineAlertPopup"));
 const QuestionBankTargetPopup = lazy(() => import("@/components/QuestionBankTargetPopup"));
 
 interface NavItem { label: string; href: string; icon: React.ReactNode; }
@@ -34,7 +30,6 @@ function getInitials(name: string) {
 function getRoleConfig(role: string) {
   if (role === "super_admin") return { label: "Super Admin", iconBg: "bg-[#F97316]" };
   if (role === "admin") return { label: "Teacher", iconBg: "bg-[#5B4DFF]" };
-  if (role === "planner") return { label: "Planner", iconBg: "bg-[#22C55E]" };
   return { label: "Student", iconBg: "bg-[#3B82F6]" };
 }
 
@@ -43,7 +38,7 @@ function getNavIconTone(label: string) {
   if (key.includes("dashboard")) return "bg-[#EEF2FF] text-[#5B4DFF]";
   if (key.includes("student") || key.includes("user")) return "bg-[#ECFDF5] text-[#22C55E]";
   if (key.includes("question") || key.includes("test")) return "bg-[#EFF6FF] text-[#3B82F6]";
-  if (key.includes("analytics") || key.includes("finance") || key.includes("payments")) return "bg-[#FFF7ED] text-[#F97316]";
+  if (key.includes("analytics")) return "bg-[#FFF7ED] text-[#F97316]";
   if (key.includes("leaderboard") || key.includes("community") || key.includes("notification")) return "bg-[#F5F3FF] text-[#5B4DFF]";
   return "bg-[#F3F4F6] text-[#6B7280]";
 }
@@ -54,39 +49,29 @@ function getSuperAdminGroups(): NavGroup[] {
     { label: "Management", items: [
       { label: "Manage Admins", href: "/super-admin/admins", icon: <UserCheck size={17} /> },
       { label: "Students", href: "/super-admin/students", icon: <Users size={17} /> },
-      { label: "All Classes", href: "/super-admin/classes", icon: <BookOpen size={17} /> },
+    ]},
+    { label: "Content", items: [
+      { label: "Question Bank", href: "/super-admin/question-bank", icon: <BookOpen size={17} /> },
+      { label: "Exam Templates", href: "/super-admin/exam-templates", icon: <ClipboardList size={17} /> },
+      { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
     { label: "Analytics", items: [
-      { label: "HR Dashboard", href: "/super-admin/hr", icon: <TrendingUp size={17} /> },
       { label: "Teacher Performance", href: "/super-admin/teacher-performance", icon: <Medal size={17} /> },
-      { label: "Finance", href: "/super-admin/finance", icon: <DollarSign size={17} /> },
-      { label: "Fee Payments", href: "/super-admin/payments", icon: <CreditCard size={17} /> },
       { label: "Tests Overview", href: "/super-admin/tests", icon: <ClipboardList size={17} /> },
       { label: "User Activity", href: "/super-admin/activity", icon: <Activity size={17} /> },
     ]},
     { label: "Communication", items: [
       { label: "Send Notification", href: "/super-admin/send-notification", icon: <Bell size={17} /> },
-      { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
-      { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
   ];
 }
 
 function getAdminGroups(): NavGroup[] {
   return [
-    { items: [{ label: "Dashboard", href: "/admin/dashboard", icon: <LayoutDashboard size={17} /> }] },
     { label: "Teaching", items: [
-      { label: "My Classes", href: "/admin/classes", icon: <BookOpen size={17} /> },
       { label: "Students", href: "/admin/students", icon: <Users size={17} /> },
       { label: "Question Bank", href: "/admin/question-bank", icon: <BookOpen size={17} /> },
       { label: "Tests", href: "/admin/tests", icon: <ClipboardList size={17} /> },
-      { label: "Assignments", href: "/admin/assignments", icon: <FileText size={17} /> },
-    ]},
-    { label: "Analytics", items: [
-      { label: "Analytics", href: "/admin/analytics", icon: <TrendingUp size={17} /> },
-    ]},
-    { label: "Community", items: [
-      { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
       { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
     ]},
   ];
@@ -96,34 +81,9 @@ function getStudentGroups(): NavGroup[] {
   return [
     { items: [{ label: "Dashboard", href: "/student/dashboard", icon: <LayoutDashboard size={17} /> }] },
     { label: "Learning", items: [
-      { label: "Browse Classes", href: "/student/classes", icon: <GraduationCap size={17} /> },
       { label: "Question Bank", href: "/student/question-bank", icon: <BookOpen size={17} /> },
       { label: "Tests", href: "/student/tests", icon: <ClipboardList size={17} /> },
-      { label: "Assignments", href: "/student/assignments", icon: <FileText size={17} /> },
-      { label: "My Progress", href: "/student/progress", icon: <BarChart2 size={17} /> },
-    ]},
-    { label: "Community", items: [
-      { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
       { label: "Schedule", href: "/schedule", icon: <CalendarDays size={17} /> },
-    ]},
-    { label: "Help", items: [
-      { label: "My Payments", href: "/student/payments", icon: <CreditCard size={17} /> },
-      { label: "Feedback", href: "/student/feedback", icon: <Star size={17} /> },
-    ]},
-  ];
-}
-
-function getPlannerGroups(): NavGroup[] {
-  return [
-    { items: [{ label: "Dashboard", href: "/planner/dashboard", icon: <LayoutDashboard size={17} /> }] },
-    { label: "Planning", items: [
-      { label: "Exam Templates", href: "/planner/exam-templates", icon: <ClipboardList size={17} /> },
-      { label: "Question Bank", href: "/planner/question-bank", icon: <BookOpen size={17} /> },
-      { label: "Courses", href: "/planner/courses", icon: <BookOpen size={17} /> },
-      { label: "Lecture Plans", href: "/schedule", icon: <CalendarDays size={17} /> },
-    ]},
-    { label: "Community", items: [
-      { label: "Community", href: "/community", icon: <MessageSquare size={17} /> },
     ]},
   ];
 }
@@ -209,47 +169,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const timeoutId = window.setTimeout(loadWidgets, 800);
+    const timeoutId = globalThis.setTimeout(loadWidgets, 800);
     return () => {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
   }, []);
 
-  const supportHref = user?.role === "super_admin" ? "/super-admin/support"
-    : user?.role === "admin" ? "/admin/support"
-    : user?.role === "student" ? "/student/support"
-    : null;
-  const showLeaderboardShortcut = user.role !== "planner";
-  const supportBase = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-  const { data: supportTickets = [] } = useQuery<any[]>({
-    queryKey: ["support-shortcut-status", user?.id, user?.role],
-    enabled: Boolean(user && supportHref),
-    queryFn: async () => {
-      const response = await fetch(`${supportBase}/api/support`, { credentials: "include" });
-      if (!response.ok) throw new Error("Failed to load support status");
-      return response.json();
-    },
-    staleTime: 30_000,
-  });
-
-  const supportStage =
-    supportTickets.some((ticket) => ticket.status === "open") ? "open" :
-    supportTickets.some((ticket) => ticket.status === "in_progress") ? "in_progress" :
-    supportTickets.some((ticket) => ticket.status === "resolved") ? "resolved" :
-    "idle";
-
-  const supportTone =
-    supportStage === "open"
-      ? "border-[#FDBA74] bg-[#FFF7ED] text-[#EA580C] hover:bg-[#FFEDD5] hover:text-[#C2410C]"
-      : supportStage === "in_progress"
-        ? "border-[#BFDBFE] bg-[#EFF6FF] text-[#2563EB] hover:bg-[#DBEAFE] hover:text-[#1D4ED8]"
-        : supportStage === "resolved"
-          ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A] hover:bg-[#DCFCE7] hover:text-[#15803D]"
-          : "border-[#E5E7EB] bg-white text-[#6B7280] hover:bg-[#F8FAFC] hover:text-[#111827]";
-
-  const { alerts: deadlineAlerts, show: showDeadlinePopup, dismiss: dismissDeadlines } = useDeadlineAlerts(!!user);
+  const userRole = user?.role;
+  const showLeaderboardShortcut = userRole !== "admin";
   const {
     alerts: questionBankAlerts,
     show: showQuestionBankPopup,
@@ -261,21 +189,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const baseNavGroups =
     user.role === "super_admin" ? getSuperAdminGroups() :
     user.role === "admin" ? getAdminGroups() :
-    user.role === "planner" ? getPlannerGroups() : getStudentGroups();
+    getStudentGroups();
 
   const learningAccessEnabled = platformSettings?.learningAccessEnabled ?? true;
-  const navGroups = (user.role === "admin" || user.role === "student" || user.role === "planner") && !learningAccessEnabled
+  const navGroups = (user.role === "admin" || user.role === "student") && !learningAccessEnabled
     ? baseNavGroups.map((group) => ({
         ...group,
         items: group.items.filter((item) => ![
-          "/admin/classes",
-          "/admin/assignments",
-          "/planner/courses",
           "/schedule",
-          "/student/feedback",
-          "/student/payments",
-          "/student/classes",
-          "/student/assignments",
         ].includes(item.href)),
       })).filter((group) => group.items.length > 0)
     : baseNavGroups;
@@ -416,23 +337,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     </div>
   );
 
-  const SupportShortcut = ({ mobile = false }: { mobile?: boolean }) => (
-    <button
-      type="button"
-      onClick={() => supportHref && setLocation(supportHref)}
-      className={
-        mobile
-          ? `inline-flex h-9 w-9 items-center justify-center rounded-xl border transition ${supportTone}`
-          : `inline-flex h-9 w-9 items-center justify-center rounded-xl border transition ${supportTone}`
-      }
-      title="Support"
-      aria-label="Support"
-      data-testid="button-support-shortcut"
-    >
-      <LifeBuoy size={16} />
-    </button>
-  );
-
   return (
     <div className="flex h-screen overflow-hidden bg-[#F5F7FB]">
       {/* Mobile overlay */}
@@ -465,7 +369,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           )}
-          {supportHref ? <SupportShortcut mobile /> : null}
           <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
             {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
           </Suspense>
@@ -478,7 +381,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           )}
-          {supportHref ? <SupportShortcut /> : null}
           <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
             {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
           </Suspense>
@@ -494,22 +396,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {shellWidgetsReady ? <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} role={user.role} /> : null}
       </Suspense>
 
-      {/* Deadline Alert Popup */}
-      <Suspense fallback={null}>
-        {shellWidgetsReady ? (
-          <DeadlineAlertPopup
-            open={showDeadlinePopup}
-            alerts={deadlineAlerts}
-            onDismiss={dismissDeadlines}
-            supportHref={supportHref}
-          />
-        ) : null}
-      </Suspense>
-
       <Suspense fallback={null}>
         {shellWidgetsReady ? (
           <QuestionBankTargetPopup
-            open={!showDeadlinePopup && showQuestionBankPopup}
+            open={showQuestionBankPopup}
             alerts={questionBankAlerts}
             onDismiss={dismissQuestionBankAlerts}
             href="/admin/question-bank"

@@ -6,9 +6,8 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
+  Flag,
   Trash2,
 } from "lucide-react";
 import { QuestionAnalysisSummary } from "@/components/student/QuestionAnalysisSummary";
@@ -23,8 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { APP_NAME } from "@/lib/brand";
 import {
   addReviewBucketRemovedQuestionId,
   filterReviewBucketEntries,
@@ -70,7 +69,22 @@ type BucketEntry = {
   sectionLabel: string;
   yourAnswerLabel: string;
   correctAnswerLabel: string;
+  report?: QuestionReport | null;
   question: BucketQuestion;
+};
+
+type QuestionReport = {
+  id: number;
+  questionId: number;
+  testId: number;
+  reportedBy: number;
+  teacherId: number;
+  reason: string;
+  status: "open" | "resolved" | "rejected";
+  teacherNote?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  reporterName?: string;
 };
 
 type FilterKey = "all" | "incorrect" | "unattempted";
@@ -183,11 +197,33 @@ function getSubjectAccent(label: string, index: number): SubjectAccent {
   return SUBJECT_ACCENTS[index % SUBJECT_ACCENTS.length];
 }
 
-function getQuestionButtonClass(active: boolean, entry: BucketEntry) {
+function getQuestionButtonClass(active: boolean) {
   if (active) {
     return "h-10 w-10 rounded-[10px] border border-[#1F2A37] bg-[#1F2A37] text-sm font-semibold text-white shadow-[inset_0_-3px_0_0_#111827]";
   }
   return "h-10 w-10 rounded-[10px] border border-[#E5EBF5] bg-[#F7FAFF] text-sm font-semibold text-[#334155] transition hover:border-[#DCE5F2] hover:bg-[#EEF4FF] hover:text-[#1F2937] hover:shadow-[inset_0_-3px_0_0_#1F2937]";
+}
+
+function getReportStatusMeta(status?: string | null) {
+  if (status === "resolved") {
+    return {
+      label: "Report fixed",
+      chipClass: "border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]",
+      buttonClass: "border-[#BBF7D0] bg-white text-[#15803D] hover:bg-[#F0FDF4]",
+    };
+  }
+  if (status === "rejected") {
+    return {
+      label: "Report rejected",
+      chipClass: "border-[#FDE68A] bg-[#FFF7D6] text-[#B45309]",
+      buttonClass: "border-[#FDE68A] bg-white text-[#B45309] hover:bg-[#FFF7D6]",
+    };
+  }
+  return {
+    label: "Report issue",
+    chipClass: "border-[#E2E8F0] bg-[#F8FAFC] text-[#475569]",
+    buttonClass: "border-[#D6DFEA] bg-white text-[#334155] hover:bg-[#F8FAFC]",
+  };
 }
 
 export default function StudentReviewBucket() {
@@ -207,6 +243,8 @@ export default function StudentReviewBucket() {
   const [isAtSolutionSection, setIsAtSolutionSection] = useState(false);
   const [removedQuestionIds, setRemovedQuestionIds] = useState<number[]>(() => getReviewBucketRemovedQuestionIds());
   const [pendingRemovalEntry, setPendingRemovalEntry] = useState<BucketEntry | null>(null);
+  const [pendingReportEntry, setPendingReportEntry] = useState<BucketEntry | null>(null);
+  const [reportReason, setReportReason] = useState("");
 
   const bucketQuery = useQuery<BucketEntry[]>({
     queryKey: reviewBucketPageQueryKey,
@@ -268,6 +306,47 @@ export default function StudentReviewBucket() {
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: reviewBucketPageQueryKey });
       await queryClient.invalidateQueries({ queryKey: reviewBucketCountQueryKey });
+    },
+  });
+
+  const reportQuestionMutation = useMutation({
+    mutationFn: async ({ questionId, reason }: { questionId: number; reason: string }) => {
+      const response = await fetch(`${BASE}/api/tests/questions/${questionId}/report`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to submit report");
+      }
+      return payload as QuestionReport;
+    },
+    onSuccess: (report, variables) => {
+      queryClient.setQueryData<BucketEntry[]>(reviewBucketPageQueryKey, (current) =>
+        (current ?? []).map((entry) =>
+          entry.questionId === variables.questionId
+            ? { ...entry, report }
+            : entry,
+        ),
+      );
+      setPendingReportEntry(null);
+      setReportReason("");
+      toast({
+        title: "Report sent",
+        description: "The teacher has been notified about this question.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Unable to send report",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: reviewBucketPageQueryKey });
     },
   });
 
@@ -429,7 +508,7 @@ export default function StudentReviewBucket() {
           <p className="mt-2 text-sm text-[#B91C1C]">
             {bucketQuery.error instanceof Error ? bucketQuery.error.message : "Something went wrong while loading the page."}
           </p>
-          <Button className="mt-6 bg-[#4B8BFF] text-white hover:bg-[#3B7AEE]" onClick={() => setLocation("/student/tests")}>
+          <Button className="chip-orange-solid mt-6 rounded-full" onClick={() => setLocation("/student/tests")}>
             Back to Tests
           </Button>
         </div>
@@ -443,7 +522,7 @@ export default function StudentReviewBucket() {
         <div className="mx-auto max-w-3xl rounded-[24px] border border-[#E2E8F0] bg-white p-10 text-center shadow-sm">
           <p className="text-lg font-semibold">Nothing to review yet</p>
           <p className="mt-2 text-sm text-[#64748B]">Incorrect and unattempted questions will appear here after you submit a test.</p>
-          <Button className="mt-6 bg-[#4B8BFF] text-white hover:bg-[#3B7AEE]" onClick={() => setLocation("/student/tests")}>
+          <Button className="chip-orange-solid mt-6 rounded-full" onClick={() => setLocation("/student/tests")}>
             Back to Tests
           </Button>
         </div>
@@ -516,16 +595,35 @@ export default function StudentReviewBucket() {
                     <span className="rounded bg-[#F1F5F9] px-2 py-0.5 text-xs font-medium uppercase tracking-[0.08em] text-[#475569]">
                       {normalizeDifficulty(currentEntry.question.meta?.difficulty)}
                     </span>
+                    {currentEntry.report ? (
+                      <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getReportStatusMeta(currentEntry.report.status).chipClass}`}>
+                        {getReportStatusMeta(currentEntry.report.status).label}
+                      </span>
+                    ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setPendingRemovalEntry(currentEntry)}
-                    disabled={removeQuestionMutation.isPending && pendingRemovalEntry?.questionId === currentEntry.questionId}
-                    className="inline-flex items-center gap-2 rounded-full border border-[#FECACA] bg-white px-3 py-1.5 text-xs font-semibold text-[#DC2626] transition hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Remove
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingReportEntry(currentEntry);
+                        setReportReason("");
+                      }}
+                      disabled={currentEntry.report?.status === "open" || reportQuestionMutation.isPending}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${getReportStatusMeta(currentEntry.report?.status).buttonClass}`}
+                    >
+                      <Flag className="h-3.5 w-3.5" />
+                      {currentEntry.report?.status === "open" ? "Reported" : currentEntry.report ? "Report again" : "Report"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingRemovalEntry(currentEntry)}
+                      disabled={removeQuestionMutation.isPending && pendingRemovalEntry?.questionId === currentEntry.questionId}
+                      className="inline-flex items-center gap-2 rounded-full border border-[#FECACA] bg-white px-3 py-1.5 text-xs font-semibold text-[#DC2626] transition hover:bg-[#FEF2F2] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Remove
+                    </button>
+                  </div>
                 </div>
 
                 <div ref={scrollRegionRef} className="no-scrollbar flex-1 overflow-y-auto bg-white pb-28" id="review-bucket-scroll-region">
@@ -767,7 +865,7 @@ export default function StudentReviewBucket() {
                               setActiveChapter(chapter.label);
                               setSelectedQuestionId(entry.questionId);
                             }}
-                            className={getQuestionButtonClass(entry.questionId === currentEntry?.questionId, entry)}
+                            className={getQuestionButtonClass(entry.questionId === currentEntry?.questionId)}
                           >
                             {itemIndex + 1}
                           </button>
@@ -789,6 +887,93 @@ export default function StudentReviewBucket() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={Boolean(pendingReportEntry)}
+        onOpenChange={(open) => {
+          if (!open && !reportQuestionMutation.isPending) {
+            setPendingReportEntry(null);
+            setReportReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md rounded-[24px] border border-[#E2E8F0] bg-white p-0 shadow-[0_24px_60px_rgba(15,23,42,0.18)]" hideClose>
+          <div className="p-6">
+            <DialogHeader className="space-y-2 text-left">
+              <DialogTitle className="text-xl font-semibold text-[#111827]">Report this question?</DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-[#64748B]">
+                Your report goes directly to the teacher who created this test question.
+              </DialogDescription>
+            </DialogHeader>
+
+            {pendingReportEntry ? (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-2xl border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+                    <span>{pendingReportEntry.subjectLabel}</span>
+                    <span className="text-[#CBD5E1]">•</span>
+                    <span>{pendingReportEntry.chapterName || "General"}</span>
+                  </div>
+                  <RichQuestionContent
+                    content={pendingReportEntry.question.question}
+                    className="line-clamp-3 text-sm leading-7 text-[#111827]"
+                  />
+                </div>
+
+                {pendingReportEntry.report ? (
+                  <div className={`rounded-2xl border px-4 py-3 text-sm ${getReportStatusMeta(pendingReportEntry.report.status).chipClass}`}>
+                    <p className="font-semibold">{getReportStatusMeta(pendingReportEntry.report.status).label}</p>
+                    <p className="mt-1 text-xs opacity-80">{pendingReportEntry.report.reason}</p>
+                    {pendingReportEntry.report.teacherNote ? (
+                      <p className="mt-2 text-xs font-medium opacity-90">Teacher note: {pendingReportEntry.report.teacherNote}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#64748B]">What should the teacher check?</p>
+                  <Textarea
+                    value={reportReason}
+                    onChange={(event) => setReportReason(event.target.value)}
+                    placeholder="Example: image is wrong, option mismatch, solution is incorrect, or question text has an issue."
+                    className="min-h-[120px] rounded-2xl border-[#D6DFEA] bg-white text-sm leading-6"
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <DialogFooter className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end sm:space-x-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPendingReportEntry(null);
+                  setReportReason("");
+                }}
+                disabled={reportQuestionMutation.isPending}
+                className="rounded-full border-[#D6DFEA] px-5"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (pendingReportEntry) {
+                    reportQuestionMutation.mutate({
+                      questionId: pendingReportEntry.questionId,
+                      reason: reportReason.trim(),
+                    });
+                  }
+                }}
+                disabled={!pendingReportEntry || reportQuestionMutation.isPending}
+                className="rounded-full bg-[#111827] px-5 text-white hover:bg-[#0F172A]"
+              >
+                {reportQuestionMutation.isPending ? "Sending..." : "Send Report"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(pendingRemovalEntry)}

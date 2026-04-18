@@ -1,6 +1,20 @@
 import { Router, type IRouter } from "express";
-import { db, usersTable, classesTable, enrollmentsTable, testsTable, testSubmissionsTable, assignmentsTable, communityPostsTable, supportTicketsTable } from "@workspace/db";
-import { eq, count, sql, and, inArray, notInArray, gte } from "drizzle-orm";
+import {
+  db,
+  usersTable,
+  classesTable,
+  enrollmentsTable,
+  testsTable,
+  testSubmissionsTable,
+  assignmentsTable,
+  assignmentSubmissionsTable,
+  attendanceTable,
+  communityPostsTable,
+  supportTicketsTable,
+  chaptersTable,
+  subjectsTable,
+} from "@workspace/db";
+import { eq, count, and, inArray, desc } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -31,7 +45,31 @@ async function serializeClass(cls: typeof classesTable.$inferSelect) {
   };
 }
 
-router.get("/dashboard/super-admin", async (req, res): Promise<void> => {
+function normalizeExamKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+
+  const compact = raw.replace(/[^a-z0-9]+/g, " ").trim();
+  if (compact.includes("iit jam")) return "iit-jam";
+  if (compact.includes("jee main")) return "jee";
+  if (compact === "jee") return "jee";
+  if (compact.includes("gate")) return "gate";
+  if (compact.includes("cuet")) return "cuet";
+  if (compact.includes("neet")) return "neet";
+  if (compact.includes("cat")) return "cat";
+  return compact.replace(/\s+/g, "-");
+}
+
+function toIsoString(value: Date | null | undefined) {
+  return value?.toISOString() ?? null;
+}
+
+function getTimeValue(value: Date | null | undefined) {
+  return value ? value.getTime() : Number.POSITIVE_INFINITY;
+}
+
+router.get("/dashboard/super-admin", async (_req, res): Promise<void> => {
   const [allUsers, allClasses, allEnrollments, allTests, allAssignments, allTickets, allPosts] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select().from(classesTable).orderBy(classesTable.createdAt),
@@ -114,147 +152,225 @@ router.get("/dashboard/super-admin", async (req, res): Promise<void> => {
   });
 });
 
-router.get("/dashboard/admin", async (req, res): Promise<void> => {
-  const userIdCookie = req.cookies?.userId;
-  const adminId = userIdCookie ? parseInt(userIdCookie, 10) : null;
-
-  let classes = await db.select().from(classesTable).orderBy(classesTable.scheduledAt);
-  if (adminId) {
-    classes = classes.filter((c) => c.adminId === adminId);
-  }
-
-  const allStudents = await db.select().from(usersTable).where(eq(usersTable.role, "student")).orderBy(usersTable.createdAt);
-  const pendingStudents = allStudents.filter((u) => u.status === "pending");
-  const liveClasses = classes.filter((c) => c.status === "live");
-  const upcomingClasses = classes.filter((c) => c.status === "scheduled");
-
-  const serializedUpcoming = await Promise.all(upcomingClasses.slice(0, 5).map(serializeClass));
-  const recentStudents = allStudents.slice(-5).reverse();
-
-  const enrollments = await db.select().from(enrollmentsTable);
-  const myClassIds = new Set(classes.map((c) => c.id));
-  const myEnrollments = enrollments.filter((e) => myClassIds.has(e.classId));
-  const uniqueStudentIds = new Set(myEnrollments.map((e) => e.studentId));
-
-  res.json({
-    totalClasses: classes.length,
-    liveClasses: liveClasses.length,
-    totalStudents: uniqueStudentIds.size,
-    pendingStudents: pendingStudents.length,
-    upcomingClasses: serializedUpcoming,
-    recentStudents: recentStudents.map(serializeUser),
-  });
-});
-
 router.get("/dashboard/student", async (req, res): Promise<void> => {
   const userIdCookie = req.cookies?.userId;
   const studentId = userIdCookie ? parseInt(userIdCookie, 10) : null;
 
-  const allClasses = await db.select().from(classesTable).orderBy(classesTable.scheduledAt);
-  const liveClasses = allClasses.filter((c) => c.status === "live");
-  const upcomingClasses = allClasses.filter((c) => c.status === "scheduled");
-  const availableClasses = allClasses.filter((c) => c.status !== "cancelled");
+  if (!studentId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
 
-  let enrolledClasses: typeof allClasses = [];
-  let pendingTests: { id: number; title: string; description: string | null; durationMinutes: number | null; scheduledAt: string | null; className: string | null; classId: number | null }[] = [];
+  const [student] = await db.select().from(usersTable).where(eq(usersTable.id, studentId));
+  if (!student) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
 
-  if (studentId) {
-    const myEnrollments = await db
-      .select()
-      .from(enrollmentsTable)
-      .where(eq(enrollmentsTable.studentId, studentId));
-    const enrolledIds = new Set(myEnrollments.map((e) => e.classId));
-    enrolledClasses = allClasses.filter((c) => enrolledIds.has(c.id));
+  if (student.role !== "student") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
 
-    // Get published tests for enrolled classes
-    if (enrolledIds.size > 0) {
-      const enrolledClassIds = [...enrolledIds];
-      const publishedTests = await db
+  const now = new Date();
+  const [allClasses, myEnrollments, attendanceRecords, studentSubmissions] = await Promise.all([
+    db.select().from(classesTable).orderBy(classesTable.scheduledAt),
+    db.select().from(enrollmentsTable).where(eq(enrollmentsTable.studentId, studentId)),
+    db.select().from(attendanceTable).where(eq(attendanceTable.studentId, studentId)),
+    db
+      .select({
+        id: testSubmissionsTable.id,
+        testId: testSubmissionsTable.testId,
+        score: testSubmissionsTable.score,
+        totalPoints: testSubmissionsTable.totalPoints,
+        percentage: testSubmissionsTable.percentage,
+        passed: testSubmissionsTable.passed,
+        submittedAt: testSubmissionsTable.submittedAt,
+        title: testsTable.title,
+        className: classesTable.title,
+        subjectName: subjectsTable.title,
+        chapterName: chaptersTable.title,
+      })
+      .from(testSubmissionsTable)
+      .leftJoin(testsTable, eq(testSubmissionsTable.testId, testsTable.id))
+      .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
+      .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
+      .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
+      .where(eq(testSubmissionsTable.studentId, studentId))
+      .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id)),
+  ]);
+
+  const enrolledIds = new Set(myEnrollments.map((enrollment) => enrollment.classId));
+  const enrolledClasses = allClasses.filter((cls) => enrolledIds.has(cls.id));
+  const liveClassesNow = enrolledClasses.filter((cls) => cls.status === "live");
+  const upcomingEnrolledClasses = [...enrolledClasses]
+    .filter((cls) => cls.status === "scheduled")
+    .sort((a, b) => getTimeValue(a.scheduledAt) - getTimeValue(b.scheduledAt));
+  const availableClasses = [...allClasses]
+    .filter((cls) => !enrolledIds.has(cls.id) && (cls.status === "scheduled" || cls.status === "live"))
+    .sort((a, b) => getTimeValue(a.scheduledAt) - getTimeValue(b.scheduledAt));
+
+  const studentExamKeys = new Set<string>();
+  const primaryExamKey = normalizeExamKey(student.subject);
+  if (primaryExamKey) studentExamKeys.add(primaryExamKey);
+  for (const exam of student.additionalExams ?? []) {
+    const key = normalizeExamKey(exam);
+    if (key) studentExamKeys.add(key);
+  }
+
+  const visibleTests = studentExamKeys.size > 0
+    ? (await db
         .select({
           id: testsTable.id,
           title: testsTable.title,
           description: testsTable.description,
+          examType: testsTable.examType,
           durationMinutes: testsTable.durationMinutes,
           scheduledAt: testsTable.scheduledAt,
           classId: testsTable.classId,
           className: classesTable.title,
+          subjectName: subjectsTable.title,
+          chapterName: chaptersTable.title,
         })
         .from(testsTable)
         .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
-        .where(and(eq(testsTable.isPublished, true), inArray(testsTable.classId, enrolledClassIds)));
+        .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
+        .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
+        .where(eq(testsTable.isPublished, true))
+        .orderBy(testsTable.scheduledAt))
+        .filter((test) => {
+          const examKey = normalizeExamKey(test.examType);
+          return examKey ? studentExamKeys.has(examKey) : false;
+        })
+    : [];
 
-      // Filter out already-submitted tests
-      const submissions = await db
-        .select({ testId: testSubmissionsTable.testId })
-        .from(testSubmissionsTable)
-        .where(eq(testSubmissionsTable.studentId, studentId));
-      const submittedIds = new Set(submissions.map((s) => s.testId));
+  const submittedTestIds = new Set(studentSubmissions.map((submission) => submission.testId));
+  const pendingTests = visibleTests
+    .filter((test) => !submittedTestIds.has(test.id))
+    .map((test) => ({
+      id: test.id,
+      title: test.title,
+      description: test.description,
+      durationMinutes: test.durationMinutes,
+      scheduledAt: toIsoString(test.scheduledAt),
+      classId: test.classId,
+      className: test.className,
+      subjectName: test.subjectName,
+      chapterName: test.chapterName,
+      status: test.scheduledAt && test.scheduledAt.getTime() > now.getTime() ? "upcoming" : "active",
+    }))
+    .slice(0, 5);
 
-      pendingTests = publishedTests
-        .filter((t) => !submittedIds.has(t.id))
-        .map((t) => ({
-          ...t,
-          scheduledAt: t.scheduledAt?.toISOString() ?? null,
-        }));
-    }
-  }
+  const averageTestScore = studentSubmissions.length > 0
+    ? Number((studentSubmissions.reduce((sum, submission) => sum + Number(submission.percentage ?? 0), 0) / studentSubmissions.length).toFixed(1))
+    : null;
+  const bestResult = studentSubmissions.length > 0
+    ? studentSubmissions.reduce((best, submission) =>
+      Number(submission.percentage ?? 0) > Number(best.percentage ?? 0) ? submission : best,
+    )
+    : null;
 
-  const serializedUpcoming = await Promise.all(upcomingClasses.slice(0, 5).map(serializeClass));
-  const serializedAvailable = await Promise.all(availableClasses.slice(0, 10).map(serializeClass));
+  const enrolledClassIds = [...enrolledIds];
+  const assignments = enrolledClassIds.length > 0
+    ? await db
+        .select({
+          id: assignmentsTable.id,
+          title: assignmentsTable.title,
+          description: assignmentsTable.description,
+          dueAt: assignmentsTable.dueAt,
+          maxMarks: assignmentsTable.maxMarks,
+          classId: assignmentsTable.classId,
+          className: classesTable.title,
+        })
+        .from(assignmentsTable)
+        .leftJoin(classesTable, eq(assignmentsTable.classId, classesTable.id))
+        .where(and(eq(assignmentsTable.isPublished, true), inArray(assignmentsTable.classId, enrolledClassIds)))
+        .orderBy(assignmentsTable.dueAt)
+    : [];
+
+  const assignmentIds = assignments.map((assignment) => assignment.id);
+  const assignmentSubmissions = assignmentIds.length > 0
+    ? await db
+        .select({
+          assignmentId: assignmentSubmissionsTable.assignmentId,
+        })
+        .from(assignmentSubmissionsTable)
+        .where(and(
+          eq(assignmentSubmissionsTable.studentId, studentId),
+          inArray(assignmentSubmissionsTable.assignmentId, assignmentIds),
+        ))
+    : [];
+  const submittedAssignmentIds = new Set(assignmentSubmissions.map((submission) => submission.assignmentId));
+  const pendingAssignments = assignments.filter((assignment) => !submittedAssignmentIds.has(assignment.id));
+  const nextAssignmentCandidate = [...pendingAssignments].sort((a, b) => getTimeValue(a.dueAt) - getTimeValue(b.dueAt))[0] ?? null;
+
+  const totalAttendanceSessions = attendanceRecords.length;
+  const presentCount = attendanceRecords.filter((record) => record.status === "present").length;
+  const lateCount = attendanceRecords.filter((record) => record.status === "late").length;
+  const absentCount = attendanceRecords.filter((record) => record.status === "absent").length;
+
+  const serializedLiveClasses = await Promise.all(liveClassesNow.slice(0, 3).map(serializeClass));
+  const serializedUpcomingClasses = await Promise.all(upcomingEnrolledClasses.slice(0, 5).map(serializeClass));
+  const serializedAvailableClasses = await Promise.all(availableClasses.slice(0, 6).map(serializeClass));
 
   res.json({
     enrolledClasses: enrolledClasses.length,
-    liveClasses: liveClasses.length,
-    upcomingClasses: serializedUpcoming,
-    availableClasses: serializedAvailable,
+    liveClasses: liveClassesNow.length,
+    availableClassesCount: availableClasses.length,
+    totalVisibleTests: visibleTests.length,
+    pendingTestsCount: visibleTests.filter((test) => !submittedTestIds.has(test.id)).length,
+    completedTests: studentSubmissions.length,
+    averageTestScore,
+    attendance: {
+      total: totalAttendanceSessions,
+      present: presentCount,
+      late: lateCount,
+      absent: absentCount,
+      percentage: totalAttendanceSessions > 0 ? Math.round((presentCount / totalAttendanceSessions) * 100) : 0,
+    },
+    assignmentSummary: {
+      pending: pendingAssignments.length,
+      overdue: pendingAssignments.filter((assignment) => assignment.dueAt && assignment.dueAt.getTime() < now.getTime()).length,
+      submitted: submittedAssignmentIds.size,
+    },
+    bestResult: bestResult
+      ? {
+          testId: bestResult.testId,
+          title: bestResult.title,
+          percentage: Number(bestResult.percentage ?? 0),
+          score: Number(bestResult.score ?? 0),
+          totalPoints: bestResult.totalPoints,
+        }
+      : null,
+    liveClassesNow: serializedLiveClasses,
+    upcomingClasses: serializedUpcomingClasses,
+    availableClasses: serializedAvailableClasses,
     pendingTests,
-  });
-});
-
-router.get("/dashboard/hr", async (req, res): Promise<void> => {
-  const allUsers = await db.select().from(usersTable).orderBy(usersTable.createdAt);
-  const allClasses = await db.select().from(classesTable).orderBy(classesTable.createdAt);
-  const allEnrollments = await db.select().from(enrollmentsTable);
-
-  const teachers = allUsers.filter((u) => u.role === "admin");
-  const students = allUsers.filter((u) => u.role === "student");
-
-  const teacherStats = teachers.map((teacher) => {
-    const teacherClasses = allClasses.filter((c) => c.adminId === teacher.id);
-    const teacherClassIds = new Set(teacherClasses.map((c) => c.id));
-    const teacherEnrollments = allEnrollments.filter((e) => teacherClassIds.has(e.classId));
-    const uniqueStudents = new Set(teacherEnrollments.map((e) => e.studentId));
-    const liveClasses = teacherClasses.filter((c) => c.status === "live");
-
-    return {
-      id: teacher.id,
-      fullName: teacher.fullName,
-      username: teacher.username,
-      email: teacher.email,
-      subject: teacher.subject ?? null,
-      classCount: teacherClasses.length,
-      studentCount: uniqueStudents.size,
-      liveClasses: liveClasses.length,
-    };
-  });
-
-  const studentEnrollmentCounts = students.map((student) => {
-    const enrolledCount = allEnrollments.filter((e) => e.studentId === student.id).length;
-    return { id: student.id, fullName: student.fullName, username: student.username, enrolledCount };
-  });
-  const topStudentsByEnrollment = studentEnrollmentCounts.sort((a, b) => b.enrolledCount - a.enrolledCount).slice(0, 10);
-
-  const avgClassesPerTeacher = teachers.length > 0
-    ? allClasses.filter((c) => c.adminId !== null).length / teachers.length
-    : 0;
-
-  res.json({
-    totalTeachers: teachers.length,
-    totalStudents: students.length,
-    totalClasses: allClasses.length,
-    avgClassesPerTeacher: Math.round(avgClassesPerTeacher * 10) / 10,
-    teacherStats,
-    topStudentsByEnrollment,
+    recentResults: studentSubmissions.slice(0, 5).map((submission) => ({
+      id: submission.id,
+      testId: submission.testId,
+      title: submission.title,
+      submittedAt: toIsoString(submission.submittedAt),
+      percentage: Number(submission.percentage ?? 0),
+      score: Number(submission.score ?? 0),
+      totalPoints: submission.totalPoints,
+      passed: submission.passed,
+      className: submission.className,
+      subjectName: submission.subjectName,
+      chapterName: submission.chapterName,
+    })),
+    nextAssignment: nextAssignmentCandidate
+      ? {
+          id: nextAssignmentCandidate.id,
+          title: nextAssignmentCandidate.title,
+          description: nextAssignmentCandidate.description,
+          dueAt: toIsoString(nextAssignmentCandidate.dueAt),
+          maxMarks: nextAssignmentCandidate.maxMarks,
+          classId: nextAssignmentCandidate.classId,
+          className: nextAssignmentCandidate.className,
+          isOverdue: Boolean(nextAssignmentCandidate.dueAt && nextAssignmentCandidate.dueAt.getTime() < now.getTime()),
+        }
+      : null,
   });
 });
 

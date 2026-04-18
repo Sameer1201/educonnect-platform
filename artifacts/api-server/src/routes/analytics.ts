@@ -3,9 +3,11 @@ import {
   db, testsTable, testSubmissionsTable, usersTable, enrollmentsTable,
   classesTable, assignmentsTable, assignmentSubmissionsTable, attendanceTable,
 } from "@workspace/db";
-import { eq, inArray, and } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 const router: IRouter = Router();
+type AssignmentSubmissionRow = typeof assignmentSubmissionsTable.$inferSelect;
+type AttendanceRow = typeof attendanceTable.$inferSelect;
 
 function getUser(req: any) {
   const userId = req.cookies?.userId ? parseInt(req.cookies.userId, 10) : null;
@@ -49,9 +51,15 @@ router.get("/analytics", async (req, res): Promise<void> => {
   const assignmentIds = allAssignments.map((a) => a.id);
 
   const [testSubs, assignSubs, attendRecords] = await Promise.all([
-    testIds.length ? db.select().from(testSubmissionsTable).where(inArray(testSubmissionsTable.testId, testIds)) : [],
-    assignmentIds.length ? db.select().from(assignmentSubmissionsTable).where(inArray(assignmentSubmissionsTable.assignmentId, assignmentIds)) : [],
-    classIds.length ? db.select().from(attendanceTable).where(inArray(attendanceTable.classId, classIds)) : [],
+    testIds.length
+      ? db.select().from(testSubmissionsTable).where(inArray(testSubmissionsTable.testId, testIds))
+      : Promise.resolve<typeof testSubmissionsTable.$inferSelect[]>([]),
+    assignmentIds.length
+      ? db.select().from(assignmentSubmissionsTable).where(inArray(assignmentSubmissionsTable.assignmentId, assignmentIds))
+      : Promise.resolve<AssignmentSubmissionRow[]>([]),
+    classIds.length
+      ? db.select().from(attendanceTable).where(inArray(attendanceTable.classId, classIds))
+      : Promise.resolve<AttendanceRow[]>([]),
   ]);
 
   const uniqueStudentIds = [...new Set(enrollments.map((e) => e.studentId))];

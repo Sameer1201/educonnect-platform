@@ -225,34 +225,6 @@ export interface StudentDashboard {
   availableClasses: Class[];
 }
 
-export type HRDashboardTeacherStatsItem = {
-  id: number;
-  fullName: string;
-  username: string;
-  email: string;
-  /** @nullable */
-  subject?: string | null;
-  classCount: number;
-  studentCount: number;
-  liveClasses: number;
-};
-
-export type HRDashboardTopStudentsByEnrollmentItem = {
-  id: number;
-  fullName: string;
-  username: string;
-  enrolledCount: number;
-};
-
-export interface HRDashboard {
-  totalTeachers: number;
-  totalStudents: number;
-  totalClasses: number;
-  avgClassesPerTeacher: number;
-  teacherStats: HRDashboardTeacherStatsItem[];
-  topStudentsByEnrollment: HRDashboardTopStudentsByEnrollmentItem[];
-}
-
 export interface FeedbackItem {
   id: number;
   classId: number;

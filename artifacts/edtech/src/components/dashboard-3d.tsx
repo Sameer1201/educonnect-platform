@@ -16,6 +16,7 @@ export function DashboardScene({
 }) {
   return (
     <div className={`relative rounded-[1.5rem] ${className}`}>
+      <div className={`pointer-events-none absolute inset-0 rounded-[1.5rem] bg-gradient-to-br ${accent} opacity-100`} />
       <div className="relative z-10 rounded-[1.5rem] border border-[#E5E7EB] bg-transparent p-0 md:p-0">
         {children}
       </div>

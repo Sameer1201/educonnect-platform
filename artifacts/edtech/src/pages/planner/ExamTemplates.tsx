@@ -228,7 +228,7 @@ export default function PlannerExamTemplates() {
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.22em] text-violet-500">
               <Sparkles size={14} />
-              Planner Template Library
+              Exam Template Library
             </div>
             <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight">Exam Templates</h1>
             <p className="mt-3 text-sm sm:text-base text-muted-foreground leading-relaxed">
@@ -262,7 +262,7 @@ export default function PlannerExamTemplates() {
                     <div>
                       <p className="text-sm font-semibold">{template.name}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {template.description || "Planner managed exam structure"}
+                        {template.description || "Super admin managed exam structure"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -305,8 +305,8 @@ export default function PlannerExamTemplates() {
             </div>
             <div className="rounded-2xl border p-4">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold">Planner-owned flow</p>
-                <InfoTip content="Planner controls the exam shell, duration, sections, default marking, and preferred question types. Teachers only author questions." />
+                <p className="text-sm font-semibold">Super admin owned flow</p>
+                <InfoTip content="Super admin controls the exam shell, duration, sections, default marking, and preferred question types. Teachers only author questions." />
               </div>
             </div>
             <div className="rounded-2xl border p-4">
@@ -346,7 +346,7 @@ export default function PlannerExamTemplates() {
                 </p>
               </div>
               <div>
-                <Label>Additional Planner Instructions</Label>
+                <Label>Additional Instructions</Label>
                 <Textarea
                   value={templateCustomInstructions}
                   onChange={(e) => setTemplateCustomInstructions(e.target.value)}

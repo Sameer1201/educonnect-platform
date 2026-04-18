@@ -214,7 +214,12 @@ export default function StudentProfile() {
               <p className="truncate text-xl font-bold">{user.fullName}</p>
               <p className="text-sm text-muted-foreground">@{user.username}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="gap-1"><BookOpen size={12} /> Primary Exam: {user.subject ?? "Not selected"}</Badge>
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-[#D8E5FF] bg-[#EFF5FF] text-[#245BDB] hover:bg-[#E8F1FF]"
+                >
+                  <BookOpen size={12} /> Primary Exam: {user.subject ?? "Not selected"}
+                </Badge>
                 <Badge variant="outline" className="gap-1"><CalendarDays size={12} /> Active Since: {user.createdAt ? new Date(user.createdAt as any).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "—"}</Badge>
               </div>
             </div>
@@ -364,7 +369,11 @@ export default function StudentProfile() {
 
           <div className="flex flex-wrap gap-2">
             {additionalExams.length > 0 ? additionalExams.map((exam) => (
-              <Badge key={exam} variant="secondary" className="gap-2 px-3 py-1">
+              <Badge
+                key={exam}
+                variant="secondary"
+                className="gap-2 border-[#D8E5FF] bg-[#EFF5FF] px-3 py-1 text-[#245BDB]"
+              >
                 {exam}
                 <button type="button" onClick={() => removeExam(exam)} className="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground">
                   <Trash2 size={11} />

@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Activity, Clock, User, Users, Search, ChevronDown, ChevronUp,
-  GraduationCap, Shield, UserCheck, Eye, LogIn, FileText, BookOpen,
-  MessageSquare, CalendarDays, Star, ClipboardList, Wifi, WifiOff, RefreshCw
+  Activity, Clock, Users, Search, ChevronDown, ChevronUp,
+  GraduationCap, Shield, UserCheck, Eye, LogIn, BookOpen,
+  MessageSquare, CalendarDays, Star, ClipboardList, Wifi, RefreshCw
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");

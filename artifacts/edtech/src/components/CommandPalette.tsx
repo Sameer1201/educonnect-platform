@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { createPortal } from "react-dom";
 import {
-  Search, LayoutDashboard, BookOpen, GraduationCap, ClipboardList,
-  FileText, Trophy, MessageSquare, CalendarDays, LifeBuoy, Star,
-  Users, UserCheck, TrendingUp, DollarSign, Activity, BarChart2,
-  ChevronRight, ArrowRight, Zap,
+  Search, LayoutDashboard, BookOpen, ClipboardList,
+  Trophy, CalendarDays,
+  Users, UserCheck, Activity,
+  ArrowRight, Zap,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/brand";
 
@@ -26,47 +26,27 @@ function getItems(role: string): CmdItem[] {
     nav("Dashboard", "/super-admin/dashboard", <LayoutDashboard size={15} />, "Navigation", "Overview and summary"),
     nav("Manage Admins", "/super-admin/admins", <UserCheck size={15} />, "Management", "Manage teacher accounts"),
     nav("Students", "/super-admin/students", <Users size={15} />, "Management", "View all students"),
-    nav("All Classes", "/super-admin/classes", <BookOpen size={15} />, "Management", "Browse all classes"),
-    nav("HR Dashboard", "/super-admin/hr", <TrendingUp size={15} />, "Analytics", "Staff and HR overview"),
-    nav("Finance", "/super-admin/finance", <DollarSign size={15} />, "Analytics", "Revenue and payments"),
+    nav("Question Bank", "/super-admin/question-bank", <BookOpen size={15} />, "Content", "Manage platform question banks"),
+    nav("Exam Templates", "/super-admin/exam-templates", <ClipboardList size={15} />, "Content", "Manage exam blueprints"),
+    nav("Schedule", "/schedule", <CalendarDays size={15} />, "Content", "Create and manage schedule updates"),
     nav("Tests Overview", "/super-admin/tests", <ClipboardList size={15} />, "Analytics", "All tests across platform"),
     nav("User Activity", "/super-admin/activity", <Activity size={15} />, "Analytics", "Engagement and activity logs"),
     nav("Leaderboard", "/leaderboard", <Trophy size={15} />, "Community"),
-    nav("Community Board", "/community", <MessageSquare size={15} />, "Community"),
-    nav("Schedule", "/schedule", <CalendarDays size={15} />, "Community"),
-    nav("Support Tickets", "/super-admin/support", <LifeBuoy size={15} />, "Support"),
   ];
 
   if (role === "admin") return [
-    nav("Dashboard", "/admin/dashboard", <LayoutDashboard size={15} />, "Navigation", "Class and student overview"),
-    nav("My Classes", "/admin/classes", <BookOpen size={15} />, "Teaching", "Manage your classes"),
     nav("Students", "/admin/students", <Users size={15} />, "Teaching", "View enrolled students"),
+    nav("Question Bank", "/admin/question-bank", <BookOpen size={15} />, "Teaching", "Manage assigned content"),
     nav("Tests", "/admin/tests", <ClipboardList size={15} />, "Teaching", "Create and manage tests"),
-    nav("Assignments", "/admin/assignments", <FileText size={15} />, "Teaching", "Grade submissions"),
-    nav("Analytics", "/admin/analytics", <Zap size={15} />, "Analytics", "Charts, scores, student performance"),
     nav("Leaderboard", "/leaderboard", <Trophy size={15} />, "Community"),
-    nav("Community Board", "/community", <MessageSquare size={15} />, "Community"),
     nav("Schedule", "/schedule", <CalendarDays size={15} />, "Community"),
-    nav("Support Tickets", "/admin/support", <LifeBuoy size={15} />, "Support"),
-  ];
-
-  if (role === "planner") return [
-    nav("Dashboard", "/planner/dashboard", <LayoutDashboard size={15} />, "Planning", "Planner overview, coverage, and alerts"),
-    nav("Courses", "/planner/courses", <BookOpen size={15} />, "Planning", "Create courses, assign teachers, manage subjects"),
-    nav("Lecture Plans", "/schedule", <CalendarDays size={15} />, "Planning", "Create and manage lecture schedules"),
   ];
 
   return [
     nav("Dashboard", "/student/dashboard", <LayoutDashboard size={15} />, "Navigation", "Learning overview"),
-    nav("Browse Classes", "/student/classes", <GraduationCap size={15} />, "Learning", "Find and enrol in classes"),
     nav("Tests", "/student/tests", <ClipboardList size={15} />, "Learning", "Take pending tests"),
-    nav("Assignments", "/student/assignments", <FileText size={15} />, "Learning", "Submit assignments"),
-    nav("My Progress", "/student/progress", <BarChart2 size={15} />, "Learning", "Analytics and reports"),
     nav("Leaderboard", "/leaderboard", <Trophy size={15} />, "Community"),
-    nav("Community Board", "/community", <MessageSquare size={15} />, "Community"),
     nav("Schedule", "/schedule", <CalendarDays size={15} />, "Community"),
-    nav("Feedback", "/student/feedback", <Star size={15} />, "Help", "Rate your classes"),
-    nav("Support", "/student/support", <LifeBuoy size={15} />, "Help", "Get help from staff"),
   ];
 }
 
