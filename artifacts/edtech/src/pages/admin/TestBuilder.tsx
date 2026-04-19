@@ -811,11 +811,19 @@ export default function AdminTestBuilder() {
   const activeOptionImageIndexRef = useRef<number>(-1);
   const testDetailsAutoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: test, isLoading } = useQuery<TestDetail>({
+  const {
+    data: test,
+    isLoading,
+    isError,
+    error,
+  } = useQuery<TestDetail>({
     queryKey: ["admin-test-builder", testId],
     queryFn: async () => {
       const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Failed to load test");
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to load test");
+      }
       return response.json();
     },
     enabled: Number.isFinite(testId),
@@ -1247,7 +1255,57 @@ export default function AdminTestBuilder() {
     updateDraft({ optionImages: nextImages });
   };
 
-  if (isLoading || !test || !draft || !activeSection) {
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] text-slate-500">
+        Loading builder...
+      </div>
+    );
+  }
+
+  if (isError || !test) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#fffaf2] px-6 text-center">
+        <div>
+          <p className="text-lg font-bold text-slate-900">Could not load builder</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {error instanceof Error ? error.message : "The test could not be loaded right now."}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-[#e7dbca] bg-white text-slate-700 hover:border-orange-300 hover:bg-[#fff7ea]"
+          onClick={() => setLocation("/admin/tests")}
+        >
+          Back to Tests
+        </Button>
+      </div>
+    );
+  }
+
+  if (!activeSection) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#fffaf2] px-6 text-center">
+        <div>
+          <p className="text-lg font-bold text-slate-900">Builder setup is incomplete</p>
+          <p className="mt-1 text-sm text-slate-500">
+            This test does not have any usable sections yet. Please reopen the builder once the test structure is restored.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-[#e7dbca] bg-white text-slate-700 hover:border-orange-300 hover:bg-[#fff7ea]"
+          onClick={() => setLocation("/admin/tests")}
+        >
+          Back to Tests
+        </Button>
+      </div>
+    );
+  }
+
+  if (!draft) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] text-slate-500">
         Loading builder...

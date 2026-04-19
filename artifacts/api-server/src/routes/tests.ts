@@ -1326,6 +1326,151 @@ async function syncTestSectionsFromTemplate(testId: number, examType: unknown, r
   return [...resolvedSections, ...unusedSections];
 }
 
+async function ensureBuilderSectionsForTest(params: {
+  testId: number;
+  test: {
+    subjectName?: string | null;
+    chapterName?: string | null;
+  };
+  rawSections: any[];
+  questions: Array<typeof testQuestionsTable.$inferSelect>;
+}) {
+  const parsedSections = params.rawSections.map((section) => ({
+    ...section,
+    meta: safeParseJson(section.meta, null),
+  }));
+
+  const validSectionIds = new Set(parsedSections.map((section) => section.id));
+  const orphanQuestions = params.questions.filter((question) => question.sectionId == null || !validSectionIds.has(question.sectionId));
+
+  if (parsedSections.length > 0 && orphanQuestions.length === 0) {
+    return {
+      sections: parsedSections,
+      questions: params.questions,
+    };
+  }
+
+  if (parsedSections.length === 0) {
+    const groupedQuestions = new Map<string, Array<typeof testQuestionsTable.$inferSelect>>();
+
+    for (const question of params.questions) {
+      const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+      const label =
+        firstTrimmedString(
+          question.subjectLabel,
+          meta?.subjectName,
+          params.test.subjectName,
+          params.test.chapterName,
+        ) ?? "Section 1";
+      const key = normalizeSectionLabel(label) || "section 1";
+      const current = groupedQuestions.get(key) ?? [];
+      current.push(question);
+      groupedQuestions.set(key, current);
+    }
+
+    if (groupedQuestions.size === 0) {
+      groupedQuestions.set(
+        normalizeSectionLabel(params.test.subjectName ?? params.test.chapterName ?? "Section 1") || "section 1",
+        [],
+      );
+    }
+
+    const createdSections = [];
+    let order = 0;
+    for (const [key, sectionQuestions] of groupedQuestions.entries()) {
+      const firstQuestion = sectionQuestions[0] ?? null;
+      const firstQuestionMeta = firstQuestion ? safeParseJson<Record<string, unknown> | null>(firstQuestion.meta, null) : null;
+      const title =
+        firstTrimmedString(
+          firstQuestion?.subjectLabel,
+          firstQuestionMeta?.subjectName,
+          params.test.subjectName,
+          params.test.chapterName,
+          key,
+          `Section ${order + 1}`,
+        ) ?? `Section ${order + 1}`;
+      const [createdSection] = await db.insert(testSectionsTable).values({
+        testId: params.testId,
+        title,
+        description: null,
+        subjectLabel: title,
+        questionCount: sectionQuestions.length,
+        marksPerQuestion: null,
+        negativeMarks: null,
+        meta: null,
+        order,
+      }).returning();
+      createdSections.push({
+        ...createdSection,
+        meta: safeParseJson(createdSection.meta, null),
+      });
+      order += 1;
+    }
+
+    const createdByLabel = new Map(
+      createdSections.map((section) => [normalizeSectionLabel(section.subjectLabel ?? section.title), section] as const),
+    );
+
+    const patchedQuestions = await Promise.all(
+      params.questions.map(async (question) => {
+        const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+        const label =
+          firstTrimmedString(
+            question.subjectLabel,
+            meta?.subjectName,
+            params.test.subjectName,
+            params.test.chapterName,
+            createdSections[0]?.title,
+          ) ?? createdSections[0]?.title ?? "Section 1";
+        const targetSection = createdByLabel.get(normalizeSectionLabel(label)) ?? createdSections[0];
+        if (!targetSection) return question;
+        if (question.sectionId === targetSection.id) return { ...question, sectionId: targetSection.id };
+        await db
+          .update(testQuestionsTable)
+          .set({ sectionId: targetSection.id })
+          .where(eq(testQuestionsTable.id, question.id));
+        return { ...question, sectionId: targetSection.id };
+      }),
+    );
+
+    return {
+      sections: createdSections,
+      questions: patchedQuestions,
+    };
+  }
+
+  const sectionsByLabel = new Map(
+    parsedSections.map((section) => [normalizeSectionLabel(section.subjectLabel ?? section.title), section] as const),
+  );
+  const fallbackSection = parsedSections[0] ?? null;
+
+  const patchedQuestions = await Promise.all(
+    params.questions.map(async (question) => {
+      if (question.sectionId != null && validSectionIds.has(question.sectionId)) return question;
+      const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+      const label =
+        firstTrimmedString(
+          question.subjectLabel,
+          meta?.subjectName,
+          params.test.subjectName,
+          params.test.chapterName,
+        ) ?? "";
+      const targetSection = sectionsByLabel.get(normalizeSectionLabel(label)) ?? fallbackSection;
+      if (!targetSection) return question;
+      await db
+        .update(testQuestionsTable)
+        .set({ sectionId: targetSection.id })
+        .where(eq(testQuestionsTable.id, question.id));
+      return { ...question, sectionId: targetSection.id };
+    }),
+  );
+
+  return {
+    sections: parsedSections,
+    questions: patchedQuestions,
+  };
+}
+
 // GET /api/tests — list tests
 router.get("/tests", requireAuth, async (req, res) => {
   try {
@@ -1840,10 +1985,17 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
       .where(eq(testQuestionsTable.testId, testId)).orderBy(testQuestionsTable.order);
     const rawSections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, testId)).orderBy(testSectionsTable.order);
-    const parsedSections = rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }));
-    const sections = shouldPreserveImportedSections(test.examConfig) || parsedSections.length > 0
-      ? parsedSections
+    const syncedOrExistingSections = shouldPreserveImportedSections(test.examConfig) || rawSections.length > 0
+      ? rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
       : await syncTestSectionsFromTemplate(test.id, test.examType, rawSections);
+    const builderReady = await ensureBuilderSectionsForTest({
+      testId: test.id,
+      test,
+      rawSections: syncedOrExistingSections,
+      questions,
+    });
+    const sections = builderReady.sections;
+    const resolvedQuestions = builderReady.questions;
 
     const isAdmin = user.role === "admin" || user.role === "super_admin";
     let submission: typeof testSubmissionsTable.$inferSelect | null = null;
@@ -1890,7 +2042,7 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
       reporters.map((reporter) => [reporter.id, reporter] as const),
     );
     const questionReportsByQuestionId = buildQuestionReportsByQuestionId(reports, reporterMap);
-    const safeQuestions = questions.map((q) => {
+    const safeQuestions = resolvedQuestions.map((q) => {
       const serialized = serializeTestQuestion(q, { showCorrect, includeSolutions: showCorrect }) as Record<string, unknown>;
       if (isAdmin) {
         const questionReports = questionReportsByQuestionId.get(q.id) ?? [];
