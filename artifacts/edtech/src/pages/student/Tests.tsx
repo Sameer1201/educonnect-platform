@@ -195,6 +195,14 @@ function getTestCategoryTone(value: TestCategory) {
   };
 }
 
+function getStudentVisibleTestDescription(description: string | null | undefined) {
+  if (typeof description !== "string") return null;
+  const trimmed = description.trim();
+  if (!trimmed) return null;
+  if (/^imported from saved html\s*:/i.test(trimmed)) return null;
+  return trimmed;
+}
+
 function getResolvedTestCategory(
   test: Pick<TestItem, "title" | "description" | "examHeader" | "examSubheader" | "subjectName" | "chapterName">,
   detail?: Pick<TestDetail, "examConfig" | "sections"> | null,
@@ -542,6 +550,7 @@ function StudentTestSeriesCard({
   const daysUntil = isUpcoming && test.scheduledAt
     ? differenceInDays(new Date(test.scheduledAt), new Date())
     : 0;
+  const visibleDescription = getStudentVisibleTestDescription(test.description);
 
   const completionPercent = detail?.submission?.percentage != null ? Math.round(detail.submission.percentage) : null;
   const scoredMarks = detail?.submission?.score;
@@ -587,7 +596,7 @@ function StudentTestSeriesCard({
 
         <h3 className="line-clamp-2 text-[17px] font-bold leading-tight text-[#0F172A] sm:text-[19px]">{test.title}</h3>
         <p className="mt-2 line-clamp-2 text-[12px] leading-5 text-[#6B7280] sm:min-h-[48px] sm:text-[13px] sm:leading-6">
-          {test.description?.trim() || `${subject} practice test with exam-style timing and section flow.`}
+          {visibleDescription || `${subject} practice test with exam-style timing and section flow.`}
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2.5">
@@ -1474,7 +1483,10 @@ export default function StudentTests() {
     setActiveTest(null);
     toast({ title: "Test saved", description: "You can continue this test later from the test list." });
   };
-  const examHeading = activeTest?.examHeader?.trim() || activeTest?.description?.trim() || activeTest?.title || "Exam Interface";
+  const examHeading = activeTest?.examHeader?.trim()
+    || getStudentVisibleTestDescription(activeTest?.description)
+    || activeTest?.title
+    || "Exam Interface";
   const examSubheading = activeTest?.examSubheader?.trim() || activeTest?.className || activeTest?.subjectName || activeTest?.chapterName || "Online Test";
   const candidateDisplayName = user?.fullName ?? user?.username ?? "John Smith";
   const isTimerUrgent = timeLeft <= 300;
@@ -1686,7 +1698,7 @@ export default function StudentTests() {
                   ) : null}
                   <h2 className="mt-4 max-w-[540px] text-[20px] font-bold tracking-tight text-[#111827] sm:mt-5 sm:text-[24px]">{previewTest.title}</h2>
                   <p className="mt-3 text-[14px] text-[#6B7280] sm:mt-4 sm:text-[15px]">
-                    {previewTest.description?.trim() || `${getStudentTestSubject(previewTest)} practice test with exam-style timing and section flow.`}
+                    {getStudentVisibleTestDescription(previewTest.description) || `${getStudentTestSubject(previewTest)} practice test with exam-style timing and section flow.`}
                   </p>
                 </div>
                 <div className="flex items-start justify-between gap-3 sm:justify-end">
