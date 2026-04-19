@@ -13,17 +13,17 @@ export function PremiumWhiteLoader({ progress = 0 }: { progress?: number }) {
   const progressDegrees = Math.max(8, Math.min(360, progress * 3.6));
 
   return (
-    <div className="relative flex h-[520px] w-full items-center justify-center overflow-hidden rounded-3xl bg-white">
+    <div className="relative flex h-[340px] w-full items-center justify-center overflow-visible bg-transparent">
       <motion.div
-        className="absolute h-72 w-72 rounded-full bg-[radial-gradient(circle,rgba(37,99,235,0.12)_0%,rgba(124,58,237,0.06)_42%,rgba(255,255,255,0)_70%)] blur-2xl"
-        animate={{ scale: [0.94, 1.08, 0.94], opacity: [0.5, 0.9, 0.5] }}
+        className="absolute h-64 w-64 rounded-full bg-[radial-gradient(circle,rgba(37,99,235,0.08)_0%,rgba(124,58,237,0.04)_42%,rgba(255,255,255,0)_72%)] blur-3xl"
+        animate={{ scale: [0.96, 1.06, 0.96], opacity: [0.32, 0.62, 0.32] }}
         transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
       />
 
       <div className="relative flex h-56 w-56 items-center justify-center">
         <motion.div
-          className="absolute h-52 w-52 rounded-full border border-slate-100 shadow-[inset_0_0_40px_rgba(15,23,42,0.04)]"
-          animate={{ scale: [0.9, 1.08, 0.9], opacity: [0.25, 0.75, 0.25] }}
+          className="absolute h-52 w-52 rounded-full border border-white/60 bg-white/20 shadow-[inset_0_0_28px_rgba(255,255,255,0.28)] backdrop-blur-[2px]"
+          animate={{ scale: [0.92, 1.05, 0.92], opacity: [0.24, 0.52, 0.24] }}
           transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
         />
         <motion.div
@@ -66,7 +66,7 @@ export function PremiumWhiteLoader({ progress = 0 }: { progress?: number }) {
         ))}
 
         <motion.div
-          className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-slate-100 shadow-[0_18px_60px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,1)]"
+          className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-white/80 ring-1 ring-white/70 shadow-[0_14px_36px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.82)] backdrop-blur-[3px]"
           animate={{ y: [-3, 3, -3], scale: [1, 1.035, 1] }}
           transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
         >
@@ -76,14 +76,14 @@ export function PremiumWhiteLoader({ progress = 0 }: { progress?: number }) {
               background: `conic-gradient(from -90deg, #2563eb ${progressDegrees}deg, rgba(226,232,240,0.65) ${progressDegrees}deg)`,
             }}
           >
-            <div className="h-full w-full rounded-full bg-white" />
+            <div className="h-full w-full rounded-full bg-white/90" />
           </div>
           <motion.div
             className="absolute inset-3 rounded-full bg-[conic-gradient(from_0deg,#2563eb,#8b5cf6,#06b6d4,#f59e0b,#ec4899,#2563eb)] p-[2px]"
             animate={{ rotate: 360 }}
             transition={{ duration: 3.4, repeat: Infinity, ease: "linear" }}
           >
-            <div className="h-full w-full rounded-full bg-white" />
+            <div className="h-full w-full rounded-full bg-white/92" />
           </motion.div>
           <motion.div
             className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-950"
