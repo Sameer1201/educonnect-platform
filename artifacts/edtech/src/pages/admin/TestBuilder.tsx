@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PremiumWhiteLoader } from "@/components/ui/PremiumWhiteLoader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
@@ -30,6 +31,16 @@ import { useToast } from "@/hooks/use-toast";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function BuilderLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] px-4 py-8">
+      <div className="w-full max-w-xl">
+        <PremiumWhiteLoader progress={72} />
+      </div>
+    </div>
+  );
+}
 
 type QuestionType = "mcq" | "multi" | "integer";
 type QuestionDifficulty = "easy" | "moderate" | "tough";
@@ -1408,11 +1419,7 @@ export default function AdminTestBuilder() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] text-slate-500">
-        Loading builder...
-      </div>
-    );
+    return <BuilderLoadingScreen />;
   }
 
   if (isError || !test) {
@@ -1458,11 +1465,7 @@ export default function AdminTestBuilder() {
   }
 
   if (!draft) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] text-slate-500">
-        Loading builder...
-      </div>
-    );
+    return <BuilderLoadingScreen />;
   }
 
   const sectionProgress = totalSlots > 0 ? Math.min(100, (activeSectionQuestions.length / totalSlots) * 100) : 0;

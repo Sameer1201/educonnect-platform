@@ -39,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
+import { PremiumWhiteLoader } from "@/components/ui/PremiumWhiteLoader";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -59,6 +60,16 @@ import {
 } from "recharts";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function BuilderLoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] px-4 py-8">
+      <div className="w-full max-w-xl">
+        <PremiumWhiteLoader progress={72} />
+      </div>
+    </div>
+  );
+}
 
 type QuestionType = "mcq" | "multi" | "integer";
 
@@ -2563,11 +2574,7 @@ export default function AdminQuestionBank() {
 
   if (isFocusedWorkspace) {
     if (isLoading || examCardsLoading) {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-[#fffaf2] text-slate-500" style={{ fontFamily: "\"Plus Jakarta Sans\", sans-serif" }}>
-          Loading builder...
-        </div>
-      );
+      return <BuilderLoadingScreen />;
     }
 
     return (
