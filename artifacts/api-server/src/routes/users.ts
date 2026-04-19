@@ -47,7 +47,7 @@ import {
 import { hashPassword } from "../lib/auth";
 import { autoEnrollStudentIntoMatchingClasses } from "../lib/batchAssignment";
 import { hasBrevoAccounts, queueStudentApprovedEmail, queueStudentRejectedEmail, queueTeacherWelcomeEmail } from "../lib/brevo";
-import { createFirebaseEmailUser, deleteFirebaseUser, generateFirebasePasswordResetLink, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
+import { createFirebaseEmailUser, deleteFirebaseUser, deleteFirebaseUserByEmail, ensureFirebaseEmailUser, generateFirebasePasswordResetLink, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
 import { logger } from "../lib/logger";
 import { buildCustomPasswordResetUrl } from "../lib/passwordReset";
 
@@ -157,11 +157,22 @@ router.post("/users", async (req, res): Promise<void> => {
   }
 
   let firebaseUid: string | null = null;
+  let reusedExistingFirebaseUser = false;
 
   try {
     if (isFirebaseAdminConfigured()) {
-      const firebaseUser = await createFirebaseEmailUser({ email, password, fullName });
-      firebaseUid = firebaseUser.uid;
+      try {
+        const firebaseUser = await createFirebaseEmailUser({ email, password, fullName });
+        firebaseUid = firebaseUser.uid;
+      } catch (firebaseError) {
+        if (!(firebaseError instanceof Error) || !firebaseError.message.includes("email address is already in use")) {
+          throw firebaseError;
+        }
+
+        const firebaseUser = await ensureFirebaseEmailUser({ email, password, fullName });
+        firebaseUid = firebaseUser.uid;
+        reusedExistingFirebaseUser = true;
+      }
     }
 
     const [newAdmin] = await db.insert(usersTable).values({
@@ -192,7 +203,7 @@ router.post("/users", async (req, res): Promise<void> => {
 
     res.status(201).json(serializeUser(newAdmin));
   } catch (error) {
-    if (firebaseUid) {
+    if (firebaseUid && !reusedExistingFirebaseUser) {
       await deleteFirebaseUser(firebaseUid).catch(() => {});
     }
     res.status(500).json({
@@ -841,6 +852,12 @@ router.delete("/users/:id", async (req, res): Promise<void> => {
     }
 
     await db.delete(usersTable).where(eq(usersTable.id, userId));
+
+    if (isFirebaseAdminConfigured() && user.email?.trim()) {
+      await deleteFirebaseUserByEmail(user.email.trim()).catch((error) => {
+        logger.warn({ error, email: user.email, userId }, "Failed to delete Firebase user for deleted account");
+      });
+    }
 
     res.sendStatus(204);
   } catch (error) {

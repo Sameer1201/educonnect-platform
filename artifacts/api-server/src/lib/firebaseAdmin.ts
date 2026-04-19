@@ -113,6 +113,17 @@ export async function deleteFirebaseUser(uid: string) {
   await auth.deleteUser(uid);
 }
 
+export async function deleteFirebaseUserByEmail(email: string) {
+  const auth = getAuth(getFirebaseAdminApp());
+  try {
+    const existing = await auth.getUserByEmail(email);
+    await auth.deleteUser(existing.uid);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function generateFirebasePasswordResetLink(email: string) {
   const auth = getAuth(getFirebaseAdminApp());
   return auth.generatePasswordResetLink(email);
