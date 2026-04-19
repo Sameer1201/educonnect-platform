@@ -9,12 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BrandLogo } from "@/components/ui/brand-logo";
+import { useToast } from "@/hooks/use-toast";
 import {
   clearFirebaseGoogleSession,
   isFirebaseGoogleConfigured,
   signInWithFirebaseEmailPassword,
   signInWithFirebaseGoogle,
 } from "@/lib/firebase";
+
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function IllustrationScene() {
   return (
@@ -38,9 +41,10 @@ export default function LoginPage() {
   const [emailLoading, setEmailLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [forgotIdentifier, setForgotIdentifier] = useState("");
-  const [forgotMessage, setForgotMessage] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const { login } = useAuth();
+  const { toast } = useToast();
   const [, setLocation] = useLocation();
 
   const loginMutation = useLogin();
@@ -49,7 +53,7 @@ export default function LoginPage() {
   const redirectAfterLogin = (nextUser: any) => {
     const role = nextUser.role;
     if (role === "student" && !nextUser.onboardingComplete) setLocation("/student/profile");
-    else if (role === "student" && nextUser.status === "pending") setLocation("/student/pending-approval");
+    else if (role === "student" && (nextUser.status === "pending" || nextUser.status === "rejected")) setLocation("/student/pending-approval");
     else if (nextUser.mustChangePassword && role === "student") setLocation("/student/profile");
     else if (role === "super_admin") setLocation("/super-admin/dashboard");
     else if (role === "admin") setLocation("/admin/question-bank");
@@ -63,7 +67,7 @@ export default function LoginPage() {
   };
 
   const completeFirebaseServerLogin = async (path: string, idToken: string, fallbackMessage: string) => {
-    const response = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}${path}`, {
+    const response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -127,18 +131,41 @@ export default function LoginPage() {
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setForgotMessage("");
+    setForgotLoading(true);
     try {
-      const response = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/auth/forgot-password-request`, {
+      if (!firebaseAuthEnabled) {
+        throw new Error("Firebase password reset is not configured yet.");
+      }
+      const response = await fetch(`${API_BASE}/api/auth/forgot-password-request`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier: forgotIdentifier }),
       });
       const payload = await response.json().catch(() => ({}));
-      setForgotMessage(payload.message ?? payload.error ?? "Request submitted.");
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to start password reset.");
+      }
+
+      if (payload.delivery === "client") {
+        throw new Error("Password reset email is not fully configured on the server yet.");
+      }
+
+      toast({
+        className: "border-emerald-200 bg-[linear-gradient(135deg,#ffffff_0%,#f0fdf4_58%,#fff7ed_100%)] text-[#111827] shadow-[0_22px_50px_rgba(16,185,129,0.16)]",
+        title: "Reset link sent",
+        description: "Check your inbox or Spam folder. The next reset email can be sent after 2 hours.",
+      });
       setForgotIdentifier("");
+      setForgotOpen(false);
     } catch (error) {
-      setForgotMessage(error instanceof Error ? error.message : "Failed to start password reset.");
+      const message = error instanceof Error ? error.message : "Failed to start password reset.";
+      toast({
+        title: message.includes("already sent recently") ? "Please wait before retrying" : "Reset request failed",
+        description: message,
+        variant: message.includes("already sent recently") ? undefined : "destructive",
+      });
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -232,23 +259,17 @@ export default function LoginPage() {
                       </DialogHeader>
                       <form onSubmit={handleForgotPassword} className="space-y-4">
                         <div className="space-y-1.5">
-                        <Label>Email or Username</Label>
-                        <Input
-                          value={forgotIdentifier}
-                          onChange={(e) => setForgotIdentifier(e.target.value)}
-                          placeholder="Enter student or teacher email, or username"
-                          required
-                        />
+                          <Label>Email or Username</Label>
+                          <Input
+                            value={forgotIdentifier}
+                            onChange={(e) => setForgotIdentifier(e.target.value)}
+                            placeholder="Enter your email or username"
+                            required
+                          />
                         </div>
-                        {forgotMessage && (
-                          <Alert>
-                            <AlertDescription>{forgotMessage}</AlertDescription>
-                          </Alert>
-                        )}
-                        <Button type="submit" className="w-full">Continue Reset</Button>
-                        <p className="text-xs text-[#6B7280]">
-                          Students can register publicly. Teacher accounts are admin-created, but both students and teachers can reset password from here.
-                        </p>
+                        <Button type="submit" className="w-full" disabled={forgotLoading}>
+                          {forgotLoading ? "Sending reset link..." : "Continue Reset"}
+                        </Button>
                       </form>
                     </DialogContent>
                   </Dialog>

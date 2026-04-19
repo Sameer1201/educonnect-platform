@@ -5,15 +5,16 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityTracker } from "@/hooks/useActivityTracker";
+import { isStudentPendingVerification, isStudentRejectedVerification } from "@/lib/student-access";
 
 const Layout = lazy(() => import("@/components/Layout"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
 const SuperAdminDashboard = lazy(() => import("@/pages/super-admin/Dashboard"));
-const SuperAdminAdmins = lazy(() => import("@/pages/super-admin/Admins"));
-const SuperAdminStudents = lazy(() => import("@/pages/super-admin/Students"));
+const SuperAdminManagement = lazy(() => import("@/pages/super-admin/Management"));
 const SendNotification = lazy(() => import("@/pages/super-admin/SendNotification"));
 const TeacherPerformance = lazy(() => import("@/pages/super-admin/TeacherPerformance"));
 const SuperAdminTests = lazy(() => import("@/pages/super-admin/Tests"));
@@ -66,10 +67,6 @@ function studentNeedsOnboarding(user: { role: string; onboardingComplete?: boole
   return user.role === "student" && !user.onboardingComplete;
 }
 
-function studentAwaitingApproval(user: { role: string; onboardingComplete?: boolean; status?: string | null }) {
-  return user.role === "student" && !!user.onboardingComplete && user.status === "pending";
-}
-
 function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
@@ -94,7 +91,12 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
       return null;
     }
 
-    if (studentAwaitingApproval(user) && location !== "/student/pending-approval") {
+    if (isStudentPendingVerification(user) && !["/student/dashboard", "/student/pending-approval", "/student/profile"].includes(location)) {
+      setLocation("/student/dashboard");
+      return null;
+    }
+
+    if (isStudentRejectedVerification(user) && location !== "/student/pending-approval" && location !== "/student/profile") {
       setLocation("/student/pending-approval");
       return null;
     }
@@ -112,7 +114,8 @@ function getRoleHomePath(role: string, user?: { onboardingComplete?: boolean; st
   if (role === "super_admin") return "/super-admin/dashboard";
   if (role === "admin") return "/admin/question-bank";
   if (!user?.onboardingComplete) return "/student/profile";
-  if (user.status === "pending") return "/student/pending-approval";
+  if (user.status === "pending") return "/student/dashboard";
+  if (user.status === "rejected") return "/student/pending-approval";
   return "/student/dashboard";
 }
 
@@ -145,6 +148,7 @@ function AppRouter() {
       </Route>
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
 
       {/* Super Admin Routes */}
       <Route path="/super-admin/dashboard">
@@ -152,14 +156,19 @@ function AppRouter() {
           <Layout><SuperAdminDashboard /></Layout>
         </ProtectedRoute>
       </Route>
+      <Route path="/super-admin/management">
+        <ProtectedRoute roles={["super_admin"]}>
+          <Layout><SuperAdminManagement /></Layout>
+        </ProtectedRoute>
+      </Route>
       <Route path="/super-admin/admins">
         <ProtectedRoute roles={["super_admin"]}>
-          <Layout><SuperAdminAdmins /></Layout>
+          <Layout><SuperAdminManagement initialTab="admins" /></Layout>
         </ProtectedRoute>
       </Route>
       <Route path="/super-admin/students">
         <ProtectedRoute roles={["super_admin"]}>
-          <Layout><SuperAdminStudents /></Layout>
+          <Layout><SuperAdminManagement initialTab="students" /></Layout>
         </ProtectedRoute>
       </Route>
       <Route path="/super-admin/tests">

@@ -18,7 +18,6 @@ import {
   questionBankSavedQuestionsTable,
   questionBankQuestionProgressTable,
   questionBankReportsTable,
-  passwordResetRequestsTable,
   notificationsTable,
   notificationPreferencesTable,
   userActivityLogs,
@@ -38,7 +37,7 @@ import {
 } from "@workspace/api-zod";
 import { hashPassword } from "../lib/auth";
 import { autoEnrollStudentIntoMatchingClasses } from "../lib/batchAssignment";
-import { queueStudentApprovedEmail } from "../lib/brevo";
+import { queueStudentApprovedEmail, queueStudentRejectedEmail } from "../lib/brevo";
 import { createFirebaseEmailUser, deleteFirebaseUser, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
 
 const router: IRouter = Router();
@@ -66,20 +65,6 @@ function toDateValue(value: Date | string | null | undefined) {
 
 function roundMetric(value: number) {
   return Math.round(value * 10) / 10;
-}
-
-function requireAuth(req: any, res: any): number | null {
-  const userIdCookie = req.cookies?.userId;
-  if (!userIdCookie) {
-    res.status(401).json({ error: "Not authenticated" });
-    return null;
-  }
-  const userId = parseInt(userIdCookie, 10);
-  if (isNaN(userId)) {
-    res.status(401).json({ error: "Not authenticated" });
-    return null;
-  }
-  return userId;
 }
 
 function requireRole(req: any, res: any, allowedRoles: string[]): string | null {
@@ -282,32 +267,54 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
   const learningMode = (profileDetails?.learningMode && typeof profileDetails.learningMode === "object"
     ? profileDetails.learningMode
     : {}) as Record<string, unknown>;
+  const country = typeof address.country === "string" && address.country.trim() ? address.country.trim() : "India";
+  const state = typeof address.state === "string" ? address.state.trim() : "";
+  const district = typeof address.district === "string" ? address.district.trim() : "";
+  const street = typeof address.street === "string" ? address.street.trim() : "";
+  const city = typeof address.city === "string" ? address.city.trim() : "";
+  const pincode = typeof address.pincode === "string" ? address.pincode.trim() : "";
+  const classLevel = typeof preparation.classLevel === "string" ? preparation.classLevel.trim() : "";
+  const board = typeof preparation.board === "string" ? preparation.board.trim() : "";
+  const targetYear = typeof preparation.targetYear === "string" ? preparation.targetYear.trim() : "";
+  const targetExam = typeof preparation.targetExam === "string" && preparation.targetExam.trim()
+    ? preparation.targetExam.trim()
+    : (typeof user.subject === "string" ? user.subject.trim() : "");
+  const learningModeName = typeof learningMode.mode === "string" ? learningMode.mode.trim() : "";
+  const learningProvider = typeof learningMode.provider === "string" && learningMode.provider.trim()
+    ? learningMode.provider.trim()
+    : (learningModeName === "Self Study using Free Resources" ? "Self Study using Free Resources" : "");
+  const hearAboutUs = typeof profileDetails?.hearAboutUs === "string" ? profileDetails.hearAboutUs.trim() : "";
 
   const completionSteps = [
     {
       key: "personal",
       label: "Personal details",
-      complete: Boolean(user.fullName?.trim() && user.phone?.trim() && profileDetails?.dateOfBirth),
+      complete: Boolean(
+        user.fullName?.trim()
+        && user.phone?.trim()
+        && profileDetails?.dateOfBirth
+        && (profileDetails?.whatsappOnSameNumber === true || (typeof profileDetails?.whatsappNumber === "string" && profileDetails.whatsappNumber.trim())),
+      ),
     },
     {
       key: "address",
       label: "Address",
-      complete: Boolean(address.country && address.state && address.city && address.pincode),
+      complete: Boolean(country && state && district && street && city && pincode),
     },
     {
       key: "preparation",
       label: "Schooling & target",
-      complete: Boolean(preparation.classLevel && preparation.board && preparation.targetYear && preparation.targetExam),
+      complete: Boolean(classLevel && board && targetYear && targetExam),
     },
     {
       key: "learning",
       label: "Learning mode",
-      complete: Boolean(learningMode.mode),
+      complete: Boolean(learningModeName),
     },
     {
       key: "discovery",
       label: "Source",
-      complete: Boolean(profileDetails?.hearAboutUs),
+      complete: Boolean(hearAboutUs),
     },
   ];
 
@@ -410,12 +417,13 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
       email: user.email,
       phone: user.phone,
       status: user.status,
-      subject: user.subject,
+      subject: targetExam || user.subject,
       additionalExams: user.additionalExams ?? [],
       avatarUrl: user.avatarUrl,
       onboardingComplete: user.onboardingComplete,
       approvedAt: user.approvedAt,
       approverName: approver?.fullName ?? null,
+      rejectionReason: user.rejectionReason ?? null,
       createdAt: user.createdAt,
       profileDetails,
     },
@@ -449,23 +457,26 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     preparationSnapshot: {
       dateOfBirth: profileDetails?.dateOfBirth ?? null,
       whatsappOnSameNumber: profileDetails?.whatsappOnSameNumber === true,
+      whatsappNumber: typeof profileDetails?.whatsappNumber === "string" ? profileDetails.whatsappNumber : "",
       address: {
-        country: typeof address.country === "string" ? address.country : "",
-        state: typeof address.state === "string" ? address.state : "",
-        city: typeof address.city === "string" ? address.city : "",
-        pincode: typeof address.pincode === "string" ? address.pincode : "",
+        country,
+        state,
+        district,
+        street,
+        city,
+        pincode,
       },
       preparation: {
-        classLevel: typeof preparation.classLevel === "string" ? preparation.classLevel : "",
-        board: typeof preparation.board === "string" ? preparation.board : "",
-        targetYear: typeof preparation.targetYear === "string" ? preparation.targetYear : "",
-        targetExam: typeof preparation.targetExam === "string" ? preparation.targetExam : "",
+        classLevel,
+        board,
+        targetYear,
+        targetExam,
       },
       learningMode: {
-        mode: typeof learningMode.mode === "string" ? learningMode.mode : "",
-        provider: typeof learningMode.provider === "string" ? learningMode.provider : "",
+        mode: learningModeName,
+        provider: learningProvider,
       },
-      hearAboutUs: typeof profileDetails?.hearAboutUs === "string" ? profileDetails.hearAboutUs : "",
+      hearAboutUs,
     },
   });
 });
@@ -513,45 +524,6 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
   }
 
   res.json(serializeUser(updated));
-});
-
-router.get("/password-reset-requests", async (req, res): Promise<void> => {
-  const callerRole = requireRole(req, res, ["super_admin", "admin"]);
-  if (!callerRole) return;
-
-  const requests = await db.select().from(passwordResetRequestsTable).orderBy(desc(passwordResetRequestsTable.createdAt));
-  res.json(requests);
-});
-
-router.patch("/password-reset-requests/:id/resolve", async (req, res): Promise<void> => {
-  const callerRole = requireRole(req, res, ["super_admin", "admin"]);
-  if (!callerRole) return;
-  const resolverId = requireAuth(req, res);
-  if (!resolverId) return;
-
-  const requestId = parseInt(req.params.id, 10);
-  const temporaryPassword = typeof req.body?.temporaryPassword === "string" ? req.body.temporaryPassword.trim() : "";
-  if (isNaN(requestId) || temporaryPassword.length < 6) {
-    res.status(400).json({ error: "A temporary password of at least 6 characters is required" });
-    return;
-  }
-
-  const [requestRow] = await db.select().from(passwordResetRequestsTable).where(eq(passwordResetRequestsTable.id, requestId));
-  if (!requestRow) {
-    res.status(404).json({ error: "Reset request not found" });
-    return;
-  }
-
-  await db.update(usersTable)
-    .set({ passwordHash: hashPassword(temporaryPassword), mustChangePassword: true })
-    .where(eq(usersTable.id, requestRow.userId));
-
-  const [updatedRequest] = await db.update(passwordResetRequestsTable)
-    .set({ status: "resolved", resolvedBy: resolverId, resolutionNote: "Temporary password issued" })
-    .where(eq(passwordResetRequestsTable.id, requestId))
-    .returning();
-
-  res.json(updatedRequest);
 });
 
 router.delete("/users/:id", async (req, res): Promise<void> => {
@@ -650,10 +622,25 @@ router.patch("/users/:id/approve", async (req, res): Promise<void> => {
 
   const approverId = parseInt((req as any).cookies?.userId ?? "0", 10);
   const newStatus = body.data.status;
-  const setData: any = { status: newStatus };
+  const reviewReason = typeof body.data.reason === "string" ? body.data.reason.trim() : "";
+  if (newStatus === "rejected" && reviewReason.length < 5) {
+    res.status(400).json({ error: "Please provide a short rejection reason." });
+    return;
+  }
+  const setData: any = {
+    status: newStatus,
+    pendingReviewStartedAt: null,
+    pendingReviewEscalatedAt: null,
+  };
   if (newStatus === "approved" && approverId) {
     setData.approvedById = approverId;
     setData.approvedAt = new Date();
+    setData.rejectionReason = null;
+  }
+  if (newStatus === "rejected") {
+    setData.approvedById = null;
+    setData.approvedAt = null;
+    setData.rejectionReason = reviewReason;
   }
 
   const [updated] = await db
@@ -675,6 +662,14 @@ router.patch("/users/:id/approve", async (req, res): Promise<void> => {
         email: updated.email,
       });
     }
+  }
+
+  if (newStatus === "rejected" && updated.role === "student" && updated.email) {
+    queueStudentRejectedEmail({
+      studentName: updated.fullName,
+      email: updated.email,
+      reason: reviewReason,
+    });
   }
 
   res.json(serializeUser(updated));

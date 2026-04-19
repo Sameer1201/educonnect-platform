@@ -1,127 +1,108 @@
 import { Router } from "express";
 import {
-  db, usersTable, classesTable, enrollmentsTable,
-  testsTable, assignmentsTable, attendanceTable,
-  testSubmissionsTable, assignmentSubmissionsTable,
+  db,
+  usersTable,
+  classesTable,
+  enrollmentsTable,
+  testsTable,
+  testSubmissionsTable,
   feedbackTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 
 const router = Router();
+
 type EnrollmentRow = typeof enrollmentsTable.$inferSelect;
 type TestRow = typeof testsTable.$inferSelect;
-type AssignmentRow = typeof assignmentsTable.$inferSelect;
-type AttendanceRow = typeof attendanceTable.$inferSelect;
 type TestSubmissionRow = typeof testSubmissionsTable.$inferSelect;
-type AssignmentSubmissionRow = typeof assignmentSubmissionsTable.$inferSelect;
 
 router.get("/teacher-performance", async (req, res): Promise<void> => {
   const userId = req.cookies?.userId;
   const userRole = req.cookies?.userRole;
-  if (!userId) { res.status(401).json({ error: "Not authenticated" }); return; }
-  if (userRole !== "super_admin") { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!userId) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+  if (userRole !== "super_admin") {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
 
-  /* --- 1. Fetch all teachers (admins) --- */
   const teachers = await db
     .select()
     .from(usersTable)
     .where(eq(usersTable.role, "admin"));
 
-  if (teachers.length === 0) { res.json([]); return; }
+  if (teachers.length === 0) {
+    res.json([]);
+    return;
+  }
 
-  const teacherIds = teachers.map((t) => t.id);
+  const teacherIds = teachers.map((teacher) => teacher.id);
 
-  /* --- 2. Fetch all related data in parallel --- */
-  const [
-    allClasses,
-    allFeedback,
-  ] = await Promise.all([
+  const [allClasses, allFeedback] = await Promise.all([
     db.select().from(classesTable).where(inArray(classesTable.adminId, teacherIds)),
     db.select().from(feedbackTable),
   ]);
 
-  const classIds = allClasses.map((c) => c.id);
+  const classIds = allClasses.map((cls) => cls.id);
 
-  const [
-    allEnrollments,
-    allTests,
-    allAssignments,
-    allAttendance,
-  ] = classIds.length > 0
+  const [allEnrollments, allTests] = classIds.length > 0
     ? await Promise.all([
         db.select().from(enrollmentsTable).where(inArray(enrollmentsTable.classId, classIds)),
         db.select().from(testsTable).where(inArray(testsTable.classId, classIds)),
-        db.select().from(assignmentsTable).where(inArray(assignmentsTable.classId, classIds)),
-        db.select().from(attendanceTable).where(inArray(attendanceTable.classId, classIds)),
       ])
     : [
         [] as EnrollmentRow[],
         [] as TestRow[],
-        [] as AssignmentRow[],
-        [] as AttendanceRow[],
       ];
 
-  const testIds = allTests.map((t) => t.id);
-  const assignmentIds = allAssignments.map((a) => a.id);
+  const testIds = allTests.map((test) => test.id);
+  const testSubs = testIds.length > 0
+    ? await db.select().from(testSubmissionsTable).where(inArray(testSubmissionsTable.testId, testIds))
+    : [] as TestSubmissionRow[];
 
-  const [testSubs, assignSubs] = await Promise.all([
-    testIds.length > 0
-      ? db.select().from(testSubmissionsTable).where(inArray(testSubmissionsTable.testId, testIds))
-      : Promise.resolve<TestSubmissionRow[]>([]),
-    assignmentIds.length > 0
-      ? db.select().from(assignmentSubmissionsTable).where(inArray(assignmentSubmissionsTable.assignmentId, assignmentIds))
-      : Promise.resolve<AssignmentSubmissionRow[]>([]),
-  ]);
-
-  /* --- 3. Aggregate per teacher --- */
   const result = teachers.map((teacher) => {
-    const myClasses = allClasses.filter((c) => c.adminId === teacher.id);
-    const myClassIds = myClasses.map((c) => c.id);
+    const myClasses = allClasses.filter((cls) => cls.adminId === teacher.id);
+    const myClassIds = myClasses.map((cls) => cls.id);
 
-    const myEnrollments = allEnrollments.filter((e) => myClassIds.includes(e.classId));
-    const uniqueStudents = new Set(myEnrollments.map((e) => e.studentId)).size;
+    const myEnrollments = allEnrollments.filter((enrollment) => myClassIds.includes(enrollment.classId));
+    const uniqueStudents = new Set(myEnrollments.map((enrollment) => enrollment.studentId)).size;
 
-    const myTests = allTests.filter((t) => t.classId !== null && myClassIds.includes(t.classId));
-    const myTestIds = myTests.map((t) => t.id);
+    const myTests = allTests.filter((test) => test.classId !== null && myClassIds.includes(test.classId));
+    const myTestIds = myTests.map((test) => test.id);
+    const myTestSubs = testSubs.filter((submission) => myTestIds.includes(submission.testId));
 
-    const myAssignments = allAssignments.filter((a) => myClassIds.includes(a.classId));
-    const myAssignmentIds = myAssignments.map((a) => a.id);
-
-    // Attendance sessions taken (distinct date+classId combos)
-    const myAttendance = allAttendance.filter((a) => myClassIds.includes(a.classId));
-    const attendanceSessions = new Set(myAttendance.map((a) => `${a.classId}-${a.date}`)).size;
-
-    // Test submissions graded (submissions to their tests that have a score)
-    const myTestSubs = testSubs.filter((s) => myTestIds.includes(s.testId));
-    const gradedSubs = myTestSubs.filter((s) => s.score !== null && s.totalPoints && s.totalPoints > 0);
+    const gradedSubs = myTestSubs.filter(
+      (submission) => submission.score !== null && submission.totalPoints && submission.totalPoints > 0,
+    );
     const avgScore = gradedSubs.length > 0
-      ? Math.round(gradedSubs.reduce((acc, s) => acc + ((s.score! / s.totalPoints!) * 100), 0) / gradedSubs.length)
+      ? Math.round(
+          gradedSubs.reduce(
+            (accumulator, submission) => accumulator + ((submission.score! / submission.totalPoints!) * 100),
+            0,
+          ) / gradedSubs.length,
+        )
       : null;
 
-    // Assignment submissions received
-    const myAssignSubs = assignSubs.filter((s) => myAssignmentIds.includes(s.assignmentId));
-
-    // Student feedback for their classes
-    const myFeedback = allFeedback.filter((f) => myClassIds.includes(f.classId));
+    const myFeedback = allFeedback.filter((feedback) => myClassIds.includes(feedback.classId));
     const avgRating = myFeedback.length > 0
-      ? parseFloat((myFeedback.reduce((acc, f) => acc + (f.rating ?? 0), 0) / myFeedback.length).toFixed(1))
+      ? parseFloat(
+          (
+            myFeedback.reduce((accumulator, feedback) => accumulator + (feedback.rating ?? 0), 0)
+            / myFeedback.length
+          ).toFixed(1),
+        )
       : null;
 
-    // Live vs scheduled vs completed class breakdown
-    const liveClasses = myClasses.filter((c) => c.status === "live").length;
-    const completedClasses = myClasses.filter((c) => c.status === "completed").length;
-
-    // Workload score: weighted composite
-    const score =
-      myClasses.length * 10 +
-      uniqueStudents * 2 +
-      myTests.length * 8 +
-      myAssignments.length * 5 +
-      attendanceSessions * 3 +
-      myTestSubs.length * 1 +
-      myAssignSubs.length * 1 +
-      completedClasses * 6 +
-      liveClasses * 4;
+    const rankingScore = Math.round(
+      uniqueStudents * 3
+      + myTests.length * 12
+      + myTestSubs.length * 2
+      + myFeedback.length * 4
+      + (avgRating ?? 0) * 8
+      + (avgScore ?? 0) / 4,
+    );
 
     return {
       id: teacher.id,
@@ -130,28 +111,17 @@ router.get("/teacher-performance", async (req, res): Promise<void> => {
       subject: teacher.subject ?? null,
       email: teacher.email ?? null,
       status: teacher.status,
-      // Core metrics
-      classesCount: myClasses.length,
       uniqueStudents,
       testsCount: myTests.length,
-      assignmentsCount: myAssignments.length,
-      attendanceSessions,
-      liveClasses,
-      completedClasses,
-      // Submission metrics
       testSubmissions: myTestSubs.length,
-      assignmentSubmissions: myAssignSubs.length,
-      // Quality metrics
       avgScore,
       avgRating,
       feedbackCount: myFeedback.length,
-      // Composite workload score
-      workloadScore: score,
+      rankingScore,
     };
   });
 
-  // Sort by workload score descending
-  result.sort((a, b) => b.workloadScore - a.workloadScore);
+  result.sort((a, b) => b.rankingScore - a.rankingScore);
 
   res.json(result);
 });

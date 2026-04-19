@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
+import indiaStateDistrictSource from "@/data/india-state-districts.json";
 import type { AuthUser, StudentProfileDetails } from "@/types/auth";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const ONBOARDING_DRAFT_STORAGE_KEY = "student-onboarding-draft";
 
 interface RegistrationExamOption {
   exam: string;
@@ -74,14 +76,112 @@ const hearAboutOptions = [
   "Other",
 ] as const;
 
+const indiaStateOptions = [
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  "Andaman and Nicobar Islands",
+  "Chandigarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Jammu and Kashmir",
+  "Ladakh",
+  "Lakshadweep",
+  "Puducherry",
+] as const;
+
+type IndiaStateDistrictSource = {
+  states: Array<{
+    state: string;
+    districts: string[];
+  }>;
+};
+
+function normalizeLocationName(value: string) {
+  return value.replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+}
+
+function buildDistrictOptionsByState() {
+  const source = indiaStateDistrictSource as IndiaStateDistrictSource;
+  const stateAliases: Record<string, string> = {
+    "Chandigarh (UT)": "Chandigarh",
+    "Dadra and Nagar Haveli (UT)": "Dadra and Nagar Haveli and Daman and Diu",
+    "Daman and Diu (UT)": "Dadra and Nagar Haveli and Daman and Diu",
+    "Delhi (NCT)": "Delhi",
+    "Lakshadweep (UT)": "Lakshadweep",
+    "Puducherry (UT)": "Puducherry",
+  };
+
+  const districtsByState = new Map<string, string[]>(
+    indiaStateOptions.map((state) => [state, []]),
+  );
+
+  const appendDistrict = (state: string, district: string) => {
+    const normalizedDistrict = normalizeLocationName(district);
+    if (!normalizedDistrict) return;
+    const existing = districtsByState.get(state) ?? [];
+    if (!existing.includes(normalizedDistrict)) {
+      existing.push(normalizedDistrict);
+      districtsByState.set(state, existing);
+    }
+  };
+
+  source.states.forEach((entry) => {
+    const targetState = stateAliases[entry.state] ?? entry.state;
+    if (!districtsByState.has(targetState)) return;
+    entry.districts.forEach((district) => appendDistrict(targetState, district));
+  });
+
+  ["Nicobar", "North and Middle Andaman", "South Andaman"].forEach((district) => appendDistrict("Andaman and Nicobar Islands", district));
+  ["Kargil", "Leh"].forEach((district) => appendDistrict("Ladakh", district));
+
+  const jammuAndKashmirDistricts = districtsByState.get("Jammu and Kashmir") ?? [];
+  districtsByState.set(
+    "Jammu and Kashmir",
+    jammuAndKashmirDistricts.filter((district) => district !== "Kargil" && district !== "Leh"),
+  );
+
+  return Object.fromEntries(districtsByState.entries());
+}
+
+const districtOptionsByState = buildDistrictOptionsByState();
+
 function buildInitialDetails(user: AuthUser): StudentProfileDetails {
   const existing = user.profileDetails;
   return {
     dateOfBirth: existing?.dateOfBirth ?? "",
     whatsappOnSameNumber: existing?.whatsappOnSameNumber ?? true,
+    whatsappNumber: existing?.whatsappNumber ?? user.phone ?? "",
     address: {
-      country: existing?.address?.country ?? "India",
+      country: "India",
       state: existing?.address?.state ?? "",
+      district: existing?.address?.district ?? "",
+      street: existing?.address?.street ?? "",
       city: existing?.address?.city ?? "",
       pincode: existing?.address?.pincode ?? "",
     },
@@ -101,14 +201,17 @@ function buildInitialDetails(user: AuthUser): StudentProfileDetails {
 
 export default function StudentOnboardingGate() {
   const { user, login } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const authUser = user as AuthUser | null;
+  const rejectedResubmission = authUser?.role === "student" && authUser.status === "rejected";
+  const gateEnabled = !!authUser && authUser.role === "student" && (!authUser.onboardingComplete || rejectedResubmission);
   const [step, setStep] = useState(0);
   const [fullName, setFullName] = useState(authUser?.fullName ?? "");
   const [phone, setPhone] = useState(authUser?.phone ?? "");
   const [details, setDetails] = useState<StudentProfileDetails | null>(authUser ? buildInitialDetails(authUser) : null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const draftStorageKey = authUser ? `${ONBOARDING_DRAFT_STORAGE_KEY}:${authUser.id}` : null;
 
   const { data: examOptions = [] } = useQuery<RegistrationExamOption[]>({
     queryKey: ["registration-exams"],
@@ -117,7 +220,7 @@ export default function StudentOnboardingGate() {
       if (!response.ok) throw new Error("Failed to load exams");
       return response.json();
     },
-    enabled: !!authUser && authUser.role === "student" && !authUser.onboardingComplete,
+    enabled: gateEnabled,
     staleTime: 60000,
     retry: 1,
   });
@@ -129,23 +232,122 @@ export default function StudentOnboardingGate() {
     setDetails(buildInitialDetails(authUser));
     setStep(0);
     setError("");
-  }, [authUser?.id, authUser?.fullName, authUser?.phone, authUser?.role, authUser?.onboardingComplete]);
+  }, [authUser?.id, authUser?.fullName, authUser?.phone, authUser?.role, authUser?.onboardingComplete, authUser?.status]);
 
   useEffect(() => {
-    if (!(authUser && authUser.role === "student" && !authUser.onboardingComplete)) return;
+    if (!draftStorageKey || !authUser || authUser.role !== "student" || authUser.onboardingComplete) return;
+    try {
+      const raw = window.localStorage.getItem(draftStorageKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as {
+        step?: number;
+        fullName?: string;
+        phone?: string;
+        details?: StudentProfileDetails;
+      };
+      if (typeof draft.fullName === "string") setFullName(draft.fullName);
+      if (typeof draft.phone === "string") setPhone(draft.phone);
+      if (draft.details && typeof draft.details === "object") {
+        const draftDetails = draft.details;
+        setDetails((prev) => ({
+          ...(prev ?? buildInitialDetails(authUser)),
+          ...draftDetails,
+          address: {
+            ...(prev?.address ?? buildInitialDetails(authUser).address),
+            ...(draftDetails.address ?? {}),
+          },
+          preparation: {
+            ...(prev?.preparation ?? buildInitialDetails(authUser).preparation),
+            ...(draftDetails.preparation ?? {}),
+          },
+          learningMode: {
+            ...(prev?.learningMode ?? buildInitialDetails(authUser).learningMode),
+            ...(draftDetails.learningMode ?? {}),
+          },
+        }));
+      }
+      if (typeof draft.step === "number" && Number.isFinite(draft.step)) {
+        setStep(Math.min(Math.max(0, draft.step), steps.length - 1));
+      }
+    } catch {
+      window.localStorage.removeItem(draftStorageKey);
+    }
+  }, [authUser, draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftStorageKey || !authUser || authUser.role !== "student" || authUser.onboardingComplete || !details) return;
+    const draft = {
+      step,
+      fullName,
+      phone,
+      details,
+    };
+    window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+  }, [authUser, details, draftStorageKey, fullName, phone, step]);
+
+  useEffect(() => {
+    const shouldLockBody = gateEnabled && (!rejectedResubmission || location === "/student/profile");
+    if (!shouldLockBody) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [authUser?.role, authUser?.onboardingComplete]);
+  }, [gateEnabled, rejectedResubmission, location]);
+
+  useEffect(() => {
+    if (!details?.whatsappOnSameNumber) return;
+    setDetails((prev) => (
+      prev
+        ? {
+            ...prev,
+            whatsappNumber: phone,
+          }
+        : prev
+    ));
+  }, [details?.whatsappOnSameNumber, phone]);
 
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
     return Array.from({ length: 7 }, (_, index) => String(currentYear + index));
   }, []);
 
-  if (!authUser || authUser.role !== "student" || authUser.onboardingComplete || !details) {
+  const selectedState = details?.address.state ?? "";
+  const selectedDistrict = details?.address.district ?? "";
+
+  const districtOptions: string[] = !selectedState
+    ? []
+    : (() => {
+        const options = districtOptionsByState[selectedState] ?? [];
+        const currentDistrict = normalizeLocationName(selectedDistrict);
+        return currentDistrict && !options.includes(currentDistrict) ? [...options, currentDistrict] : options;
+      })();
+
+  const handleStateChange = (state: string) => {
+    const nextDistrictOptions = districtOptionsByState[state] ?? [];
+    setDetails((prev) =>
+      prev
+        ? {
+            ...prev,
+            address: {
+              ...prev.address,
+              state,
+              district: nextDistrictOptions.includes(prev.address.district) ? prev.address.district : "",
+            },
+          }
+        : prev,
+    );
+  };
+
+  if (!authUser || authUser.role !== "student" || !details) {
+    return null;
+  }
+
+  if (!gateEnabled) {
+    return null;
+  }
+
+  if (rejectedResubmission && location !== "/student/profile") {
     return null;
   }
 
@@ -175,10 +377,13 @@ export default function StudentOnboardingGate() {
       if (!fullName.trim()) return "Full name is required.";
       if (!details.dateOfBirth.trim()) return "Date of birth is required.";
       if (!phone.trim()) return "Phone number is required.";
+      if (!details.whatsappOnSameNumber && !details.whatsappNumber.trim()) return "WhatsApp number is required.";
     }
     if (step === 1) {
       if (!details.address.country.trim()) return "Country is required.";
       if (!details.address.state.trim()) return "State is required.";
+      if (!details.address.district.trim()) return "District is required.";
+      if (!details.address.street.trim()) return "Street address is required.";
       if (!details.address.city.trim()) return "City is required.";
       if (!details.address.pincode.trim()) return "Pincode is required.";
     }
@@ -230,6 +435,9 @@ export default function StudentOnboardingGate() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to save setup");
       }
+      if (draftStorageKey) {
+        window.localStorage.removeItem(draftStorageKey);
+      }
       login(payload as AuthUser);
       setLocation("/student/pending-approval");
     } catch (err: any) {
@@ -274,7 +482,14 @@ export default function StudentOnboardingGate() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5B4DFF]">Complete Setup</p>
-              <h2 className="mt-1 text-2xl font-bold text-[#111827]">Finish your student profile</h2>
+              <h2 className="mt-1 text-2xl font-bold text-[#111827]">
+                {rejectedResubmission ? "Update and resubmit your profile" : "Finish your student profile"}
+              </h2>
+              {rejectedResubmission && authUser.rejectionReason ? (
+                <div className="mt-3 rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 text-sm text-[#7F1D1D]">
+                  <span className="font-semibold text-[#B91C1C]">Rejection reason:</span> {authUser.rejectionReason}
+                </div>
+              ) : null}
             </div>
             <div className="rounded-full bg-[#EEF2FF] px-3 py-1 text-xs font-semibold text-[#5B4DFF]">
               Step {step + 1} of {steps.length}
@@ -357,10 +572,30 @@ export default function StudentOnboardingGate() {
               <label className="flex items-center gap-3 rounded-2xl border border-[#EEF2F7] bg-[#FAFBFF] px-4 py-3 text-sm text-[#374151]">
                 <Checkbox
                   checked={details.whatsappOnSameNumber}
-                  onCheckedChange={(checked) => updateDetails("whatsappOnSameNumber", checked === true)}
+                  onCheckedChange={(checked) => {
+                    const useSameNumber = checked === true;
+                    updateDetails("whatsappOnSameNumber", useSameNumber);
+                    if (useSameNumber) {
+                      updateDetails("whatsappNumber", phone.trim());
+                    }
+                  }}
                 />
                 <span>I use WhatsApp on this number.</span>
               </label>
+              {!details.whatsappOnSameNumber ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="onboarding-whatsapp" className="mb-2 block text-sm font-medium text-[#374151]">WhatsApp number</Label>
+                    <Input
+                      id="onboarding-whatsapp"
+                      value={details.whatsappNumber}
+                      onChange={(event) => updateDetails("whatsappNumber", event.target.value)}
+                      placeholder="Enter your WhatsApp number"
+                      className="h-12 rounded-2xl border-[#DCE3F1]"
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -373,30 +608,54 @@ export default function StudentOnboardingGate() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <Label className="mb-2 block text-sm font-medium text-[#374151]">Country</Label>
-                  <select
-                    value={details.address.country}
-                    onChange={(event) => updateNestedDetails("address", "country", event.target.value)}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
-                  >
-                    <option value="India">India</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="mb-2 block text-sm font-medium text-[#374151]">State</Label>
                   <Input
-                    value={details.address.state}
-                    onChange={(event) => updateNestedDetails("address", "state", event.target.value)}
-                    placeholder="Enter your state"
-                    className="h-12 rounded-2xl border-[#DCE3F1]"
+                    value="India"
+                    disabled
+                    className="h-12 rounded-2xl border-[#DCE3F1] bg-[#F8FAFC] text-[#111827] disabled:opacity-100"
                   />
                 </div>
                 <div>
-                  <Label className="mb-2 block text-sm font-medium text-[#374151]">City</Label>
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">State</Label>
+                  <select
+                    value={details.address.state}
+                    onChange={(event) => handleStateChange(event.target.value)}
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                  >
+                    <option value="">Select your state</option>
+                    {indiaStateOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">District</Label>
+                  <select
+                    value={details.address.district}
+                    onChange={(event) => updateNestedDetails("address", "district", event.target.value)}
+                    disabled={!details.address.state}
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF] disabled:bg-[#F8FAFC] disabled:text-[#9AA4B2]"
+                  >
+                    <option value="">{details.address.state ? "Select your district" : "Select state first"}</option>
+                    {districtOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">City / Town</Label>
                   <Input
                     value={details.address.city}
                     onChange={(event) => updateNestedDetails("address", "city", event.target.value)}
-                    placeholder="Enter your city"
+                    placeholder="Enter your city or town"
+                    className="h-12 rounded-2xl border-[#DCE3F1]"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">Street / Village</Label>
+                  <Input
+                    value={details.address.street}
+                    onChange={(event) => updateNestedDetails("address", "street", event.target.value)}
+                    placeholder="House no, street, village, area, landmark"
                     className="h-12 rounded-2xl border-[#DCE3F1]"
                   />
                 </div>

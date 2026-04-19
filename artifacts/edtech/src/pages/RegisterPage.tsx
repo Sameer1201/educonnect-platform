@@ -48,19 +48,23 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    const normalizedEmail = form.email.trim().toLowerCase();
+    const normalizedUsername = form.username.trim();
+    const normalizedFullName = form.fullName.trim();
+
     if (form.password.length < 6) {
       setError("Password must be at least 6 characters");
       return;
     }
-    if (!form.fullName.trim()) {
+    if (!normalizedFullName) {
       setError("Name is required");
       return;
     }
-    if (!form.username.trim()) {
+    if (!normalizedUsername) {
       setError("User ID is required");
       return;
     }
-    if (!form.email.trim()) {
+    if (!normalizedEmail) {
       setError("Email is required");
       return;
     }
@@ -71,10 +75,10 @@ export default function RegisterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: form.email.trim().toLowerCase(),
-          username: form.username.trim(),
+          email: normalizedEmail,
+          username: normalizedUsername,
           password: form.password,
-          fullName: form.fullName.trim(),
+          fullName: normalizedFullName,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -88,7 +92,7 @@ export default function RegisterPage() {
       }
 
       const { idToken } = await signInWithFirebaseEmailPassword(
-        form.email.trim().toLowerCase(),
+        normalizedEmail,
         form.password,
       );
       await completeFirebaseServerLogin(idToken);

@@ -51,6 +51,8 @@ export interface User {
   phone?: string | null;
   /** @nullable */
   subject?: string | null;
+  /** @nullable */
+  rejectionReason?: string | null;
   createdAt: string;
 }
 
@@ -109,6 +111,8 @@ export const ApproveStudentBodyStatus = {
 
 export interface ApproveStudentBody {
   status: ApproveStudentBodyStatus;
+  /** @nullable */
+  reason?: string | null;
 }
 
 export type ClassStatus = (typeof ClassStatus)[keyof typeof ClassStatus];

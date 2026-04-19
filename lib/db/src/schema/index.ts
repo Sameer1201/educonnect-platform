@@ -23,3 +23,6 @@ export * from "./contact_submissions";
 export * from "./platform_settings";
 export * from "./password_reset_requests";
 export * from "./exam_templates";
+export * from "./email_provider_usage";
+export * from "./email_provider_configs";
+export * from "./email_send_logs";

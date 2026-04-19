@@ -24,8 +24,7 @@ function getItems(role: string): CmdItem[] {
 
   if (role === "super_admin") return [
     nav("Dashboard", "/super-admin/dashboard", <LayoutDashboard size={15} />, "Navigation", "Overview and summary"),
-    nav("Manage Admins", "/super-admin/admins", <UserCheck size={15} />, "Management", "Manage teacher accounts"),
-    nav("Students", "/super-admin/students", <Users size={15} />, "Management", "View all students"),
+    nav("Management", "/super-admin/management", <Users size={15} />, "Management", "Manage teachers and students"),
     nav("Question Bank", "/super-admin/question-bank", <BookOpen size={15} />, "Content", "Manage platform question banks"),
     nav("Exam Templates", "/super-admin/exam-templates", <ClipboardList size={15} />, "Content", "Manage exam blueprints"),
     nav("Tests Overview", "/super-admin/tests", <ClipboardList size={15} />, "Analytics", "All tests across platform"),

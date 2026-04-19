@@ -166,6 +166,7 @@ export const ApproveStudentParams = zod.object({
 
 export const ApproveStudentBody = zod.object({
   status: zod.enum(["approved", "rejected"]),
+  reason: zod.string().optional(),
 });
 
 export const ApproveStudentResponse = zod.object({
@@ -177,6 +178,7 @@ export const ApproveStudentResponse = zod.object({
   status: zod.enum(["pending", "approved", "rejected", "active"]),
   phone: zod.string().nullish(),
   subject: zod.string().nullish(),
+  rejectionReason: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 

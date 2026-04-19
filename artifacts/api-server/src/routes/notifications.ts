@@ -3,11 +3,30 @@ import { db, notificationsTable, notificationPreferencesTable, usersTable } from
 import { eq, and, desc, lt } from "drizzle-orm";
 import { addSSEClient } from "../lib/sseClients";
 import { pushNotificationToMany } from "../lib/pushNotification";
+import {
+  createBrevoProviderConfig,
+  getBrevoProviderUsageSummary,
+  listBrevoEmailSendLogs,
+  setBrevoProviderActiveState,
+} from "../lib/brevo";
 
 const router: IRouter = Router();
 
 function getUser(req: any) {
   const userId = req.cookies?.userId ? parseInt(req.cookies.userId, 10) : null;
+  return userId;
+}
+
+function requireSuperAdmin(req: any, res: any) {
+  const userId = getUser(req);
+  if (!userId) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  if (req.cookies?.userRole !== "super_admin") {
+    res.status(403).json({ error: "Only super admin can access this section" });
+    return null;
+  }
   return userId;
 }
 
@@ -207,6 +226,92 @@ router.post("/notifications/broadcast", async (req, res): Promise<void> => {
   });
 
   res.json({ sent: userIds.length });
+});
+
+router.get("/notifications/email-providers/usage", async (req, res): Promise<void> => {
+  const callerId = requireSuperAdmin(req, res);
+  if (!callerId) return;
+
+  const summary = await getBrevoProviderUsageSummary();
+  res.json(summary);
+});
+
+router.get("/notifications/email-log", async (req, res): Promise<void> => {
+  const callerId = requireSuperAdmin(req, res);
+  if (!callerId) return;
+
+  const rawLimit = parseInt(String(req.query.limit ?? "50"), 10);
+  const logs = await listBrevoEmailSendLogs(Number.isFinite(rawLimit) ? rawLimit : 50);
+  res.json({ logs });
+});
+
+router.post("/notifications/email-providers", async (req, res): Promise<void> => {
+  const callerId = requireSuperAdmin(req, res);
+  if (!callerId) return;
+
+  const providerName = typeof req.body?.providerName === "string" ? req.body.providerName.trim() : "";
+  const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  const senderEmail = typeof req.body?.senderEmail === "string" ? req.body.senderEmail.trim() : "";
+  const senderName = typeof req.body?.senderName === "string" ? req.body.senderName.trim() : "";
+  const replyToEmail = typeof req.body?.replyToEmail === "string" ? req.body.replyToEmail.trim() : "";
+  const replyToName = typeof req.body?.replyToName === "string" ? req.body.replyToName.trim() : "";
+  const dailyLimit = Number(req.body?.dailyLimit);
+  const dailySoftLimit = Number(req.body?.dailySoftLimit);
+
+  if (!providerName) {
+    res.status(400).json({ error: "Account label is required." });
+    return;
+  }
+  if (!apiKey) {
+    res.status(400).json({ error: "Brevo API key is required." });
+    return;
+  }
+  if (!senderEmail) {
+    res.status(400).json({ error: "Sender email is required." });
+    return;
+  }
+
+  try {
+    const provider = await createBrevoProviderConfig({
+      providerName,
+      apiKey,
+      senderEmail,
+      senderName,
+      replyToEmail,
+      replyToName,
+      dailyLimit: Number.isFinite(dailyLimit) ? dailyLimit : undefined,
+      dailySoftLimit: Number.isFinite(dailySoftLimit) ? dailySoftLimit : undefined,
+      createdById: callerId,
+    });
+
+    res.status(201).json({ provider });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Failed to add Brevo account.",
+    });
+  }
+});
+
+router.patch("/notifications/email-providers/:id", async (req, res): Promise<void> => {
+  const callerId = requireSuperAdmin(req, res);
+  if (!callerId) return;
+
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) {
+    res.status(400).json({ error: "Valid provider id is required." });
+    return;
+  }
+
+  const isActive = Boolean(req.body?.isActive);
+
+  try {
+    const provider = await setBrevoProviderActiveState({ id, isActive });
+    res.json({ provider });
+  } catch (error) {
+    res.status(404).json({
+      error: error instanceof Error ? error.message : "Failed to update Brevo account.",
+    });
+  }
 });
 
 export default router;

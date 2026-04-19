@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
@@ -84,31 +83,6 @@ export async function verifyFirebaseIdToken(idToken: string) {
   return auth.verifyIdToken(idToken);
 }
 
-export async function generateFirebasePasswordResetLink(email: string) {
-  const auth = getAuth(getFirebaseAdminApp());
-  return auth.generatePasswordResetLink(email);
-}
-
-export async function ensureFirebasePasswordResetUser({
-  email,
-  fullName,
-}: {
-  email: string;
-  fullName: string;
-}) {
-  const auth = getAuth(getFirebaseAdminApp());
-  try {
-    return await auth.getUserByEmail(email);
-  } catch {
-    return auth.createUser({
-      email,
-      password: randomBytes(24).toString("hex"),
-      displayName: fullName,
-      emailVerified: false,
-    });
-  }
-}
-
 export async function createFirebaseEmailUser({
   email,
   password,
@@ -130,6 +104,11 @@ export async function createFirebaseEmailUser({
 export async function deleteFirebaseUser(uid: string) {
   const auth = getAuth(getFirebaseAdminApp());
   await auth.deleteUser(uid);
+}
+
+export async function generateFirebasePasswordResetLink(email: string) {
+  const auth = getAuth(getFirebaseAdminApp());
+  return auth.generatePasswordResetLink(email);
 }
 
 export async function ensureFirebaseEmailUser({

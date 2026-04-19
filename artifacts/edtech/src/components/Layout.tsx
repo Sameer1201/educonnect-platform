@@ -4,7 +4,9 @@ import { useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuestionBankTargetAlerts } from "@/hooks/useQuestionBankTargetAlerts";
 import StudentOnboardingGate from "@/components/student/StudentOnboardingGate";
+import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { BrandLogo } from "@/components/ui/brand-logo";
+import { isStudentPendingVerification } from "@/lib/student-access";
 import {
   LayoutDashboard, Users, BookOpen,
   LogOut, Menu, X, UserCheck,
@@ -46,8 +48,7 @@ function getSuperAdminGroups(): NavGroup[] {
   return [
     { items: [{ label: "Dashboard", href: "/super-admin/dashboard", icon: <LayoutDashboard size={17} /> }] },
     { label: "Management", items: [
-      { label: "Manage Admins", href: "/super-admin/admins", icon: <UserCheck size={17} /> },
-      { label: "Students", href: "/super-admin/students", icon: <Users size={17} /> },
+      { label: "Management", href: "/super-admin/management", icon: <Users size={17} /> },
     ]},
     { label: "Content", items: [
       { label: "Question Bank", href: "/super-admin/question-bank", icon: <BookOpen size={17} /> },
@@ -84,21 +85,30 @@ function getStudentGroups(): NavGroup[] {
   ];
 }
 
-function NavLink({ item, isActive, collapsed, onClick }: { item: NavItem; isActive: boolean; collapsed: boolean; onClick: () => void }) {
+function NavLink({
+  item,
+  isActive,
+  collapsed,
+  onClick,
+  blocked = false,
+}: {
+  item: NavItem;
+  isActive: boolean;
+  collapsed: boolean;
+  onClick: () => void;
+  blocked?: boolean;
+}) {
   const iconTone = getNavIconTone(item.label);
-  return (
-    <Link
-      href={item.href}
-      data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
-      onClick={onClick}
-      className={`relative flex items-center gap-3 rounded-[16px] text-sm transition-all duration-200 group border border-transparent ${
-        collapsed ? "px-2.5 py-2.5 justify-center" : "px-3 py-2.5"
-      } ${
-        isActive
-          ? "bg-[#5B4DFF] text-white font-semibold shadow-[0_8px_18px_rgba(91,77,255,0.22)]"
-          : "text-[#1F2937] hover:bg-[#F3F5F9] hover:text-[#111827]"
-      }`}
-    >
+  const classes = `relative flex items-center gap-3 rounded-[16px] text-sm transition-all duration-200 group border border-transparent ${
+    collapsed ? "px-2.5 py-2.5 justify-center" : "px-3 py-2.5"
+  } ${
+    isActive
+      ? "bg-[#5B4DFF] text-white font-semibold shadow-[0_8px_18px_rgba(91,77,255,0.22)]"
+      : "text-[#1F2937] hover:bg-[#F3F5F9] hover:text-[#111827]"
+  }`;
+
+  const content = (
+    <>
       <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-all ${isActive ? "border-white/10 bg-white text-[#5B4DFF]" : `${iconTone} border-transparent group-hover:scale-105`}`}>
         {item.icon}
       </span>
@@ -109,6 +119,30 @@ function NavLink({ item, isActive, collapsed, onClick }: { item: NavItem; isActi
           <div className="absolute top-1/2 -left-1 h-2 w-2 -translate-y-1/2 rotate-45 border-b border-l border-[#E5E7EB] bg-white" />
         </div>
       )}
+    </>
+  );
+
+  if (blocked) {
+    return (
+      <button
+        type="button"
+        data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
+        onClick={onClick}
+        className={classes}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <Link
+      href={item.href}
+      data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, "-")}`}
+      onClick={onClick}
+      className={classes}
+    >
+      {content}
     </Link>
   );
 }
@@ -120,6 +154,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [shellWidgetsReady, setShellWidgetsReady] = useState(false);
+  const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
@@ -172,7 +207,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   }, []);
 
   const userRole = user?.role;
-  const showLeaderboardShortcut = userRole === "student";
+  const isPendingStudent = isStudentPendingVerification(user);
+  const showLeaderboardShortcut = userRole === "student" && !isPendingStudent;
+  const showNotifications = !isPendingStudent;
   const {
     alerts: questionBankAlerts,
     show: showQuestionBankPopup,
@@ -232,8 +269,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const isActive = location === item.href || location.startsWith(item.href + "/");
+                const isBlocked = isPendingStudent && item.href !== "/student/dashboard";
                 return (
-                  <NavLink key={item.href} item={item} isActive={isActive} collapsed={collapsed} onClick={() => setMobileOpen(false)} />
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    isActive={isActive}
+                    collapsed={collapsed}
+                    blocked={isBlocked}
+                    onClick={() => {
+                      setMobileOpen(false);
+                      if (isBlocked) setPendingDialogOpen(true);
+                    }}
+                  />
                 );
               })}
             </div>
@@ -356,9 +404,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           )}
-          <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
-            {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
-          </Suspense>
+          {showNotifications ? (
+            <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
+              {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+            </Suspense>
+          ) : null}
         </header>
 
         {/* Desktop topbar */}
@@ -368,9 +418,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           )}
-          <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
-            {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
-          </Suspense>
+          {showNotifications ? (
+            <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
+              {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+            </Suspense>
+          ) : null}
         </header>
 
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:p-6">
@@ -393,6 +445,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           />
         ) : null}
       </Suspense>
+
+      <PendingVerificationDialog
+        open={pendingDialogOpen}
+        onOpenChange={setPendingDialogOpen}
+        onCheckStatus={() => setLocation("/student/pending-approval")}
+      />
 
       <StudentOnboardingGate />
     </div>

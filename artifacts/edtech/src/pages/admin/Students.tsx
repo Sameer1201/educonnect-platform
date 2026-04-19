@@ -14,7 +14,6 @@ import {
   Clock,
   Eye,
   GraduationCap,
-  KeyRound,
   Mail,
   RotateCcw,
   Search,
@@ -52,6 +51,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { StudentProfileInsightsPanel, type StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
 
@@ -66,17 +66,11 @@ interface StudentViewModel {
   email: string;
   targetExam: string;
   status: StudentUiStatus;
+  onboardingComplete: boolean;
   avatarInitials: string;
   joinedAt: string;
   createdAt: string;
-}
-
-interface PasswordResetRequest {
-  id: number;
-  requestedUsername: string;
-  requestedEmail: string;
-  status: string;
-  createdAt: string;
+  rejectionReason?: string | null;
 }
 
 const COLORS = {
@@ -100,17 +94,32 @@ function toStudentUiStatus(status: User["status"]): StudentUiStatus {
   return "approved";
 }
 
+function getStudentTargetExam(student: User) {
+  const profileTargetExam = typeof (student as User & {
+    profileDetails?: { preparation?: { targetExam?: string | null } | null } | null;
+  }).profileDetails?.preparation?.targetExam === "string"
+    ? (student as User & {
+        profileDetails?: { preparation?: { targetExam?: string | null } | null } | null;
+      }).profileDetails?.preparation?.targetExam?.trim()
+    : "";
+
+  return profileTargetExam || student.subject?.trim() || "Not set";
+}
+
 function buildStudentViewModel(student: User): StudentViewModel {
+  const onboardingComplete = (student as User & { onboardingComplete?: boolean }).onboardingComplete === true;
   return {
     id: student.id,
     name: student.fullName,
     username: `@${student.username}`,
     email: student.email,
-    targetExam: student.subject?.trim() || "Not set",
+    targetExam: getStudentTargetExam(student),
     status: toStudentUiStatus(student.status),
+    onboardingComplete,
     avatarInitials: getInitials(student.fullName || student.username),
     joinedAt: format(new Date(student.createdAt), "MMM d, yyyy"),
     createdAt: student.createdAt,
+    rejectionReason: student.rejectionReason ?? null,
   };
 }
 
@@ -135,8 +144,8 @@ export default function AdminStudents() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<StudentViewModel | null>(null);
-  const [resetDialog, setResetDialog] = useState<PasswordResetRequest | null>(null);
-  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [rejectionDialog, setRejectionDialog] = useState<StudentViewModel | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
   const { data: studentRecords = [], isLoading } = useListUsers({ role: "student" });
   const studentInsightsQuery = useQuery<StudentProfileInsights>({
     queryKey: ["admin-student-insights", selectedStudent?.id],
@@ -151,14 +160,6 @@ export default function AdminStudents() {
     },
     staleTime: 30_000,
   });
-  const { data: resetRequests = [], isLoading: isResetLoading } = useQuery<PasswordResetRequest[]>({
-    queryKey: ["admin-password-reset-requests"],
-    queryFn: async () => {
-      const response = await fetch(`${BASE}/api/password-reset-requests`, { credentials: "include" });
-      if (!response.ok) throw new Error("Failed to load reset requests");
-      return response.json();
-    },
-  });
   const approveStudent = useApproveStudent();
   const deleteStudentMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -172,43 +173,18 @@ export default function AdminStudents() {
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
     },
   });
-  const resolveResetMutation = useMutation({
-    mutationFn: async ({ id, temporaryPassword }: { id: number; temporaryPassword: string }) => {
-      const response = await fetch(`${BASE}/api/password-reset-requests/${id}/resolve`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ temporaryPassword }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? "Failed to set temporary password");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["admin-password-reset-requests"] });
-      toast({
-        title: "Temporary password set",
-        description: "Student must change it after the next login.",
-      });
-      setResetDialog(null);
-      setTemporaryPassword("");
-    },
-    onError: (error: Error) => {
-      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
-    },
-  });
-
   const students = studentRecords.map(buildStudentViewModel);
-  const pendingApprovals = students.filter((student) => student.status === "pending");
-  const managedStudents = students.filter((student) => student.status !== "pending");
+  const reviewableStudents = students.filter((student) => student.onboardingComplete);
+  const pendingApprovals = reviewableStudents.filter((student) => student.status === "pending");
+  const managedStudents = reviewableStudents.filter((student) => student.status !== "pending");
   const approvedCount = managedStudents.filter((student) => student.status === "approved").length;
   const revokedCount = managedStudents.filter((student) => student.status === "revoked").length;
   const pendingCount = pendingApprovals.length;
   const totalPopulation = managedStudents.length + pendingCount || 1;
-  const openResetRequests = resetRequests.filter((request) => request.status === "open");
   const weeklyRegistrationData = buildWeeklyRegistrationData(studentRecords);
+  const weeklyRegistrationsTotal = weeklyRegistrationData.reduce((total, day) => total + day.students, 0);
+  const weeklyPeakRegistrations = Math.max(...weeklyRegistrationData.map((day) => day.students), 0);
+  const weeklyActiveDays = weeklyRegistrationData.filter((day) => day.students > 0).length;
 
   const filteredStudents = managedStudents.filter((student) => {
     const query = searchQuery.trim().toLowerCase();
@@ -237,13 +213,16 @@ export default function AdminStudents() {
     status: "approved" | "rejected",
     title: string,
     description?: string,
+    reason?: string,
   ) => {
     approveStudent.mutate(
-      { id: student.id, data: { status } },
+      { id: student.id, data: { status, reason } },
       {
         onSuccess: () => {
           refreshStudentData();
           toast({ title, description });
+          setRejectionDialog(null);
+          setRejectionReason("");
         },
         onError: (error: Error) => {
           toast({ title: "Update failed", description: error.message, variant: "destructive" });
@@ -256,7 +235,6 @@ export default function AdminStudents() {
     deleteStudentMutation.mutate(student.id, {
       onSuccess: () => {
         refreshStudentData();
-        void queryClient.invalidateQueries({ queryKey: ["admin-password-reset-requests"] });
         if (selectedStudent?.id === student.id) {
           setSelectedStudent(null);
         }
@@ -271,8 +249,8 @@ export default function AdminStudents() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }, (_, index) => (
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }, (_, index) => (
             <div key={index}>{renderLoadingCard()}</div>
           ))}
         </div>
@@ -293,7 +271,7 @@ export default function AdminStudents() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Students</span>
@@ -348,40 +326,21 @@ export default function AdminStudents() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Reset Requests</span>
-            <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
-              <KeyRound className="w-4 h-4 text-rose-500" />
-            </div>
-          </div>
-          <div>
-            <p className="text-3xl font-black text-slate-900">{openResetRequests.length}</p>
-            <p className="text-xs text-slate-400 mt-0.5">password requests</p>
-          </div>
-          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-rose-400 rounded-full"
-              style={{ width: openResetRequests.length > 0 ? "60%" : "0%" }}
-            />
-          </div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-        <div className="lg:col-span-2 flex flex-col gap-5">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col h-full min-h-[360px]">
             <div className="px-5 pt-5 pb-4 border-b border-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm shadow-indigo-200">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm shadow-indigo-200 shrink-0">
                   <UserCheck className="w-4.5 h-4.5 text-white" />
                 </div>
-                <div>
-                  <h2 className="text-sm font-bold text-slate-800">Student Approvals</h2>
-                  <p className="text-xs text-slate-400">Approve or reject registration requests</p>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-bold text-slate-800 leading-none">Student Approvals</h2>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">Review student registration requests</p>
                 </div>
-                <div className="ml-auto">
-                  <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-600 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-100">
+                <div className="ml-auto shrink-0">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap bg-indigo-50 text-indigo-600 text-xs font-bold px-3 py-1.5 rounded-full border border-indigo-100">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     {pendingCount} pending
                   </span>
@@ -390,40 +349,42 @@ export default function AdminStudents() {
             </div>
 
             {pendingApprovals.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div className="flex flex-1 flex-col items-center justify-center px-8 py-12 gap-3 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-50 to-indigo-50 border border-indigo-100 flex items-center justify-center">
                   <CheckCircle2 className="w-7 h-7 text-indigo-300" />
                 </div>
-                <div className="text-center">
-                  <p className="text-sm font-semibold text-slate-600">All caught up!</p>
-                  <p className="text-xs text-slate-400 mt-0.5">No pending approvals right now.</p>
-                </div>
+                <p className="text-sm font-semibold text-slate-600">All caught up!</p>
+                <p className="text-xs text-slate-400 leading-relaxed max-w-[220px]">
+                  No pending approvals right now.
+                </p>
               </div>
             ) : (
-              <div className="p-4 space-y-3">
+              <div className="p-4 space-y-3 flex-1">
                 {pendingApprovals.map((student) => (
                   <div
                     key={student.id}
-                    className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50/40 border border-indigo-100"
+                    className="flex flex-col gap-4 p-4 rounded-xl bg-indigo-50/40 border border-indigo-100"
                     data-testid={`pending-student-${student.id}`}
                   >
-                    <Avatar className="h-10 w-10 ring-2 ring-indigo-200">
-                      <AvatarFallback className="bg-indigo-600 text-white font-bold text-sm">
-                        {student.avatarInitials}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-800 text-sm">{student.name}</p>
-                      <p className="text-xs text-slate-400 truncate">{student.email}</p>
-                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium mt-1 inline-block">
-                        {student.targetExam}
-                      </span>
+                    <div className="flex items-start gap-3 min-w-0">
+                      <Avatar className="h-10 w-10 ring-2 ring-indigo-200 shrink-0">
+                        <AvatarFallback className="bg-indigo-600 text-white font-bold text-sm">
+                          {student.avatarInitials}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-slate-800 text-sm leading-tight">{student.name}</p>
+                        <p className="text-xs text-slate-400 truncate mt-1">{student.email}</p>
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium mt-2 inline-flex">
+                          {student.targetExam}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2 w-full">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 text-xs border-amber-200 text-amber-700 hover:bg-amber-50"
+                        className="h-9 text-xs border-amber-200 text-amber-700 hover:bg-amber-50 col-span-2"
                         onClick={() => setSelectedStudent(student)}
                       >
                         <Eye className="w-3.5 h-3.5 mr-1" />
@@ -432,8 +393,11 @@ export default function AdminStudents() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 text-xs text-red-500 border-red-200 hover:bg-red-50"
-                        onClick={() => handleStudentStatusChange(student, "rejected", "Request rejected")}
+                        className="h-9 text-xs text-red-500 border-red-200 hover:bg-red-50"
+                        onClick={() => {
+                          setRejectionDialog(student);
+                          setRejectionReason(student.rejectionReason ?? "");
+                        }}
                         disabled={approveStudent.isPending}
                         data-testid={`button-reject-${student.id}`}
                       >
@@ -442,7 +406,7 @@ export default function AdminStudents() {
                       </Button>
                       <Button
                         size="sm"
-                        className="h-8 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
+                        className="h-9 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
                         onClick={() =>
                           handleStudentStatusChange(
                             student,
@@ -463,69 +427,14 @@ export default function AdminStudents() {
               </div>
             )}
           </div>
-
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="px-5 pt-5 pb-4 border-b border-slate-50">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm shadow-amber-200">
-                  <KeyRound className="w-4.5 h-4.5 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-slate-800">Forgot Password Requests</h2>
-                  <p className="text-xs text-slate-400">Handle student password reset requests</p>
-                </div>
-                <div className="ml-auto">
-                  <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-600 text-xs font-bold px-2.5 py-1 rounded-full border border-amber-100">
-                    {openResetRequests.length} open
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {isResetLoading ? (
-              <div className="p-5 space-y-3">
-                {Array.from({ length: 2 }, (_, index) => (
-                  <div key={index} className="h-16 rounded-xl bg-slate-100 animate-pulse" />
-                ))}
-              </div>
-            ) : openResetRequests.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 gap-3">
-                <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center">
-                  <KeyRound className="w-6 h-6 text-amber-300" />
-                </div>
-                <p className="text-xs text-slate-400">No open reset requests.</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-50">
-                {openResetRequests.map((request) => (
-                  <div key={request.id} className="flex items-center justify-between px-5 py-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{request.requestedUsername}</p>
-                      <p className="text-xs text-slate-400">{request.requestedEmail}</p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs h-8 border-amber-200 text-amber-700 hover:bg-amber-50"
-                      onClick={() => setResetDialog(request)}
-                    >
-                      Set Temporary Password
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-5">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col h-full min-h-[360px]">
             <div className="flex items-center gap-2 mb-1">
               <Activity className="w-4 h-4 text-indigo-500" />
               <h3 className="text-sm font-bold text-slate-800">Student Breakdown</h3>
             </div>
             <p className="text-xs text-slate-400 mb-4">Status distribution overview</p>
-            <div className="h-44 relative">
+            <div className="flex-1 flex flex-col justify-between">
+            <div className="h-52 relative">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -553,30 +462,32 @@ export default function AdminStudents() {
                 <span className="text-xs text-slate-400">total</span>
               </div>
             </div>
-            <div className="flex flex-col gap-2 mt-4">
+            <div className="grid grid-cols-3 gap-2 mt-5">
               {[
                 { label: "Approved", count: approvedCount, color: "bg-indigo-500" },
                 { label: "Pending", count: pendingCount, color: "bg-amber-400" },
                 { label: "Revoked", count: revokedCount, color: "bg-rose-400" },
               ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between">
+                <div key={item.label} className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
                   <div className="flex items-center gap-2">
                     <span className={`w-2.5 h-2.5 rounded-full ${item.color}`} />
-                    <span className="text-xs text-slate-600">{item.label}</span>
+                    <span className="text-[11px] font-medium text-slate-500">{item.label}</span>
                   </div>
-                  <span className="text-xs font-bold text-slate-800">{item.count}</span>
+                  <span className="mt-2 block text-lg font-black text-slate-800">{item.count}</span>
                 </div>
               ))}
             </div>
+            </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col h-full min-h-[360px]">
             <div className="flex items-center gap-2 mb-1">
               <TrendingUp className="w-4 h-4 text-violet-500" />
               <h3 className="text-sm font-bold text-slate-800">Weekly New Students</h3>
             </div>
             <p className="text-xs text-slate-400 mb-4">New registrations this week</p>
-            <div className="h-36">
+            <div className="flex-1 flex flex-col justify-between">
+            <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={weeklyRegistrationData} barSize={10}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
@@ -601,8 +512,22 @@ export default function AdminStudents() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            <div className="grid grid-cols-3 gap-2 mt-5">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                <p className="text-[11px] font-medium text-slate-500">This Week</p>
+                <p className="mt-2 text-lg font-black text-slate-800">{weeklyRegistrationsTotal}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                <p className="text-[11px] font-medium text-slate-500">Peak Day</p>
+                <p className="mt-2 text-lg font-black text-slate-800">{weeklyPeakRegistrations}</p>
+              </div>
+              <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                <p className="text-[11px] font-medium text-slate-500">Active Days</p>
+                <p className="mt-2 text-lg font-black text-slate-800">{weeklyActiveDays}</p>
+              </div>
+            </div>
+            </div>
           </div>
-        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
@@ -700,6 +625,11 @@ export default function AdminStudents() {
                       <GraduationCap className="w-3 h-3" />
                       {student.targetExam}
                     </span>
+                    {student.rejectionReason && (
+                      <p className="w-full rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs text-rose-700">
+                        Reason: {student.rejectionReason}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
@@ -709,12 +639,10 @@ export default function AdminStudents() {
                         size="sm"
                         className="flex-1 h-8 text-xs border-orange-200 text-orange-600 hover:bg-orange-50 rounded-lg"
                         onClick={() =>
-                          handleStudentStatusChange(
-                            student,
-                            "rejected",
-                            "Access revoked",
-                            `${student.name} can no longer log in.`,
-                          )
+                          (() => {
+                            setRejectionDialog(student);
+                            setRejectionReason(student.rejectionReason ?? "");
+                          })()
                         }
                         disabled={approveStudent.isPending}
                         data-testid={`button-revoke-${student.id}`}
@@ -815,6 +743,9 @@ export default function AdminStudents() {
                       <Mail className="w-3.5 h-3.5 text-slate-300 shrink-0" />
                       <span className="truncate">{student.email}</span>
                     </div>
+                    {student.rejectionReason && (
+                      <p className="mt-1 text-[11px] text-rose-600 truncate">Reason: {student.rejectionReason}</p>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <span className="inline-flex items-center gap-1 text-xs bg-violet-50 text-violet-700 border border-violet-100 px-2.5 py-1 rounded-lg font-medium">
@@ -842,12 +773,10 @@ export default function AdminStudents() {
                         size="sm"
                         className="h-7 text-xs border-orange-200 text-orange-600 hover:bg-orange-50 hover:border-orange-300 rounded-lg px-3"
                         onClick={() =>
-                          handleStudentStatusChange(
-                            student,
-                            "rejected",
-                            "Access revoked",
-                            `${student.name} can no longer log in.`,
-                          )
+                          (() => {
+                            setRejectionDialog(student);
+                            setRejectionReason(student.rejectionReason ?? "");
+                          })()
                         }
                         disabled={approveStudent.isPending}
                         data-testid={`button-revoke-${student.id}`}
@@ -958,7 +887,11 @@ export default function AdminStudents() {
                     {studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile."}
                   </div>
                 ) : studentInsightsQuery.data ? (
-                  <StudentProfileInsightsPanel insights={studentInsightsQuery.data} viewerLabel="Admin review" />
+                  <StudentProfileInsightsPanel
+                    insights={studentInsightsQuery.data}
+                    viewerLabel="Admin review"
+                    mode={selectedStudent?.status === "pending" ? "submittedOnly" : "full"}
+                  />
                 ) : null}
               </div>
             </>
@@ -966,32 +899,43 @@ export default function AdminStudents() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!resetDialog} onOpenChange={(open) => !open && setResetDialog(null)}>
-        <DialogContent className="max-w-md rounded-2xl border-slate-100 shadow-2xl">
+      <Dialog
+        open={!!rejectionDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRejectionDialog(null);
+            setRejectionReason("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Set Temporary Password</DialogTitle>
+            <DialogTitle>Reject application</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-slate-500">
-              Temporary password for{" "}
-              <span className="font-medium text-slate-900">{resetDialog?.requestedUsername}</span>. The student will be
-              forced to change it after the next login.
+            <p className="text-sm text-muted-foreground">
+              Student ko rejection reason dikhega aur same reason email se bhi jayega.
             </p>
-            <Input
-              type="password"
-              value={temporaryPassword}
-              onChange={(event) => setTemporaryPassword(event.target.value)}
-              placeholder="Minimum 6 characters"
+            <Textarea
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              rows={4}
+              placeholder="Why is this application being rejected?"
             />
             <Button
-              className="w-full"
-              disabled={temporaryPassword.length < 6 || resolveResetMutation.isPending || !resetDialog}
-              onClick={() => {
-                if (!resetDialog) return;
-                resolveResetMutation.mutate({ id: resetDialog.id, temporaryPassword });
-              }}
+              className="w-full bg-rose-600 hover:bg-rose-700"
+              disabled={rejectionReason.trim().length < 5 || approveStudent.isPending || !rejectionDialog}
+              onClick={() =>
+                rejectionDialog && handleStudentStatusChange(
+                  rejectionDialog,
+                  "rejected",
+                  "Application rejected",
+                  `${rejectionDialog.name} can review the reason and resubmit.`,
+                  rejectionReason.trim(),
+                )
+              }
             >
-              Set Temporary Password
+              Submit rejection
             </Button>
           </div>
         </DialogContent>

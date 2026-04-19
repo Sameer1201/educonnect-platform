@@ -3,9 +3,12 @@ import type { User as ApiUser } from "@workspace/api-client-react";
 export interface StudentProfileDetails {
   dateOfBirth: string;
   whatsappOnSameNumber: boolean;
+  whatsappNumber: string;
   address: {
     country: string;
     state: string;
+    district: string;
+    street: string;
     city: string;
     pincode: string;
   };
@@ -28,4 +31,5 @@ export interface StudentProfileDetails {
 export interface AuthUser extends ApiUser {
   onboardingComplete?: boolean;
   profileDetails?: StudentProfileDetails | null;
+  rejectionReason?: string | null;
 }

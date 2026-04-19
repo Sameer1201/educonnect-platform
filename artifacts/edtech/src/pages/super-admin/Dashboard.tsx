@@ -14,10 +14,10 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  Users, UserCheck, BookOpen, Zap, Clock, CheckCircle,
+  Users, UserCheck, Clock, CheckCircle,
   TrendingUp, Bell, LifeBuoy, Trophy, GraduationCap,
-  Medal, FileText, ClipboardList, ArrowRight,
-  Shield, Activity, Flame, Plus, ChevronRight,
+  Medal, ClipboardList, ArrowRight,
+  Shield, Activity, Plus, ChevronRight,
 } from "lucide-react";
 
 /* ─── helpers ─── */
@@ -101,7 +101,7 @@ function QuickAction({ icon, label, desc, href, color }: {
 
 /* ─── Teacher row ─── */
 function TeacherRow({ teacher, rank }: {
-  teacher: { id: number; fullName: string; subject: string | null; classesCount: number; studentsCount: number };
+  teacher: { id: number; fullName: string; subject: string | null; testsCount: number; studentsCount: number };
   rank: number;
 }) {
   const medal = rank === 1 ? <Trophy size={12} className="text-amber-400" />
@@ -120,7 +120,7 @@ function TeacherRow({ teacher, rank }: {
         {teacher.subject && <p className="text-[10px] text-muted-foreground truncate">{teacher.subject}</p>}
       </div>
       <div className="text-right shrink-0">
-        <p className="text-xs font-bold">{teacher.classesCount} <span className="text-muted-foreground font-normal">cls</span></p>
+        <p className="text-xs font-bold">{teacher.testsCount} <span className="text-muted-foreground font-normal">tests</span></p>
         <p className="text-[10px] text-muted-foreground">{teacher.studentsCount} students</p>
       </div>
     </div>
@@ -260,12 +260,6 @@ export default function SuperAdminDashboard() {
 
             {/* health badges */}
             <div className="flex flex-wrap gap-2 mt-4">
-              {d.liveClasses > 0 && (
-                <div className="flex items-center gap-1.5 bg-red-500/20 border border-red-400/30 rounded-full px-3 py-1 text-xs font-medium">
-                  <Flame size={11} className="text-red-400" />
-                  <span>{d.liveClasses} Live Class{d.liveClasses > 1 ? "es" : ""}</span>
-                </div>
-              )}
               {d.pendingStudents > 0 && (
                 <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400/30 rounded-full px-3 py-1 text-xs font-medium">
                   <Clock size={11} className="text-amber-400" />
@@ -282,6 +276,12 @@ export default function SuperAdminDashboard() {
                 <CheckCircle size={11} className="text-emerald-400" />
                 <span>{d.approvedStudents} Active Students</span>
               </div>
+              {d.totalTests > 0 && (
+                <div className="flex items-center gap-1.5 bg-violet-500/20 border border-violet-400/30 rounded-full px-3 py-1 text-xs font-medium">
+                  <ClipboardList size={11} className="text-violet-300" />
+                  <span>{d.totalTests} Published Tests</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -329,25 +329,18 @@ export default function SuperAdminDashboard() {
           sub={`${d.approvedStudents} approved`}
         />
         <KpiTile
-          title="Total Classes"
-          value={d.totalClasses}
-          icon={<BookOpen size={18} className="text-white" />}
+          title="Active Students"
+          value={d.approvedStudents}
+          icon={<Shield size={18} className="text-white" />}
           from="from-emerald-600" to="to-teal-600"
-          sub={`${d.scheduledClasses} scheduled`}
-        />
-        <KpiTile
-          title="Live Right Now"
-          value={d.liveClasses}
-          icon={<Zap size={18} className="text-white" />}
-          from="from-red-600" to="to-orange-600"
-          badge={{ label: "LIVE", variant: "default" }}
+          sub="Approved access"
         />
         <KpiTile
           title="Enrollments"
           value={d.totalEnrollments}
           icon={<GraduationCap size={18} className="text-white" />}
           from="from-amber-500" to="to-orange-500"
-          sub="Total class joins"
+          sub="Student-course links"
         />
         <KpiTile
           title="Tests Created"
@@ -357,11 +350,11 @@ export default function SuperAdminDashboard() {
           sub="Platform-wide"
         />
         <KpiTile
-          title="Assignments"
-          value={d.totalAssignments}
-          icon={<FileText size={18} className="text-white" />}
+          title="Open Tickets"
+          value={d.openTickets}
+          icon={<LifeBuoy size={18} className="text-white" />}
           from="from-indigo-600" to="to-blue-600"
-          sub="Given by teachers"
+          sub="Support requests"
         />
         <KpiTile
           title="Pending Approvals"
@@ -369,6 +362,13 @@ export default function SuperAdminDashboard() {
           icon={<Clock size={18} className="text-white" />}
           from="from-yellow-500" to="to-amber-600"
           badge={d.pendingStudents > 0 ? { label: "Action", variant: "default" } : undefined}
+        />
+        <KpiTile
+          title="Community Posts"
+          value={d.communityPosts}
+          icon={<Bell size={18} className="text-white" />}
+          from="from-rose-600" to="to-pink-600"
+          sub="Learner activity"
         />
       </div>
 

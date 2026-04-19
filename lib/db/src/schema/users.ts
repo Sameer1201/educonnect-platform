@@ -19,8 +19,12 @@ export const usersTable = pgTable("users", {
   onboardingComplete: boolean("onboarding_complete").notNull().default(false),
   studentProfileData: text("student_profile_data"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
+  lastPasswordResetEmailAt: timestamp("last_password_reset_email_at", { withTimezone: true }),
   approvedById: integer("approved_by_id"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectionReason: text("rejection_reason"),
+  pendingReviewStartedAt: timestamp("pending_review_started_at", { withTimezone: true }),
+  pendingReviewEscalatedAt: timestamp("pending_review_escalated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });

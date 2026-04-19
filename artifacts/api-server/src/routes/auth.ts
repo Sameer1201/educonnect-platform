@@ -1,18 +1,17 @@
 import { Router, type IRouter, type Response } from "express";
-import { db, examTemplatesTable, passwordResetRequestsTable, usersTable } from "@workspace/db";
-import { eq, or, desc, ilike } from "drizzle-orm";
+import { db, examTemplatesTable, usersTable } from "@workspace/db";
+import { eq, or, ilike } from "drizzle-orm";
 import { LoginBody } from "@workspace/api-zod";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { hashPassword, verifyPassword } from "../lib/auth";
+import { hasBrevoAccounts, sendPasswordResetEmail } from "../lib/brevo";
 import {
-  createFirebaseEmailUser,
   deleteFirebaseUser,
-  ensureFirebasePasswordResetUser,
+  ensureFirebaseEmailUser,
   generateFirebasePasswordResetLink,
   isFirebaseAdminConfigured,
   verifyFirebaseIdToken,
 } from "../lib/firebaseAdmin";
-import { isBrevoConfigured, sendPortalPasswordResetEmail } from "../lib/brevo";
 
 const router: IRouter = Router();
 
@@ -23,6 +22,97 @@ function readTrimmedString(value: unknown) {
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
+
+function readPublicAppUrl() {
+  return readTrimmedString(process.env.PUBLIC_APP_URL) || "http://localhost:5173";
+}
+
+function buildCustomPasswordResetUrl(firebaseLink: string) {
+  const firebaseUrl = new URL(firebaseLink);
+  const appUrl = new URL("/reset-password", readPublicAppUrl());
+  const expiresAt = Date.now() + PASSWORD_RESET_EMAIL_COOLDOWN_MS;
+  const oobCode = firebaseUrl.searchParams.get("oobCode") ?? "";
+  const sig = signPasswordResetLink(oobCode, expiresAt);
+
+  ["oobCode", "mode", "apiKey", "lang", "continueUrl"].forEach((key) => {
+    const value = firebaseUrl.searchParams.get(key);
+    if (value) appUrl.searchParams.set(key, value);
+  });
+
+  appUrl.searchParams.set("expiresAt", String(expiresAt));
+  appUrl.searchParams.set("sig", sig);
+
+  return appUrl.toString();
+}
+
+const PASSWORD_RESET_EMAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+
+function readPasswordResetSigningSecret() {
+  return readTrimmedString(process.env.PASSWORD_RESET_LINK_SECRET)
+    || readTrimmedString(process.env.FIREBASE_PRIVATE_KEY)
+    || readTrimmedString(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+    || readTrimmedString(process.env.BREVO_API_KEY)
+    || "rank-pulse-reset-link-secret";
+}
+
+function signPasswordResetLink(oobCode: string, expiresAt: number) {
+  return createHmac("sha256", readPasswordResetSigningSecret())
+    .update(`${oobCode}:${expiresAt}`)
+    .digest("hex");
+}
+
+function isPasswordResetLinkSignatureValid(oobCode: string, expiresAt: number, sig: string) {
+  if (!oobCode || !Number.isFinite(expiresAt) || !sig) return false;
+  const expected = signPasswordResetLink(oobCode, expiresAt);
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  const actualBuffer = Buffer.from(sig, "utf8");
+  if (expectedBuffer.length !== actualBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function getPasswordResetCooldownRemaining(lastSentAt: Date | null | undefined) {
+  if (!lastSentAt) return 0;
+  const elapsed = Date.now() - lastSentAt.getTime();
+  return Math.max(0, PASSWORD_RESET_EMAIL_COOLDOWN_MS - elapsed);
+}
+
+function formatPasswordResetCooldown(remainingMs: number) {
+  const totalMinutes = Math.ceil(remainingMs / (60 * 1000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
+  return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+router.post("/auth/password-reset-link/validate", async (req, res): Promise<void> => {
+  const oobCode = readTrimmedString(req.body?.oobCode);
+  const sig = readTrimmedString(req.body?.sig);
+  const expiresAtRaw = Number(req.body?.expiresAt);
+
+  if (!oobCode || !sig || !Number.isFinite(expiresAtRaw)) {
+    res.status(400).json({ error: "Reset link is invalid or incomplete." });
+    return;
+  }
+
+  if (!isPasswordResetLinkSignatureValid(oobCode, expiresAtRaw, sig)) {
+    res.status(400).json({ error: "Reset link signature is invalid." });
+    return;
+  }
+
+  const remainingMs = expiresAtRaw - Date.now();
+  if (remainingMs <= 0) {
+    res.status(400).json({ error: "This reset link has expired. Please request a new one." });
+    return;
+  }
+
+  res.json({
+    valid: true,
+    expiresAt: new Date(expiresAtRaw).toISOString(),
+    remainingMs,
+  });
+});
 
 function sanitizeGoogleUsernameBase(email: string, name: string) {
   const emailBase = email.split("@")[0] ?? "";
@@ -105,9 +195,15 @@ function validateStudentOnboardingBody(body: unknown) {
   const normalized = {
     dateOfBirth: readTrimmedString(details.dateOfBirth),
     whatsappOnSameNumber: details.whatsappOnSameNumber === true,
+    whatsappNumber:
+      details.whatsappOnSameNumber === true
+        ? phone
+        : readTrimmedString(details.whatsappNumber),
     address: {
       country: readTrimmedString(address.country),
       state: readTrimmedString(address.state),
+      district: readTrimmedString(address.district),
+      street: readTrimmedString(address.street),
       city: readTrimmedString(address.city),
       pincode: readTrimmedString(address.pincode),
     },
@@ -125,8 +221,13 @@ function validateStudentOnboardingBody(body: unknown) {
   };
 
   if (!normalized.dateOfBirth) return { error: "Date of birth is required" } as const;
+  if (!normalized.whatsappOnSameNumber && !normalized.whatsappNumber) {
+    return { error: "WhatsApp number is required" } as const;
+  }
   if (!normalized.address.country) return { error: "Country is required" } as const;
   if (!normalized.address.state) return { error: "State is required" } as const;
+  if (!normalized.address.district) return { error: "District is required" } as const;
+  if (!normalized.address.street) return { error: "Street address is required" } as const;
   if (!normalized.address.city) return { error: "City is required" } as const;
   if (!normalized.address.pincode) return { error: "Pincode is required" } as const;
   if (!normalized.preparation.classLevel) return { error: "Current stage is required" } as const;
@@ -170,10 +271,6 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
 function canUserAccessPlatform(user: typeof usersTable.$inferSelect) {
   if (user.role === "planner") {
     return { error: "Planner role is no longer supported on this platform", status: 403 } as const;
-  }
-
-  if (user.role === "student" && user.status === "rejected") {
-    return { error: "Your account has been rejected. Contact admin for details.", status: 401 } as const;
   }
 
   return null;
@@ -229,6 +326,7 @@ async function upsertFirebaseUser({
       role: "student",
       status,
       approvedAt: status === "approved" ? new Date() : null,
+      rejectionReason: null,
     }).returning();
     user = createdUser;
   } else {
@@ -383,45 +481,61 @@ router.post("/auth/forgot-password-request", async (req, res): Promise<void> => 
   }
 
   if (user.role === "student" || user.role === "admin" || user.role === "super_admin") {
-    if (isFirebaseAdminConfigured() && isBrevoConfigured()) {
-      await ensureFirebasePasswordResetUser({
+    if (user.email) {
+      const cooldownRemaining = getPasswordResetCooldownRemaining(user.lastPasswordResetEmailAt);
+      if (cooldownRemaining > 0) {
+        res.status(429).json({
+          error: `A reset email was already sent recently. You can request the next email after ${formatPasswordResetCooldown(cooldownRemaining)}.`,
+          retryAfterSeconds: Math.ceil(cooldownRemaining / 1000),
+          nextAllowedAt: new Date(Date.now() + cooldownRemaining).toISOString(),
+        });
+        return;
+      }
+
+      if (isFirebaseAdminConfigured() && await hasBrevoAccounts()) {
+        try {
+          const firebaseLink = await generateFirebasePasswordResetLink(user.email);
+          const resetUrl = buildCustomPasswordResetUrl(firebaseLink);
+          await sendPasswordResetEmail({
+            accountName: user.fullName?.trim() || user.username,
+            email: user.email,
+            resetUrl,
+          });
+          await db
+            .update(usersTable)
+            .set({ lastPasswordResetEmailAt: new Date() })
+            .where(eq(usersTable.id, user.id));
+
+          res.json({
+            message: "Password reset link sent to your registered email. The next reset email can be sent after 2 hours.",
+            delivery: "server",
+          });
+          return;
+        } catch (error) {
+          res.status(500).json({
+            error: error instanceof Error ? error.message : "Failed to send password reset email.",
+          });
+          return;
+        }
+      }
+
+      await db
+        .update(usersTable)
+        .set({ lastPasswordResetEmailAt: new Date() })
+        .where(eq(usersTable.id, user.id));
+
+      res.json({
+        message: "Password reset link sent to your registered email. The next reset email can be sent after 2 hours.",
         email: user.email,
-        fullName: user.fullName,
+        delivery: "client",
       });
-      const resetLink = await generateFirebasePasswordResetLink(user.email);
-      await sendPortalPasswordResetEmail({
-        accountName: user.fullName,
-        email: user.email,
-        resetLink,
-        roleLabel: user.role === "admin"
-          ? "teacher"
-          : user.role === "super_admin"
-            ? "super admin"
-            : "student",
-      });
-      res.json({ message: "Password reset link sent to your registered email." });
       return;
     }
 
-    res.status(503).json({ error: "Firebase password reset is not configured yet." });
-    return;
   }
 
-  const [existingOpen] = await db
-    .select()
-    .from(passwordResetRequestsTable)
-    .where(eq(passwordResetRequestsTable.userId, user.id))
-    .orderBy(desc(passwordResetRequestsTable.createdAt));
-
-  if (!existingOpen || existingOpen.status !== "open") {
-    await db.insert(passwordResetRequestsTable).values({
-      userId: user.id,
-      requestedUsername: user.username,
-      requestedEmail: user.email,
-    });
-  }
-
-  res.json({ message: "Reset request submitted. Admin will share a temporary password after verification." });
+  res.status(400).json({ error: "This account does not have a valid email address." });
+  return;
 });
 
 router.get("/auth/exams", async (_req, res): Promise<void> => {
@@ -484,12 +598,12 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   let firebaseUid: string | null = null;
 
   try {
-    const firebaseUser = await createFirebaseEmailUser({ email, password, fullName });
+    const firebaseUser = await ensureFirebaseEmailUser({ email, password, fullName });
     firebaseUid = firebaseUser.uid;
 
     const [newUser] = await db.insert(usersTable).values({
       username,
-      passwordHash: hashPassword(randomBytes(24).toString("hex")),
+      passwordHash: hashPassword(password),
       fullName,
       email,
       phone: null,
@@ -507,7 +621,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
     if (error instanceof Error) {
       if (error.message.includes("email-already-exists")) {
-        res.status(400).json({ error: "Email already registered in Firebase" });
+        res.status(400).json({ error: "This email is already linked to an active account. Try signing in instead." });
         return;
       }
       res.status(400).json({ error: error.message });
@@ -612,6 +726,9 @@ router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
       status: "pending",
       approvedAt: null,
       approvedById: null,
+      rejectionReason: null,
+      pendingReviewStartedAt: new Date(),
+      pendingReviewEscalatedAt: null,
       onboardingComplete: true,
       studentProfileData: JSON.stringify({
         ...profileDetails,

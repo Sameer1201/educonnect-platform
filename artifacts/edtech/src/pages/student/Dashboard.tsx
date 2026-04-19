@@ -4,8 +4,10 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { isStudentPendingVerification, STUDENT_VERIFICATION_CONTACT_EMAIL } from "@/lib/student-access";
 import {
   BrainCircuit,
   Target,
@@ -16,6 +18,9 @@ import {
   Pencil,
   Check,
   X,
+  LockKeyhole,
+  Mail,
+  ShieldAlert,
 } from "lucide-react";
 import {
   LineChart,
@@ -131,6 +136,11 @@ type FocusAreaMetrics = {
 
 const TIME_SERIES_COLORS = ["hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-5))"];
 const DEFAULT_DAILY_GOAL = 150;
+const PERFORMANCE_TREND_LINE_COLOR = "#D97706";
+const PERFORMANCE_TREND_FILL_COLOR = "#F59E0B";
+const SUBJECT_ACCURACY_BAR_COLOR = "#F59E0B";
+const SUBJECT_PEER_BAR_COLOR = "#FCD34D";
+const SUBJECT_PEER_LABEL_COLOR = "#B45309";
 
 function safeNumber(value: unknown): number {
   const numeric = Number(value);
@@ -141,6 +151,11 @@ function shortLabel(value: string, max = 14) {
   const trimmed = value.trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, Math.max(1, max - 1))}…`;
+}
+
+function renderSubjectLegendLabel(value: string, index: number) {
+  const color = index === 0 ? SUBJECT_ACCURACY_BAR_COLOR : SUBJECT_PEER_LABEL_COLOR;
+  return <span style={{ color }}>{value}</span>;
 }
 
 function isBroadSubjectLabel(value: string) {
@@ -242,6 +257,128 @@ function getAttemptedCount(item: CompletedAnalysis) {
 
 function resolveDailyGoal(value: number | undefined) {
   return Number.isInteger(value) && value && value > 0 ? value : DEFAULT_DAILY_GOAL;
+}
+
+type PendingPreviewState = {
+  solvedToday: number;
+  streak: number;
+  totalTestsTaken: number;
+  testsThisWeek: number;
+  averageScore: number;
+  averageScoreSub: string;
+  avgTimeMinutes: number;
+  averageTimeSub: string;
+  bestScore: number;
+  bestScoreTotal: number;
+  bestTestTitle: string;
+  performanceData: Array<{ name: string; score: number; index: number }>;
+  subjectData: Array<{ subject: string; accuracy: number; avgAccuracy: number; attempted: number }>;
+  timeSubjects: string[];
+  timeData: Array<Record<string, string | number>>;
+  difficultyData: Array<{ name: string; value: number; color: string }>;
+  recentTests: Array<{ id: number; name: string; date: string; score: string; accuracy: string; time: string }>;
+  weakTopics: Array<{ topic: string; subject: string; accuracy: number }>;
+  weeklyData: Array<{ day: string; questions: number; isToday: boolean }>;
+};
+
+function getPendingPreviewSubjects(targetExam?: string | null) {
+  const exam = (targetExam ?? "").trim().toLowerCase();
+  if (exam.includes("gate")) {
+    return [
+      "General Aptitude",
+      "Engineering Mathematics",
+      "Network Theory",
+      "Control Systems",
+      "Communication Systems",
+      "Electronic Devices",
+      "Signals & Systems",
+      "Electromagnetics",
+      "Digital Electronics",
+      "Analog Circuits",
+    ];
+  }
+  if (exam.includes("jee")) {
+    return ["Physics", "Chemistry", "Mathematics", "Algebra", "Calculus", "Mechanics"];
+  }
+  if (exam.includes("neet")) {
+    return ["Biology", "Botany", "Zoology", "Physics", "Chemistry", "Organic Chemistry"];
+  }
+  return ["General Aptitude", "Logical Reasoning", "Quantitative Aptitude", "Core Concepts", "Practice Sets"];
+}
+
+function buildPendingDashboardPreview(targetExam?: string | null): PendingPreviewState {
+  const subjects = getPendingPreviewSubjects(targetExam);
+  const weekPattern = [42, 58, 64, 51, 75, 83, 67];
+  const weeklyData = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => ({
+    day,
+    questions: weekPattern[index] ?? 0,
+    isToday: index === 6,
+  }));
+
+  const performanceData = [
+    { name: "Mock 1", score: 54, index: 1 },
+    { name: "Mock 2", score: 61, index: 2 },
+    { name: "Mock 3", score: 58, index: 3 },
+    { name: "Mock 4", score: 66, index: 4 },
+    { name: "Mock 5", score: 72, index: 5 },
+  ];
+
+  const subjectData = subjects.map((subject, index) => ({
+    subject,
+    accuracy: Math.max(38, 76 - index * 3),
+    avgAccuracy: Math.max(42, 68 - index * 2),
+    attempted: Math.max(10, 42 - index * 2),
+  }));
+
+  const timeSubjects = subjects.slice(0, 3);
+  const timeData = [
+    { test: "Mock 1", [timeSubjects[0]]: 1.6, [timeSubjects[1]]: 1.3, [timeSubjects[2]]: 1.4 },
+    { test: "Mock 2", [timeSubjects[0]]: 1.4, [timeSubjects[1]]: 1.2, [timeSubjects[2]]: 1.3 },
+    { test: "Mock 3", [timeSubjects[0]]: 1.5, [timeSubjects[1]]: 1.1, [timeSubjects[2]]: 1.2 },
+    { test: "Mock 4", [timeSubjects[0]]: 1.2, [timeSubjects[1]]: 1.0, [timeSubjects[2]]: 1.1 },
+  ];
+
+  const difficultyData = [
+    { name: "Easy (Correct)", value: 24, color: "hsl(var(--chart-5))" },
+    { name: "Medium (Correct)", value: 31, color: "hsl(var(--chart-1))" },
+    { name: "Hard (Correct)", value: 14, color: "hsl(var(--chart-2))" },
+    { name: "Incorrect/Unattempted", value: 19, color: "hsl(var(--muted))" },
+  ];
+
+  const label = (targetExam ?? "Practice").trim() || "Practice";
+  const recentTests = [
+    { id: 901, name: `${label} Preview Test 1`, date: "Apr 16, 2026", score: "58/100", accuracy: "58%", time: "89 min" },
+    { id: 902, name: `${label} Preview Test 2`, date: "Apr 17, 2026", score: "64/100", accuracy: "64%", time: "84 min" },
+    { id: 903, name: `${label} Preview Test 3`, date: "Apr 18, 2026", score: "72/100", accuracy: "72%", time: "78 min" },
+  ];
+
+  const weakTopics = subjects.slice(-5).map((subject, index) => ({
+    topic: `${subject} Practice`,
+    subject,
+    accuracy: 42 + index * 4,
+  }));
+
+  return {
+    solvedToday: 67,
+    streak: 6,
+    totalTestsTaken: 12,
+    testsThisWeek: 3,
+    averageScore: 66,
+    averageScoreSub: "Sample preview trend until verification is complete",
+    avgTimeMinutes: 1.3,
+    averageTimeSub: "Sample speed insight visible in preview mode",
+    bestScore: 72,
+    bestScoreTotal: 100,
+    bestTestTitle: `${label} Preview Test 3`,
+    performanceData,
+    subjectData,
+    timeSubjects,
+    timeData,
+    difficultyData,
+    recentTests,
+    weakTopics,
+    weeklyData,
+  };
 }
 
 function DailyGoalTracker({
@@ -369,16 +506,415 @@ function DailyGoalTracker({
   );
 }
 
+function PendingPreviewDashboard({
+  preview,
+  goal,
+  onLockedAction,
+  onOpenStatusPage,
+}: {
+  preview: PendingPreviewState;
+  goal: number;
+  onLockedAction: () => void;
+  onOpenStatusPage: () => void;
+}) {
+  const subjectAxisAngle = preview.subjectData.length > 5 ? -18 : 0;
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Dashboard</h1>
+        <p className="text-muted-foreground mt-1">Preview mode active. Sample analytics visible until verification is approved.</p>
+      </div>
+
+      <Card className="overflow-hidden border-[#D9D6FE] bg-[linear-gradient(135deg,#F8F7FF_0%,#EEF2FF_100%)] shadow-sm">
+        <CardContent className="flex flex-col gap-5 px-5 py-5 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#5B4DFF] text-white shadow-sm">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <div className="space-y-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5B4DFF]">Verification Pending</p>
+                <h2 className="mt-1 text-xl font-bold text-[#111827]">Student dashboard preview unlocked</h2>
+              </div>
+              <p className="max-w-2xl text-sm leading-6 text-[#6B7280]">
+                Abhi jo metrics dikh rahe hain woh sample preview values hain. Tests, question bank, aur deeper actions admin approval ke baad activate honge.
+              </p>
+              <div className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
+                <Mail className="h-4 w-4 text-[#5B4DFF]" />
+                <span>{STUDENT_VERIFICATION_CONTACT_EMAIL}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-2xl border-[#D9D6FE] bg-white text-[#5B4DFF] hover:bg-[#EEF2FF]"
+              onClick={onOpenStatusPage}
+            >
+              Check verification
+            </Button>
+            <Button
+              type="button"
+              className="rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+              onClick={onLockedAction}
+            >
+              <LockKeyhole className="mr-2 h-4 w-4" />
+              Open locked features
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <DailyGoalTracker
+        solved={preview.solvedToday}
+        streak={preview.streak}
+        goal={goal}
+        isEditing={false}
+        draftGoal={String(goal)}
+        onDraftChange={() => undefined}
+        onEdit={onLockedAction}
+        onCancel={() => undefined}
+        onSave={() => undefined}
+        isSaving={false}
+      />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Card className="hover-elevate transition-all border-l-4 border-l-primary">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Tests Taken</CardTitle>
+            <div className="p-2 bg-primary/10 rounded-full">
+              <Target className="h-4 w-4 text-primary" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{preview.totalTestsTaken}</div>
+            <p className="text-xs text-muted-foreground mt-1">+{preview.testsThisWeek} this week</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate transition-all border-l-4 border-l-chart-2">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Average Score</CardTitle>
+            <div className="p-2 bg-chart-2/10 rounded-full">
+              <BrainCircuit className="h-4 w-4 text-chart-2" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{preview.averageScore}%</div>
+            <p className="text-xs text-chart-5 font-medium mt-1">{preview.averageScoreSub}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate transition-all border-l-4 border-l-chart-4">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Best Score</CardTitle>
+            <div className="p-2 bg-chart-4/10 rounded-full">
+              <Award className="h-4 w-4 text-chart-4" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {preview.bestScore}
+              <span className="text-sm font-normal text-muted-foreground">/{preview.bestScoreTotal}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">{preview.bestTestTitle}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-elevate transition-all border-l-4 border-l-chart-3">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Avg. Time / Question</CardTitle>
+            <div className="p-2 bg-chart-3/10 rounded-full">
+              <Timer className="h-4 w-4 text-chart-3" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatMinutes(preview.avgTimeMinutes)}</div>
+            <p className="text-xs text-chart-5 font-medium mt-1">{preview.averageTimeSub}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-6">
+        <Card className="shadow-sm border-border/60">
+          <CardHeader>
+            <CardTitle>Performance Trend</CardTitle>
+            <CardDescription>Sample mock trend available before verification</CardDescription>
+          </CardHeader>
+          <CardContent className="px-2">
+            <div className="h-[240px] w-full sm:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={preview.performanceData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorScorePreview" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={PERFORMANCE_TREND_FILL_COLOR} stopOpacity={0.32} />
+                      <stop offset="95%" stopColor={PERFORMANCE_TREND_FILL_COLOR} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} dx={-10} domain={[0, 100]} />
+                  <Tooltip />
+                  <Area
+                    type="monotone"
+                    dataKey="score"
+                    stroke={PERFORMANCE_TREND_LINE_COLOR}
+                    strokeWidth={3}
+                    fillOpacity={1}
+                    fill="url(#colorScorePreview)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm border-border/60">
+          <CardHeader>
+            <CardTitle>Subject-wise Accuracy</CardTitle>
+            <CardDescription>Sample subject accuracy preview</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[240px] w-full sm:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={preview.subjectData} margin={{ top: 10, right: 10, left: 0, bottom: 36 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="subject"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tickFormatter={(value) => shortLabel(String(value), 12)}
+                    angle={subjectAxisAngle}
+                    textAnchor={subjectAxisAngle === 0 ? "middle" : "end"}
+                    interval={0}
+                    height={subjectAxisAngle === 0 ? 38 : 56}
+                    tickMargin={10}
+                  />
+                  <YAxis axisLine={false} tickLine={false} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(value) => `${value}%`} />
+                  <Tooltip />
+                  <Legend
+                    wrapperStyle={{ paddingTop: "20px", fontSize: "12px" }}
+                    formatter={(value, _entry, index) => renderSubjectLegendLabel(String(value), index)}
+                  />
+                  <Bar dataKey="accuracy" name="Preview Accuracy %" fill={SUBJECT_ACCURACY_BAR_COLOR} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey="avgAccuracy" name="Peer Average %" fill={SUBJECT_PEER_BAR_COLOR} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="shadow-sm border-border/60">
+          <CardHeader>
+            <CardTitle>Difficulty Breakdown</CardTitle>
+            <CardDescription>Sample performance by question level</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center justify-center">
+            <div className="h-[220px] w-full sm:h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={preview.difficultyData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={2} dataKey="value" stroke="none">
+                    {preview.difficultyData.map((entry, index) => (
+                      <Cell key={`preview-cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 grid w-full grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+              {preview.difficultyData.map((item, index) => (
+                <div key={index} className="flex items-center gap-2 text-xs">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="text-muted-foreground truncate">{item.name}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2 shadow-sm border-border/60">
+          <CardHeader>
+            <CardTitle>Time Analysis (mins/question)</CardTitle>
+            <CardDescription>Sample time spent per subject</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[220px] w-full sm:h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={preview.timeData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                  <XAxis dataKey="test" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} domain={[0, 3]} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ paddingTop: "10px", fontSize: "12px" }} />
+                  {preview.timeSubjects.map((subject, index) => (
+                    <Line
+                      key={subject}
+                      type="monotone"
+                      dataKey={subject}
+                      name={subject}
+                      stroke={TIME_SERIES_COLORS[index % TIME_SERIES_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-3">
+        <Card className="md:col-span-2 shadow-sm border-border/60 overflow-hidden">
+          <CardHeader className="bg-muted/30 border-b border-border/50">
+            <CardTitle>Recent Tests</CardTitle>
+            <CardDescription>Sample attempts visible in preview mode</CardDescription>
+          </CardHeader>
+          <div className="space-y-3 px-4 pb-4 md:hidden">
+            {preview.recentTests.map((test) => (
+              <div key={test.id} className="rounded-2xl border border-border/60 bg-background px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">{test.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{test.date}</p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold text-foreground">{test.score}</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Accuracy</span>
+                      <span>{test.accuracy}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: test.accuracy }} />
+                    </div>
+                  </div>
+                  <button className="shrink-0 text-xs font-semibold text-primary transition-colors hover:text-primary/80" onClick={onLockedAction}>
+                    Analysis
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs text-muted-foreground bg-muted/20">
+                <tr>
+                  <th className="px-6 py-3 font-medium">Test Name</th>
+                  <th className="px-6 py-3 font-medium">Date</th>
+                  <th className="px-6 py-3 font-medium">Score</th>
+                  <th className="px-6 py-3 font-medium">Accuracy</th>
+                  <th className="px-6 py-3 font-medium text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.recentTests.map((test) => (
+                  <tr key={test.id} className="border-b border-border/50 last:border-0 hover:bg-muted/10 transition-colors">
+                    <td className="px-6 py-4 font-medium text-foreground">{test.name}</td>
+                    <td className="px-6 py-4 text-muted-foreground">{test.date}</td>
+                    <td className="px-6 py-4 font-medium">{test.score}</td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <span>{test.accuracy}</span>
+                        <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-primary rounded-full" style={{ width: test.accuracy }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button className="text-primary hover:text-primary/80 font-medium flex items-center justify-end gap-1 ml-auto text-xs transition-colors" onClick={onLockedAction}>
+                        Analysis <ChevronRight className="h-3 w-3" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card className="shadow-sm border-border/60 bg-gradient-to-br from-card to-primary/5 border-primary/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-destructive" />
+              Priority Focus Areas
+            </CardTitle>
+            <CardDescription>Sample weak-topic preview before approval</CardDescription>
+          </CardHeader>
+          <CardContent className="px-0">
+            <div className="divide-y divide-border/50">
+              {preview.weakTopics.map((topic, index) => (
+                <div key={`${topic.topic}-${index}`} className="flex items-center justify-between px-6 py-3 hover:bg-white/50 transition-colors">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium leading-none text-foreground">{topic.topic}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                        {topic.subject}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-sm font-bold text-destructive">{topic.accuracy}%</span>
+                    <span className="text-[10px] text-muted-foreground">Accuracy</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="shadow-sm border-border/60">
+        <CardHeader>
+          <CardTitle>Weekly Questions Solved</CardTitle>
+          <CardDescription>Sample weekly consistency view</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[160px] w-full sm:h-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={preview.weeklyData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }} barCategoryGap="30%">
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} dy={8} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <Tooltip formatter={(value: number) => [`${value} Qs`, "Solved"]} />
+                <Bar dataKey="questions" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                  {preview.weeklyData.map((entry, index) => (
+                    <Cell
+                      key={`preview-week-${index}`}
+                      fill={entry.isToday ? "hsl(var(--primary))" : entry.questions >= 80 ? "hsl(var(--chart-3))" : "hsl(var(--muted))"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { user, login } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isPendingPreview = isStudentPendingVerification(user);
   const initialDailyGoal = resolveDailyGoal(user?.profileDetails?.dashboard?.dailyQuestionGoal);
   const [isEditingDailyGoal, setIsEditingDailyGoal] = useState(false);
   const [dailyGoalDraft, setDailyGoalDraft] = useState(String(initialDailyGoal));
   const [dailyGoal, setDailyGoal] = useState(initialDailyGoal);
   const [isSavingDailyGoal, setIsSavingDailyGoal] = useState(false);
+  const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
 
   useEffect(() => {
     const nextGoal = resolveDailyGoal(user?.profileDetails?.dashboard?.dailyQuestionGoal);
@@ -392,6 +928,7 @@ export default function Dashboard() {
     queryKey: ["dashboard-tests"],
     queryFn: () => api.get("/tests"),
     staleTime: 60_000,
+    enabled: !isPendingPreview,
   });
 
   const completedTests = useMemo(
@@ -400,7 +937,7 @@ export default function Dashboard() {
   );
 
   const analysisQueries = useQueries({
-    queries: completedTests.map((test) => ({
+    queries: isPendingPreview ? [] : completedTests.map((test) => ({
       queryKey: ["dashboard-test-analysis", test.id],
       queryFn: () => api.get(`/tests/${test.id}/my-analysis`) as Promise<AnalysisResponse>,
       staleTime: 5 * 60_000,
@@ -411,16 +948,18 @@ export default function Dashboard() {
     queryKey: ["dashboard-question-bank-progress"],
     queryFn: () => api.get("/question-bank/progress/summary"),
     staleTime: 60_000,
+    enabled: !isPendingPreview,
   });
 
   const { data: questionBankExams = [] } = useQuery<StudentQuestionBankExamSummary[]>({
     queryKey: ["dashboard-question-bank-exams"],
     queryFn: () => api.get("/question-bank/exams"),
     staleTime: 60_000,
+    enabled: !isPendingPreview,
   });
 
   const questionBankExamQueries = useQueries({
-    queries: questionBankExams.map((exam) => ({
+    queries: isPendingPreview ? [] : questionBankExams.map((exam) => ({
       queryKey: ["dashboard-question-bank-exam", exam.key],
       queryFn: () => api.get(`/question-bank/exams/${exam.key}`) as Promise<StudentQuestionBankExamResponse>,
       staleTime: 60_000,
@@ -456,6 +995,7 @@ export default function Dashboard() {
 
   const isAnalysisLoading = completedTests.length > 0 && analysisQueries.some((query) => query.isLoading && !query.data);
   const analysisErrors = analysisQueries.filter((query) => query.isError);
+  const pendingPreview = useMemo(() => buildPendingDashboardPreview(user?.subject), [user?.subject]);
 
   const analyses = useMemo<CompletedAnalysis[]>(() => {
     return completedTests
@@ -711,6 +1251,24 @@ export default function Dashboard() {
       ? analysisErrors[0].error.message
       : null;
 
+  if (isPendingPreview) {
+    return (
+      <>
+        <PendingPreviewDashboard
+          preview={pendingPreview}
+          goal={dailyGoal}
+          onLockedAction={() => setPendingDialogOpen(true)}
+          onOpenStatusPage={() => setLocation("/student/pending-approval")}
+        />
+        <PendingVerificationDialog
+          open={pendingDialogOpen}
+          onOpenChange={setPendingDialogOpen}
+          onCheckStatus={() => setLocation("/student/pending-approval")}
+        />
+      </>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
@@ -866,8 +1424,8 @@ export default function Dashboard() {
                 <AreaChart data={performanceData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      <stop offset="5%" stopColor={PERFORMANCE_TREND_FILL_COLOR} stopOpacity={0.32} />
+                      <stop offset="95%" stopColor={PERFORMANCE_TREND_FILL_COLOR} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -898,7 +1456,7 @@ export default function Dashboard() {
                   <Area
                     type="monotone"
                     dataKey="score"
-                    stroke="hsl(var(--primary))"
+                    stroke={PERFORMANCE_TREND_LINE_COLOR}
                     strokeWidth={3}
                     fillOpacity={1}
                     fill="url(#colorScore)"
@@ -949,9 +1507,12 @@ export default function Dashboard() {
                     }}
                     cursor={{ fill: "hsl(var(--muted)/0.4)" }}
                   />
-                  <Legend wrapperStyle={{ paddingTop: "20px", fontSize: "12px" }} />
-                  <Bar dataKey="accuracy" name="Your Accuracy %" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                  <Bar dataKey="avgAccuracy" name="Peer Average %" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  <Legend
+                    wrapperStyle={{ paddingTop: "20px", fontSize: "12px" }}
+                    formatter={(value, _entry, index) => renderSubjectLegendLabel(String(value), index)}
+                  />
+                  <Bar dataKey="accuracy" name="Your Accuracy %" fill={SUBJECT_ACCURACY_BAR_COLOR} radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  <Bar dataKey="avgAccuracy" name="Peer Average %" fill={SUBJECT_PEER_BAR_COLOR} radius={[4, 4, 0, 0]} maxBarSize={40} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

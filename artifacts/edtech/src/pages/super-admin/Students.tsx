@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle,
   Clock,
@@ -29,11 +29,18 @@ interface User {
   email: string;
   phone?: string;
   status: string;
+  onboardingComplete?: boolean;
   subject?: string | null;
   approvedById?: number | null;
   approvedAt?: string | null;
   createdAt: string;
   approverName?: string;
+  rejectionReason?: string | null;
+  profileDetails?: {
+    preparation?: {
+      targetExam?: string | null;
+    } | null;
+  } | null;
 }
 
 function getStatusVariant(status: string): "default" | "outline" | "destructive" | "secondary" {
@@ -48,12 +55,16 @@ function getStatusIcon(status: string) {
   return <XCircle size={14} className="text-red-500" />;
 }
 
+function getStudentTargetExam(student: User) {
+  return student.profileDetails?.preparation?.targetExam?.trim() || student.subject?.trim() || "";
+}
+
 export default function SuperAdminStudents() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [resetDialog, setResetDialog] = useState<{ id: number; studentName: string } | null>(null);
-  const [temporaryPassword, setTemporaryPassword] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<User | null>(null);
+  const [rejectionDialog, setRejectionDialog] = useState<User | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const { data: students = [], isLoading: isStudentsLoading } = useQuery<User[]>({
     queryKey: ["sa-students-with-approvers"],
@@ -87,33 +98,26 @@ export default function SuperAdminStudents() {
     staleTime: 30_000,
   });
 
-  const { data: resetRequests = [] } = useQuery<any[]>({
-    queryKey: ["sa-password-reset-requests"],
-    queryFn: async () => {
-      const response = await fetch(`${BASE}/api/password-reset-requests`, { credentials: "include" });
-      if (!response.ok) throw new Error("Failed to load reset requests");
-      return response.json();
-    },
-  });
-
   const refreshStudents = () => {
     queryClient.invalidateQueries({ queryKey: ["sa-students-with-approvers"] });
     queryClient.invalidateQueries({ queryKey: ["sa-student-insights"] });
   };
 
   const revokeMutation = useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
       const response = await fetch(`${BASE}/api/users/${id}/approve`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "rejected" }),
+        body: JSON.stringify({ status: "rejected", reason }),
       });
       if (!response.ok) throw new Error("Failed to revoke access");
     },
     onSuccess: () => {
       refreshStudents();
-      toast({ title: "Access revoked", description: "Student can no longer log in." });
+      setRejectionDialog(null);
+      setRejectionReason("");
+      toast({ title: "Application rejected", description: "Student can review the reason and resubmit." });
     },
   });
 
@@ -151,30 +155,9 @@ export default function SuperAdminStudents() {
     },
   });
 
-  const resolveResetMutation = useMutation({
-    mutationFn: async ({ id, temporaryPassword: nextTemporaryPassword }: { id: number; temporaryPassword: string }) => {
-      const response = await fetch(`${BASE}/api/password-reset-requests/${id}/resolve`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ temporaryPassword: nextTemporaryPassword }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? "Failed to set temporary password");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sa-password-reset-requests"] });
-      toast({ title: "Temporary password set", description: "Student must change password after login." });
-      setResetDialog(null);
-      setTemporaryPassword("");
-    },
-  });
-
-  const pending = students.filter((student) => student.status === "pending");
-  const approved = students.filter((student) => student.status === "approved");
+  const reviewableStudents = students.filter((student) => student.onboardingComplete === true);
+  const pending = reviewableStudents.filter((student) => student.status === "pending");
+  const approved = reviewableStudents.filter((student) => student.status === "approved");
 
   const handleDelete = (student: User) => {
     if (!confirm(`Delete ${student.fullName} permanently? This will remove all data related to this student.`)) return;
@@ -198,7 +181,7 @@ export default function SuperAdminStudents() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total</p>
-              <p className="text-2xl font-bold" data-testid="stat-total-students">{students.length}</p>
+              <p className="text-2xl font-bold" data-testid="stat-total-students">{reviewableStudents.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -228,31 +211,6 @@ export default function SuperAdminStudents() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Forgot Password Requests ({resetRequests.filter((request) => request.status === "open").length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {resetRequests.filter((request) => request.status === "open").length === 0 ? (
-            <p className="text-sm text-muted-foreground">No open reset requests.</p>
-          ) : (
-            <div className="space-y-2">
-              {resetRequests.filter((request) => request.status === "open").map((request) => (
-                <div key={request.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                  <div>
-                    <p className="text-sm font-medium">{request.requestedUsername}</p>
-                    <p className="text-xs text-muted-foreground">{request.requestedEmail}</p>
-                  </div>
-                  <Button size="sm" onClick={() => setResetDialog({ id: request.id, studentName: request.requestedUsername })}>
-                    Set Temporary Password
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle className="text-base">Student List</CardTitle>
         </CardHeader>
         <CardContent>
@@ -262,11 +220,11 @@ export default function SuperAdminStudents() {
                 <div key={index} className="h-16 rounded bg-muted animate-pulse" />
               ))}
             </div>
-          ) : students.length === 0 ? (
+          ) : reviewableStudents.length === 0 ? (
             <p className="text-sm text-muted-foreground">No students registered yet.</p>
           ) : (
             <div className="space-y-2">
-              {students.map((student) => (
+              {reviewableStudents.map((student) => (
                 <div
                   key={student.id}
                   className="flex flex-col gap-3 rounded-lg border border-border p-4 xl:flex-row xl:items-start xl:justify-between"
@@ -279,15 +237,20 @@ export default function SuperAdminStudents() {
                         {getStatusIcon(student.status)}
                         {student.status}
                       </Badge>
-                      {student.subject && (
+                      {getStudentTargetExam(student) && (
                         <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-                          {student.subject}
+                          {getStudentTargetExam(student)}
                         </Badge>
                       )}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       @{student.username} · {student.email}{student.phone ? ` · ${student.phone}` : ""}
                     </p>
+                    {student.rejectionReason && (
+                      <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                        Reason: {student.rejectionReason}
+                      </p>
+                    )}
                     {student.status === "approved" && student.approverName && (
                       <p className="mt-1 flex items-center gap-1 text-xs text-green-700" data-testid={`approver-${student.id}`}>
                         <ShieldCheck size={11} />
@@ -317,7 +280,10 @@ export default function SuperAdminStudents() {
                         size="sm"
                         variant="ghost"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => revokeMutation.mutate(student.id)}
+                        onClick={() => {
+                          setRejectionDialog(student);
+                          setRejectionReason(student.rejectionReason ?? "");
+                        }}
                         disabled={revokeMutation.isPending}
                         data-testid={`button-revoke-${student.id}`}
                       >
@@ -359,27 +325,40 @@ export default function SuperAdminStudents() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!resetDialog} onOpenChange={(open) => !open && setResetDialog(null)}>
+      <Dialog
+        open={!!rejectionDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRejectionDialog(null);
+            setRejectionReason("");
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Set Temporary Password</DialogTitle>
+            <DialogTitle>Reject application</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Temporary password for <span className="font-medium text-foreground">{resetDialog?.studentName}</span>. Student will be forced to change it after login.
+              Student ko rejection reason dashboard par dikhega aur same reason email se bhi jayega.
             </p>
-            <Input
-              type="password"
-              value={temporaryPassword}
-              onChange={(event) => setTemporaryPassword(event.target.value)}
-              placeholder="Minimum 6 characters"
+            <Textarea
+              value={rejectionReason}
+              onChange={(event) => setRejectionReason(event.target.value)}
+              rows={4}
+              placeholder="Why is this application being rejected?"
             />
             <Button
-              className="w-full"
-              disabled={temporaryPassword.length < 6 || resolveResetMutation.isPending}
-              onClick={() => resetDialog && resolveResetMutation.mutate({ id: resetDialog.id, temporaryPassword })}
+              className="w-full bg-rose-600 hover:bg-rose-700"
+              disabled={rejectionReason.trim().length < 5 || revokeMutation.isPending || !rejectionDialog}
+              onClick={() =>
+                rejectionDialog && revokeMutation.mutate({
+                  id: rejectionDialog.id,
+                  reason: rejectionReason.trim(),
+                })
+              }
             >
-              Set Temporary Password
+              Submit rejection
             </Button>
           </div>
         </DialogContent>
@@ -416,7 +395,11 @@ export default function SuperAdminStudents() {
                 {studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile."}
               </div>
             ) : studentInsightsQuery.data ? (
-              <StudentProfileInsightsPanel insights={studentInsightsQuery.data} viewerLabel="Super admin review" />
+              <StudentProfileInsightsPanel
+                insights={studentInsightsQuery.data}
+                viewerLabel="Super admin review"
+                mode={selectedStudent?.status === "pending" ? "submittedOnly" : "full"}
+              />
             ) : null}
           </div>
         </DialogContent>

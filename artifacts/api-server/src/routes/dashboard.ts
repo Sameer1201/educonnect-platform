@@ -90,12 +90,11 @@ function getTimeValue(value: Date | null | undefined) {
 }
 
 router.get("/dashboard/super-admin", async (_req, res): Promise<void> => {
-  const [allUsers, allClasses, allEnrollments, allTests, allAssignments, allTickets, allPosts] = await Promise.all([
+  const [allUsers, allClasses, allEnrollments, allTests, allTickets, allPosts] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select().from(classesTable).orderBy(classesTable.createdAt),
     db.select().from(enrollmentsTable),
     db.select().from(testsTable),
-    db.select().from(assignmentsTable),
     db.select().from(supportTicketsTable),
     db.select({ id: communityPostsTable.id, createdAt: communityPostsTable.createdAt }).from(communityPostsTable),
   ]);
@@ -104,9 +103,6 @@ router.get("/dashboard/super-admin", async (_req, res): Promise<void> => {
   const students = allUsers.filter((u) => u.role === "student");
   const pendingStudents = students.filter((u) => u.status === "pending");
   const approvedStudents = students.filter((u) => u.status === "approved");
-  const liveClasses = allClasses.filter((c) => c.status === "live");
-  const completedClasses = allClasses.filter((c) => c.status === "completed");
-  const scheduledClasses = allClasses.filter((c) => c.status === "scheduled");
   const openTickets = allTickets.filter((t) => t.status === "open");
 
   const recentAdmins = [...admins].reverse().slice(0, 5);
@@ -128,46 +124,37 @@ router.get("/dashboard/super-admin", async (_req, res): Promise<void> => {
     });
   }
 
-  // Class activity by status
-  const classBreakdown = [
-    { label: "Scheduled", value: scheduledClasses.length, color: "#6366f1" },
-    { label: "Live", value: liveClasses.length, color: "#ef4444" },
-    { label: "Completed", value: completedClasses.length, color: "#10b981" },
-  ];
-
-  // Top teachers by class count
+  // Top teachers by active assessment and student reach
   const teacherStats = admins.map((t) => {
     const myClasses = allClasses.filter((c) => c.adminId === t.id);
     const myClassIds = myClasses.map((c) => c.id);
     const myStudents = new Set(allEnrollments.filter((e) => myClassIds.includes(e.classId)).map((e) => e.studentId)).size;
+    const myTests = allTests.filter((test) => test.classId !== null && myClassIds.includes(test.classId));
     return {
       id: t.id,
       fullName: t.fullName,
       subject: t.subject ?? null,
-      classesCount: myClasses.length,
       studentsCount: myStudents,
+      testsCount: myTests.length,
     };
-  }).sort((a, b) => b.classesCount - a.classesCount).slice(0, 4);
+  }).sort((a, b) => {
+    if (b.testsCount !== a.testsCount) return b.testsCount - a.testsCount;
+    return b.studentsCount - a.studentsCount;
+  }).slice(0, 4);
 
   res.json({
     totalAdmins: admins.length,
     totalStudents: students.length,
     approvedStudents: approvedStudents.length,
     pendingStudents: pendingStudents.length,
-    totalClasses: allClasses.length,
-    liveClasses: liveClasses.length,
-    completedClasses: completedClasses.length,
-    scheduledClasses: scheduledClasses.length,
     totalEnrollments: allEnrollments.length,
     totalTests: allTests.length,
-    totalAssignments: allAssignments.length,
     openTickets: openTickets.length,
     communityPosts: allPosts.length,
     recentAdmins: recentAdmins.map(serializeUser),
     recentStudents: recentStudents.map(serializeUser),
     pendingApprovals: pendingStudents.map(serializeUser),
     signupTrend,
-    classBreakdown,
     topTeachers: teacherStats,
   });
 });

@@ -1,16 +1,17 @@
 import { initializeApp, getApps, getApp, type FirebaseOptions } from "firebase/app";
 import {
+  confirmPasswordReset,
   EmailAuthProvider,
   GoogleAuthProvider,
   browserSessionPersistence,
   getAuth,
   reauthenticateWithCredential,
-  sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
   updatePassword,
+  verifyPasswordResetCode,
 } from "firebase/auth";
 
 const env = import.meta.env as Record<string, string | undefined>;
@@ -70,9 +71,14 @@ export async function signInWithFirebaseEmailPassword(email: string, password: s
   return { idToken, firebaseUser: result.user };
 }
 
-export async function sendFirebasePasswordReset(email: string) {
+export async function verifyFirebaseResetCode(oobCode: string) {
   await ensureFirebasePersistence();
-  await sendPasswordResetEmail(getFirebaseAuth(), email.trim());
+  return verifyPasswordResetCode(getFirebaseAuth(), oobCode.trim());
+}
+
+export async function confirmFirebaseResetPassword(oobCode: string, newPassword: string) {
+  await ensureFirebasePersistence();
+  await confirmPasswordReset(getFirebaseAuth(), oobCode.trim(), newPassword);
 }
 
 export async function changeFirebasePassword(currentPassword: string, newPassword: string) {

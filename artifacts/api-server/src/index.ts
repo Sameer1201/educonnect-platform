@@ -5,6 +5,7 @@ import { logger } from "./lib/logger";
 import { seedDefaultUsers } from "./seed";
 import { createLiveServer, handleUpgrade } from "./live";
 import { startDigestScheduler } from "./lib/digestScheduler";
+import { startPendingReviewScheduler } from "./lib/pendingReviewScheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -36,6 +37,7 @@ seedDefaultUsers()
       }
       logger.info({ port }, "Server listening");
       startDigestScheduler();
+      startPendingReviewScheduler();
     });
   })
   .catch((err) => {
