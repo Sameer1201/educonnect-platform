@@ -258,7 +258,13 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     db
       .select()
       .from(questionBankQuestionProgressTable)
-      .where(eq(questionBankQuestionProgressTable.studentId, user.id)),
+      .where(eq(questionBankQuestionProgressTable.studentId, user.id))
+      .catch((error) => {
+        if (isMissingRelationError(error)) {
+          return [] as Array<typeof questionBankQuestionProgressTable.$inferSelect>;
+        }
+        throw error;
+      }),
     db
       .select()
       .from(userActivityLogs)
