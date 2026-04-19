@@ -122,6 +122,59 @@ interface TestDetail {
   questions: Question[];
 }
 
+interface BuilderExportSection {
+  exportRef?: string | null;
+  title?: string | null;
+  description?: string | null;
+  subjectLabel?: string | null;
+  questionCount?: number | null;
+  marksPerQuestion?: number | null;
+  negativeMarks?: number | null;
+  meta?: Record<string, unknown> | null;
+  order?: number | null;
+}
+
+interface BuilderExportQuestion {
+  question?: string | null;
+  questionType?: QuestionType | null;
+  sectionRef?: string | null;
+  questionCode?: string | null;
+  sourceType?: string | null;
+  subjectLabel?: string | null;
+  options?: string[] | null;
+  optionImages?: (string | null)[] | null;
+  correctAnswer?: number | null;
+  correctAnswerMulti?: number[] | null;
+  correctAnswerMin?: number | null;
+  correctAnswerMax?: number | null;
+  points?: number | null;
+  negativeMarks?: number | null;
+  order?: number | null;
+  imageData?: string | null;
+  meta?: Record<string, unknown> | null;
+  solutionText?: string | null;
+  solutionImageData?: string | null;
+}
+
+interface BuilderExportBundle {
+  test?: {
+    title?: string | null;
+    description?: string | null;
+    examType?: string | null;
+    examHeader?: string | null;
+    examSubheader?: string | null;
+    instructions?: string | null;
+    examConfig?: Record<string, unknown> | null;
+    durationMinutes?: number | null;
+    passingScore?: number | null;
+    defaultPositiveMarks?: number | null;
+    defaultNegativeMarks?: number | null;
+    scheduledAt?: string | null;
+    sections?: BuilderExportSection[] | null;
+    questions?: BuilderExportQuestion[] | null;
+  } | null;
+}
+
 interface ExamTemplate {
   id: number;
   key: string;
@@ -317,6 +370,98 @@ function formatMarkingValue(value: number) {
 
 function formatMarkingSchemeLabel(scheme: Pick<MarkingScheme, "positive" | "negative">) {
   return `+${formatMarkingValue(scheme.positive)} / -${formatMarkingValue(scheme.negative)}`;
+}
+
+function parseBuilderExportSectionId(sectionRef: string | null | undefined, fallbackIndex: number) {
+  if (typeof sectionRef === "string") {
+    const matched = sectionRef.match(/section-(\d+)/i);
+    if (matched) return Number(matched[1]);
+  }
+  return -(fallbackIndex + 1);
+}
+
+function mapBuilderExportBundleToTestDetail(testId: number, bundle: BuilderExportBundle): TestDetail {
+  const exportedTest = bundle.test ?? {};
+  const rawSections = Array.isArray(exportedTest.sections) ? exportedTest.sections : [];
+  const sections = rawSections.map((section, index) => ({
+    id: parseBuilderExportSectionId(section.exportRef, index),
+    title: section.title?.trim() || `Section ${index + 1}`,
+    description: section.description ?? null,
+    subjectLabel: section.subjectLabel ?? null,
+    questionCount: section.questionCount ?? null,
+    marksPerQuestion: section.marksPerQuestion ?? null,
+    negativeMarks: section.negativeMarks ?? null,
+    meta: section.meta ?? null,
+    order: typeof section.order === "number" ? section.order : index,
+  }));
+
+  const sectionIdByRef = new Map<string, number>();
+  rawSections.forEach((section, index) => {
+    if (section.exportRef) {
+      sectionIdByRef.set(section.exportRef, parseBuilderExportSectionId(section.exportRef, index));
+    }
+  });
+
+  const questions = (Array.isArray(exportedTest.questions) ? exportedTest.questions : []).map((question, index) => {
+    const questionType: QuestionType =
+      question.questionType === "multi" || question.questionType === "integer"
+        ? question.questionType
+        : "mcq";
+
+    return {
+      id: -(index + 1),
+      sectionId: question.sectionRef ? (sectionIdByRef.get(question.sectionRef) ?? null) : null,
+      questionCode: question.questionCode ?? null,
+      sourceType: question.sourceType ?? "manual",
+      subjectLabel: question.subjectLabel ?? null,
+      question: question.question ?? "",
+      questionType,
+      options: Array.isArray(question.options) ? question.options : [],
+      optionImages: Array.isArray(question.optionImages) ? question.optionImages : null,
+      correctAnswer: typeof question.correctAnswer === "number" ? question.correctAnswer : undefined,
+      correctAnswerMulti: Array.isArray(question.correctAnswerMulti) ? question.correctAnswerMulti : null,
+      correctAnswerMin: typeof question.correctAnswerMin === "number" ? question.correctAnswerMin : null,
+      correctAnswerMax: typeof question.correctAnswerMax === "number" ? question.correctAnswerMax : null,
+      points: typeof question.points === "number" ? question.points : 1,
+      negativeMarks: typeof question.negativeMarks === "number" ? question.negativeMarks : 0,
+      order: typeof question.order === "number" ? question.order : index,
+      imageData: question.imageData ?? null,
+      solutionText: question.solutionText ?? null,
+      solutionImageData: question.solutionImageData ?? null,
+      difficulty: typeof question.meta?.difficulty === "string" ? question.meta.difficulty : null,
+      idealTimeSeconds: typeof question.meta?.estimatedTimeSeconds === "number"
+        ? question.meta.estimatedTimeSeconds
+        : typeof question.meta?.idealTimeSeconds === "number"
+          ? question.meta.idealTimeSeconds
+          : null,
+      meta: question.meta ?? null,
+      reports: null,
+      openReportCount: 0,
+      totalReportCount: 0,
+    };
+  });
+
+  return {
+    id: testId,
+    title: exportedTest.title ?? "Test Builder",
+    description: exportedTest.description ?? null,
+    examType: exportedTest.examType ?? null,
+    examHeader: exportedTest.examHeader ?? null,
+    examSubheader: exportedTest.examSubheader ?? null,
+    instructions: exportedTest.instructions ?? null,
+    examConfig: exportedTest.examConfig ?? null,
+    durationMinutes: typeof exportedTest.durationMinutes === "number" ? exportedTest.durationMinutes : 0,
+    defaultPositiveMarks: typeof exportedTest.defaultPositiveMarks === "number" ? exportedTest.defaultPositiveMarks : null,
+    defaultNegativeMarks: typeof exportedTest.defaultNegativeMarks === "number" ? exportedTest.defaultNegativeMarks : null,
+    passingScore: typeof exportedTest.passingScore === "number" ? exportedTest.passingScore : null,
+    isPublished: false,
+    scheduledAt: exportedTest.scheduledAt ?? null,
+    className: null,
+    chapterName: null,
+    subjectName: null,
+    sections,
+    questions,
+  };
 }
 
 function buildMarkingScheme(positive: number, negative: number): MarkingScheme {
@@ -820,11 +965,18 @@ export default function AdminTestBuilder() {
     queryKey: ["admin-test-builder", testId],
     queryFn: async () => {
       const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Failed to load test");
+      if (response.ok) {
+        return response.json();
       }
-      return response.json();
+
+      const fallbackResponse = await fetch(`${BASE}/api/tests/${testId}/export`, { credentials: "include" });
+      if (fallbackResponse.ok) {
+        const bundle = await fallbackResponse.json() as BuilderExportBundle;
+        return mapBuilderExportBundleToTestDetail(testId, bundle);
+      }
+
+      const message = await response.text();
+      throw new Error(message || "Failed to load test");
     },
     enabled: Number.isFinite(testId),
     staleTime: 60_000,
