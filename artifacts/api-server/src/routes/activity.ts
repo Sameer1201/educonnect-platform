@@ -13,6 +13,64 @@ import { eq, desc, and, sql, inArray } from "drizzle-orm";
 
 const router = Router();
 
+function getClientIp(req: any) {
+  const forwarded = req.headers["x-forwarded-for"];
+  const ip = Array.isArray(forwarded) ? forwarded[0] : typeof forwarded === "string" ? forwarded.split(",")[0]?.trim() : "";
+  const candidate = ip || req.headers["x-real-ip"] || req.socket?.remoteAddress || req.ip || "";
+  const normalized = String(candidate || "").replace(/^::ffff:/, "").trim();
+  return normalized || "Unknown IP";
+}
+
+function isPrivateIp(ip: string) {
+  return (
+    ip === "127.0.0.1"
+    || ip === "::1"
+    || ip.startsWith("10.")
+    || ip.startsWith("192.168.")
+    || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)
+  );
+}
+
+function getLocationLabel(req: any, ipAddress: string) {
+  const city = String(req.headers["x-vercel-ip-city"] || req.headers["cf-ipcity"] || "").trim();
+  const region = String(req.headers["x-vercel-ip-country-region"] || req.headers["x-vercel-ip-region"] || req.headers["cf-region"] || "").trim();
+  const country = String(req.headers["x-vercel-ip-country"] || req.headers["cf-ipcountry"] || "").trim();
+  const location = [city, region, country].filter(Boolean).join(", ");
+  if (location) return location;
+  if (!ipAddress || ipAddress === "Unknown IP") return "Unknown location";
+  if (isPrivateIp(ipAddress)) return "Local network";
+  return "Unknown location";
+}
+
+function parseUserAgent(userAgentHeader: string | undefined) {
+  const userAgent = String(userAgentHeader || "");
+  const lower = userAgent.toLowerCase();
+
+  const browserName = lower.includes("edg/")
+    ? "Edge"
+    : lower.includes("opr/") || lower.includes("opera")
+      ? "Opera"
+      : lower.includes("firefox/")
+        ? "Firefox"
+        : lower.includes("safari/") && !lower.includes("chrome/")
+          ? "Safari"
+          : lower.includes("chrome/")
+            ? "Chrome"
+            : "Unknown";
+
+  const deviceType = lower.includes("ipad") || lower.includes("tablet")
+    ? "Tablet"
+    : lower.includes("mobi") || lower.includes("android")
+      ? "Mobile"
+      : "Desktop";
+
+  return {
+    browserName,
+    deviceType,
+    userAgent: userAgent || "Unknown",
+  };
+}
+
 function requireAuth(req: any, res: any, next: any) {
   if (!req.cookies?.userId) return res.status(401).json({ error: "Unauthorized" });
   next();
@@ -53,19 +111,22 @@ router.post("/session/start", requireAuth, async (req, res) => {
     const userId = parseInt(req.cookies.userId, 10);
     const { sessionToken } = req.body;
     if (!sessionToken) return res.status(400).json({ error: "sessionToken required" });
+    const ipAddress = getClientIp(req);
+    const locationLabel = getLocationLabel(req, ipAddress);
+    const { browserName, deviceType, userAgent } = parseUserAgent(req.headers["user-agent"]);
 
     // Check if session already exists
     const existing = await db.select().from(userSessions)
       .where(and(eq(userSessions.userId, userId), eq(userSessions.sessionToken, sessionToken)));
     if (existing.length > 0) {
       await db.update(userSessions)
-        .set({ lastActiveAt: new Date(), isActive: true })
+        .set({ lastActiveAt: new Date(), isActive: true, ipAddress, locationLabel, browserName, deviceType, userAgent })
         .where(eq(userSessions.id, existing[0].id));
       return res.json({ sessionId: existing[0].id });
     }
 
     const [row] = await db.insert(userSessions).values({
-      userId, sessionToken, isActive: true,
+      userId, sessionToken, isActive: true, ipAddress, locationLabel, browserName, deviceType, userAgent,
     }).returning({ id: userSessions.id });
     res.json({ sessionId: row.id });
   } catch (err) {
@@ -79,6 +140,9 @@ router.post("/heartbeat", requireAuth, async (req, res) => {
     const userId = parseInt(req.cookies.userId, 10);
     const { sessionToken } = req.body;
     if (!sessionToken) return res.status(400).json({ error: "sessionToken required" });
+    const ipAddress = getClientIp(req);
+    const locationLabel = getLocationLabel(req, ipAddress);
+    const { browserName, deviceType, userAgent } = parseUserAgent(req.headers["user-agent"]);
 
     const existing = await db.select().from(userSessions)
       .where(and(eq(userSessions.userId, userId), eq(userSessions.sessionToken, sessionToken)));
@@ -87,7 +151,7 @@ router.post("/heartbeat", requireAuth, async (req, res) => {
       const elapsedSeconds = Math.floor((Date.now() - sess.lastActiveAt.getTime()) / 1000);
       const newTotal = (sess.totalSeconds || 0) + Math.min(elapsedSeconds, 120); // cap at 2 min per heartbeat to avoid counting idle
       await db.update(userSessions)
-        .set({ lastActiveAt: new Date(), totalSeconds: newTotal, isActive: true })
+        .set({ lastActiveAt: new Date(), totalSeconds: newTotal, isActive: true, ipAddress, locationLabel, browserName, deviceType, userAgent })
         .where(eq(userSessions.id, sess.id));
     }
     res.json({ ok: true });
@@ -102,6 +166,9 @@ router.post("/session/end", requireAuth, async (req, res) => {
     const userId = parseInt(req.cookies.userId, 10);
     const { sessionToken } = req.body;
     if (!sessionToken) return res.status(400).json({ error: "sessionToken required" });
+    const ipAddress = getClientIp(req);
+    const locationLabel = getLocationLabel(req, ipAddress);
+    const { browserName, deviceType, userAgent } = parseUserAgent(req.headers["user-agent"]);
 
     const existing = await db.select().from(userSessions)
       .where(and(eq(userSessions.userId, userId), eq(userSessions.sessionToken, sessionToken)));
@@ -110,7 +177,17 @@ router.post("/session/end", requireAuth, async (req, res) => {
       const elapsedSeconds = Math.floor((Date.now() - sess.lastActiveAt.getTime()) / 1000);
       const newTotal = (sess.totalSeconds || 0) + Math.min(elapsedSeconds, 120);
       await db.update(userSessions)
-        .set({ endedAt: new Date(), isActive: false, lastActiveAt: new Date(), totalSeconds: newTotal })
+        .set({
+          endedAt: new Date(),
+          isActive: false,
+          lastActiveAt: new Date(),
+          totalSeconds: newTotal,
+          ipAddress,
+          locationLabel,
+          browserName,
+          deviceType,
+          userAgent,
+        })
         .where(eq(userSessions.id, sess.id));
     }
     res.json({ ok: true });

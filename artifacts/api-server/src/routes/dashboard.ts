@@ -15,8 +15,26 @@ import {
   subjectsTable,
 } from "@workspace/db";
 import { eq, count, and, inArray, desc } from "drizzle-orm";
+import {
+  getStudentReviewAutomationSettings,
+  updateStudentReviewAutomationSettings,
+} from "../lib/platformSettings";
+import { listStudentReviewEmailRecipients } from "../lib/studentReview";
 
 const router: IRouter = Router();
+
+function requireRole(req: any, res: any, allowedRoles: string[]): string | null {
+  const callerRole = req.cookies?.userRole;
+  if (!callerRole) {
+    res.status(401).json({ error: "Not authenticated" });
+    return null;
+  }
+  if (!allowedRoles.includes(callerRole)) {
+    res.status(403).json({ error: "Forbidden" });
+    return null;
+  }
+  return callerRole;
+}
 
 function serializeUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash, ...rest } = user;
@@ -89,14 +107,19 @@ function getTimeValue(value: Date | null | undefined) {
   return value ? value.getTime() : Number.POSITIVE_INFINITY;
 }
 
-router.get("/dashboard/super-admin", async (_req, res): Promise<void> => {
-  const [allUsers, allClasses, allEnrollments, allTests, allTickets, allPosts] = await Promise.all([
+router.get("/dashboard/super-admin", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["super_admin"]);
+  if (!callerRole) return;
+
+  const [allUsers, allClasses, allEnrollments, allTests, allTickets, allPosts, studentReviewSettings, reviewRecipients] = await Promise.all([
     db.select().from(usersTable).orderBy(usersTable.createdAt),
     db.select().from(classesTable).orderBy(classesTable.createdAt),
     db.select().from(enrollmentsTable),
     db.select().from(testsTable),
     db.select().from(supportTicketsTable),
     db.select({ id: communityPostsTable.id, createdAt: communityPostsTable.createdAt }).from(communityPostsTable),
+    getStudentReviewAutomationSettings(),
+    listStudentReviewEmailRecipients(),
   ]);
 
   const admins = allUsers.filter((u) => u.role === "admin");
@@ -156,6 +179,44 @@ router.get("/dashboard/super-admin", async (_req, res): Promise<void> => {
     pendingApprovals: pendingStudents.map(serializeUser),
     signupTrend,
     topTeachers: teacherStats,
+    studentReviewAutomation: {
+      emailEnabled: studentReviewSettings.emailEnabled,
+      quickActionsEnabled: studentReviewSettings.quickActionsEnabled,
+      recipientsCount: reviewRecipients.length,
+      recipientEmails: reviewRecipients.map((recipient) => recipient.reviewerEmail),
+    },
+  });
+});
+
+router.patch("/dashboard/super-admin/student-review-settings", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["super_admin"]);
+  if (!callerRole) return;
+
+  const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+  const patch: { emailEnabled?: boolean; quickActionsEnabled?: boolean } = {};
+
+  if (typeof body.emailEnabled === "boolean") {
+    patch.emailEnabled = body.emailEnabled;
+  }
+  if (typeof body.quickActionsEnabled === "boolean") {
+    patch.quickActionsEnabled = body.quickActionsEnabled;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    res.status(400).json({ error: "No valid student review setting provided" });
+    return;
+  }
+
+  const [settings, recipients] = await Promise.all([
+    updateStudentReviewAutomationSettings(patch),
+    listStudentReviewEmailRecipients(),
+  ]);
+
+  res.json({
+    emailEnabled: settings.emailEnabled,
+    quickActionsEnabled: settings.quickActionsEnabled,
+    recipientsCount: recipients.length,
+    recipientEmails: recipients.map((recipient) => recipient.reviewerEmail),
   });
 });
 

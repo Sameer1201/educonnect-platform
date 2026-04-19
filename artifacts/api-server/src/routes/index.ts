@@ -13,6 +13,7 @@ import { dmRouter } from "./dm";
 import { lecturePlansRouter } from "./lecturePlans";
 import { questionBankRouter } from "./questionBank";
 import { plannerRouter } from "./planner";
+import studentReviewRouter from "./studentReview";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(dmRouter);
 router.use(lecturePlansRouter);
 router.use(questionBankRouter);
 router.use(plannerRouter);
+router.use(studentReviewRouter);
 
 export default router;

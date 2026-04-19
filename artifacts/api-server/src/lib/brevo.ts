@@ -2,6 +2,11 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, emailProviderDailyUsageTable } from "@workspace/db";
 import { emailProviderConfigsTable, emailSendLogsTable } from "@workspace/db/schema";
 import { logger } from "./logger";
+import {
+  buildStudentReviewActionUrl,
+  type StudentReviewRecipient,
+  type StudentReviewSummary,
+} from "./studentReview";
 
 const PENDING_STUDENT_ESCALATION_EMAIL = "sameermajhi339@gmail.com";
 
@@ -888,6 +893,156 @@ export async function sendPendingStudentReviewEscalationEmail({
   });
 }
 
+function renderStudentReviewInfoRow(label: string, value: string) {
+  return `
+    <tr>
+      <td style="padding:10px 0 10px 0;color:#6b7280;font-size:13px;font-weight:700;vertical-align:top;width:160px;">${escapeHtml(label)}</td>
+      <td style="padding:10px 0;color:#111827;font-size:14px;line-height:1.7;">${escapeHtml(value || "Not provided")}</td>
+    </tr>
+  `.trim();
+}
+
+export async function sendNewStudentReviewRequestEmail({
+  reviewer,
+  studentId,
+  cycleAt,
+  studentSummary,
+  quickActionsEnabled,
+}: {
+  reviewer: StudentReviewRecipient;
+  studentId: number;
+  cycleAt: number;
+  studentSummary: StudentReviewSummary;
+  quickActionsEnabled: boolean;
+}) {
+  const portalUrl = readPortalUrl();
+  const safePortalUrl = escapeHtml(portalUrl);
+  const safeReviewerName = escapeHtml(reviewer.reviewerName || "Super Admin");
+  const subject = `New student setup submitted: ${studentSummary.studentName}`;
+  const approveUrl = buildStudentReviewActionUrl({
+    studentId,
+    reviewerId: reviewer.reviewerId,
+    action: "approve",
+    cycleAt,
+  });
+  const rejectUrl = buildStudentReviewActionUrl({
+    studentId,
+    reviewerId: reviewer.reviewerId,
+    action: "reject",
+    cycleAt,
+  });
+
+  const textLines = [
+    `Hi ${reviewer.reviewerName || "Super Admin"},`,
+    "",
+    "A new student has completed account setup and is waiting for verification.",
+    "",
+    `Name: ${studentSummary.studentName}`,
+    `Username: ${studentSummary.username}`,
+    `Email: ${studentSummary.studentEmail}`,
+    `Phone: ${studentSummary.phone}`,
+    `Submitted at: ${studentSummary.submittedAtLabel}`,
+    `Target exam: ${studentSummary.targetExam}`,
+    `Date of birth: ${studentSummary.dateOfBirth}`,
+    `WhatsApp: ${studentSummary.whatsappNumber}`,
+    `Address: ${studentSummary.addressLine}`,
+    `Class level: ${studentSummary.classLevel}`,
+    `Board: ${studentSummary.board}`,
+    `Target year: ${studentSummary.targetYear}`,
+    `Learning mode: ${studentSummary.learningMode}`,
+    `Learning provider: ${studentSummary.learningProvider}`,
+    `How they heard about Rank Pulse: ${studentSummary.hearAboutUs}`,
+    "",
+  ];
+
+  if (quickActionsEnabled) {
+    textLines.push(`Approve: ${approveUrl}`);
+    textLines.push(`Reject with reason: ${rejectUrl}`);
+    textLines.push("");
+  }
+
+  textLines.push(`Open dashboard: ${portalUrl}/super-admin/students`);
+
+  const detailsTable = [
+    renderStudentReviewInfoRow("Student name", studentSummary.studentName),
+    renderStudentReviewInfoRow("Username", `@${studentSummary.username}`),
+    renderStudentReviewInfoRow("Email", studentSummary.studentEmail),
+    renderStudentReviewInfoRow("Phone", studentSummary.phone),
+    renderStudentReviewInfoRow("Submitted at", studentSummary.submittedAtLabel),
+    renderStudentReviewInfoRow("Target exam", studentSummary.targetExam),
+    renderStudentReviewInfoRow("Date of birth", studentSummary.dateOfBirth),
+    renderStudentReviewInfoRow("WhatsApp", studentSummary.whatsappNumber),
+    renderStudentReviewInfoRow("Address", studentSummary.addressLine),
+    renderStudentReviewInfoRow("Class level", studentSummary.classLevel),
+    renderStudentReviewInfoRow("Board", studentSummary.board),
+    renderStudentReviewInfoRow("Target year", studentSummary.targetYear),
+    renderStudentReviewInfoRow("Learning mode", studentSummary.learningMode),
+    renderStudentReviewInfoRow("Learning provider", studentSummary.learningProvider),
+    renderStudentReviewInfoRow("Discovery source", studentSummary.hearAboutUs),
+  ].join("");
+
+  const actionBlock = quickActionsEnabled
+    ? `
+      <div style="margin-top:24px;display:flex;flex-wrap:wrap;gap:12px;">
+        <a href="${escapeHtml(approveUrl)}" style="display:inline-block;background:#15803d;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+          Verify Student
+        </a>
+        <a href="${escapeHtml(rejectUrl)}" style="display:inline-block;background:#b91c1c;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+          Reject With Reason
+        </a>
+      </div>
+      <p style="margin:14px 0 0;font-size:12px;line-height:1.7;color:#6b7280;">
+        These quick actions stay valid for the current review cycle only. If the student resubmits updated details later, old links stop working automatically.
+      </p>
+    `.trim()
+    : `
+      <div style="margin-top:24px;">
+        <a href="${safePortalUrl}/super-admin/students" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+          Open Student Reviews
+        </a>
+      </div>
+    `.trim();
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#d97706;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            New Student Review
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">Student setup submitted for verification</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeReviewerName}, a new student has completed onboarding and is waiting for your review.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #fed7aa;border-radius:18px;background:#fffaf0;padding:18px 20px;">
+            <table style="width:100%;border-collapse:collapse;">
+              ${detailsTable}
+            </table>
+          </div>
+          ${actionBlock}
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: reviewer.reviewerEmail,
+    subject,
+    htmlContent,
+    textContent: textLines.join("\n"),
+    messageType: "student-review-request",
+    metadata: {
+      studentId,
+      reviewerId: reviewer.reviewerId,
+      studentEmail: studentSummary.studentEmail,
+      targetExam: studentSummary.targetExam,
+      quickActionsEnabled,
+    },
+  });
+}
+
 export function queueStudentApprovedEmail(args: { studentName: string; email: string }) {
   void sendStudentApprovedEmail(args).catch((error) => {
     logger.warn({ error, email: args.email }, "Failed to send student approval email via Brevo");
@@ -913,4 +1068,27 @@ export function queuePendingStudentReviewEscalationEmail(args: {
       "Failed to send pending student review escalation email via Brevo",
     );
   });
+}
+
+export function queueNewStudentReviewRequestEmails(args: {
+  studentId: number;
+  cycleAt: number;
+  studentSummary: StudentReviewSummary;
+  recipients: StudentReviewRecipient[];
+  quickActionsEnabled: boolean;
+}) {
+  for (const reviewer of args.recipients) {
+    void sendNewStudentReviewRequestEmail({
+      reviewer,
+      studentId: args.studentId,
+      cycleAt: args.cycleAt,
+      studentSummary: args.studentSummary,
+      quickActionsEnabled: args.quickActionsEnabled,
+    }).catch((error) => {
+      logger.warn(
+        { error, reviewerEmail: reviewer.reviewerEmail, studentEmail: args.studentSummary.studentEmail },
+        "Failed to send new student review request email via Brevo",
+      );
+    });
+  }
 }

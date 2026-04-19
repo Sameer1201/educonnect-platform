@@ -6,6 +6,7 @@ import { useCountUp } from "@/hooks/useCountUp";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
 import { APP_NAME } from "@/lib/brand";
@@ -18,7 +19,10 @@ import {
   TrendingUp, Bell, LifeBuoy, Trophy, GraduationCap,
   Medal, ClipboardList, ArrowRight,
   Shield, Activity, Plus, ChevronRight,
+  Mail, MousePointerClick,
 } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 /* ─── helpers ─── */
 function getHour() { return new Date().getHours(); }
@@ -136,11 +140,21 @@ export default function SuperAdminDashboard() {
   const [greeting] = useState(getGreeting());
   const [time, setTime] = useState(new Date());
   const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [reviewEmailEnabled, setReviewEmailEnabled] = useState(true);
+  const [reviewQuickActionsEnabled, setReviewQuickActionsEnabled] = useState(true);
+  const [savingSetting, setSavingSetting] = useState<"email" | "actions" | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const automation = (data as any)?.studentReviewAutomation;
+    if (!automation) return;
+    setReviewEmailEnabled(Boolean(automation.emailEnabled));
+    setReviewQuickActionsEnabled(Boolean(automation.quickActionsEnabled));
+  }, [data]);
 
   const handleApprove = (id: number, name: string) => {
     setApprovingId(id);
@@ -156,6 +170,51 @@ export default function SuperAdminDashboard() {
         onSettled: () => setApprovingId(null),
       }
     );
+  };
+
+  const updateStudentReviewSetting = async (
+    patch: { emailEnabled?: boolean; quickActionsEnabled?: boolean },
+    key: "email" | "actions",
+  ) => {
+    const previousEmailEnabled = reviewEmailEnabled;
+    const previousQuickActionsEnabled = reviewQuickActionsEnabled;
+
+    if (patch.emailEnabled !== undefined) setReviewEmailEnabled(patch.emailEnabled);
+    if (patch.quickActionsEnabled !== undefined) setReviewQuickActionsEnabled(patch.quickActionsEnabled);
+    setSavingSetting(key);
+
+    try {
+      const response = await fetch(`${BASE}/api/dashboard/super-admin/student-review-settings`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to update student review automation.");
+      }
+      const payload = await response.json();
+      setReviewEmailEnabled(Boolean(payload.emailEnabled));
+      setReviewQuickActionsEnabled(Boolean(payload.quickActionsEnabled));
+      toast({
+        title: "Student review automation updated",
+        description: key === "email"
+          ? `New setup emails are now ${payload.emailEnabled ? "enabled" : "disabled"}.`
+          : `Email approve/reject links are now ${payload.quickActionsEnabled ? "enabled" : "disabled"}.`,
+      });
+      refetch();
+    } catch (error) {
+      setReviewEmailEnabled(previousEmailEnabled);
+      setReviewQuickActionsEnabled(previousQuickActionsEnabled);
+      toast({
+        title: "Setting update failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingSetting(null);
+    }
   };
 
   if (isLoading) {
@@ -224,6 +283,12 @@ export default function SuperAdminDashboard() {
   }
 
   const d = data as any;
+  const studentReviewAutomation = d.studentReviewAutomation ?? {
+    emailEnabled: reviewEmailEnabled,
+    quickActionsEnabled: reviewQuickActionsEnabled,
+    recipientsCount: 0,
+    recipientEmails: [],
+  };
 
   /* chart data */
   const trendData = (d.signupTrend ?? []).map((s: any) => ({
@@ -403,6 +468,63 @@ export default function SuperAdminDashboard() {
           color="from-rose-600 to-pink-600"
         />
       </div>
+
+      <TiltCard>
+      <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Mail size={14} className="text-orange-500" /> Student Review Email Automation
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-0">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-white">Send new setup review emails</p>
+                <p className="text-xs text-white/60">
+                  Student onboarding complete hote hi super admin inbox me full profile summary chali jayegi.
+                </p>
+              </div>
+              <Switch
+                checked={reviewEmailEnabled}
+                disabled={savingSetting !== null}
+                onCheckedChange={(checked) => updateStudentReviewSetting({ emailEnabled: checked }, "email")}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-white">Enable email approve/reject buttons</p>
+                  <MousePointerClick size={13} className="text-amber-300" />
+                </div>
+                <p className="text-xs text-white/60">
+                  Email ke andar direct verify/reject action buttons visible rahenge. Off karne par links instantly disable ho jayenge.
+                </p>
+              </div>
+              <Switch
+                checked={reviewQuickActionsEnabled}
+                disabled={savingSetting !== null}
+                onCheckedChange={(checked) => updateStudentReviewSetting({ quickActionsEnabled: checked }, "actions")}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-white/65">
+            <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/10">
+              {studentReviewAutomation.recipientsCount} recipient{studentReviewAutomation.recipientsCount === 1 ? "" : "s"}
+            </Badge>
+            {(studentReviewAutomation.recipientEmails ?? []).slice(0, 3).map((email: string) => (
+              <span key={email} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                {email}
+              </span>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      </TiltCard>
 
       {/* ── 3-column section ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

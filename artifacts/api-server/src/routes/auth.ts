@@ -5,6 +5,13 @@ import { LoginBody } from "@workspace/api-zod";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { hashPassword, verifyPassword } from "../lib/auth";
 import { hasBrevoAccounts, sendPasswordResetEmail } from "../lib/brevo";
+import { getStudentReviewAutomationSettings } from "../lib/platformSettings";
+import {
+  buildStudentReviewSummary,
+  getStudentReviewCycleAt,
+  listStudentReviewEmailRecipients,
+} from "../lib/studentReview";
+import { queueNewStudentReviewRequestEmails } from "../lib/brevo";
 import {
   deleteFirebaseUser,
   ensureFirebaseEmailUser,
@@ -331,8 +338,8 @@ async function upsertFirebaseUser({
     user = createdUser;
   } else {
     const updates: Partial<typeof usersTable.$inferInsert> = {};
-    if (!user.avatarUrl && avatarUrl) updates.avatarUrl = avatarUrl;
-    if (!user.fullName?.trim() && fullName) updates.fullName = fullName;
+    if (avatarUrl && user.avatarUrl !== avatarUrl) updates.avatarUrl = avatarUrl;
+    if (fullName && user.fullName?.trim() !== fullName) updates.fullName = fullName;
     if (Object.keys(updates).length > 0) {
       const [updatedUser] = await db
         .update(usersTable)
@@ -724,6 +731,8 @@ router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
       phone,
       subject: normalizedSubject,
       status: "pending",
+      reviewedById: null,
+      reviewedAt: null,
       approvedAt: null,
       approvedById: null,
       rejectionReason: null,
@@ -740,6 +749,20 @@ router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
     })
     .where(eq(usersTable.id, userId))
     .returning();
+
+  const studentReviewSettings = await getStudentReviewAutomationSettings();
+  if (studentReviewSettings.emailEnabled && await hasBrevoAccounts()) {
+    const recipients = await listStudentReviewEmailRecipients();
+    if (recipients.length > 0) {
+      queueNewStudentReviewRequestEmails({
+        studentId: updated.id,
+        cycleAt: getStudentReviewCycleAt(updated),
+        studentSummary: buildStudentReviewSummary(updated),
+        recipients,
+        quickActionsEnabled: studentReviewSettings.quickActionsEnabled,
+      });
+    }
+  }
 
   res.json(serializeUser(updated));
 });

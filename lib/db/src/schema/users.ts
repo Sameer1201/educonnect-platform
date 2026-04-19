@@ -20,6 +20,8 @@ export const usersTable = pgTable("users", {
   studentProfileData: text("student_profile_data"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   lastPasswordResetEmailAt: timestamp("last_password_reset_email_at", { withTimezone: true }),
+  reviewedById: integer("reviewed_by_id"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   approvedById: integer("approved_by_id"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   rejectionReason: text("rejection_reason"),

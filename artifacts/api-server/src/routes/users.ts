@@ -3,7 +3,9 @@ import {
   db,
   usersTable,
   classesTable,
+  chaptersTable,
   enrollmentsTable,
+  emailSendLogsTable,
   feedbackTable,
   supportTicketsTable,
   supportTicketMessagesTable,
@@ -20,6 +22,7 @@ import {
   questionBankReportsTable,
   notificationsTable,
   notificationPreferencesTable,
+  subjectsTable,
   userActivityLogs,
   userSessions,
   testsTable,
@@ -212,7 +215,7 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     return;
   }
 
-  const [approver, submissions, savedQuestions, practiceProgress, activityLogs, sessions] = await Promise.all([
+  const [approver, submissions, savedQuestions, practiceProgress, activityLogs, sessions, questionBankPerformanceRows, emailLogs] = await Promise.all([
     user.approvedById
       ? db
         .select({ fullName: usersTable.fullName })
@@ -248,13 +251,59 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
       .from(userActivityLogs)
       .where(eq(userActivityLogs.userId, user.id))
       .orderBy(desc(userActivityLogs.createdAt))
-      .limit(80),
+      .limit(250),
     db
       .select()
       .from(userSessions)
       .where(eq(userSessions.userId, user.id))
       .orderBy(desc(userSessions.lastActiveAt))
-      .limit(20),
+      .limit(40),
+    db
+      .select({
+        attemptCount: questionBankQuestionProgressTable.attemptCount,
+        correctCount: questionBankQuestionProgressTable.correctCount,
+        lastAttemptedAt: questionBankQuestionProgressTable.lastAttemptedAt,
+        subjectName: subjectsTable.title,
+        chapterName: chaptersTable.title,
+      })
+      .from(questionBankQuestionProgressTable)
+      .leftJoin(subjectsTable, eq(questionBankQuestionProgressTable.subjectId, subjectsTable.id))
+      .leftJoin(chaptersTable, eq(questionBankQuestionProgressTable.chapterId, chaptersTable.id))
+      .where(eq(questionBankQuestionProgressTable.studentId, user.id))
+      .catch(() => [] as Array<{
+        attemptCount: number;
+        correctCount: number;
+        lastAttemptedAt: Date | string;
+        subjectName: string | null;
+        chapterName: string | null;
+      }>),
+    db
+      .select({
+        id: emailSendLogsTable.id,
+        providerKey: emailSendLogsTable.providerKey,
+        providerName: emailSendLogsTable.providerName,
+        senderEmail: emailSendLogsTable.senderEmail,
+        recipientEmail: emailSendLogsTable.recipientEmail,
+        subject: emailSendLogsTable.subject,
+        messageType: emailSendLogsTable.messageType,
+        status: emailSendLogsTable.status,
+        sentAt: emailSendLogsTable.sentAt,
+      })
+      .from(emailSendLogsTable)
+      .where(eq(emailSendLogsTable.recipientEmail, user.email))
+      .orderBy(desc(emailSendLogsTable.sentAt))
+      .limit(12)
+      .catch(() => [] as Array<{
+        id: number;
+        providerKey: string;
+        providerName: string;
+        senderEmail: string;
+        recipientEmail: string;
+        subject: string;
+        messageType: string;
+        status: string;
+        sentAt: Date | string;
+      }>),
   ]);
 
   const profileDetails = parseStudentProfileData(user.studentProfileData ?? null);
@@ -409,6 +458,130 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
       passed: submission.passed,
     }));
 
+  const questionBankPerformanceMap = new Map<string, {
+    subject: string;
+    attempted: number;
+    correct: number;
+    topicCounts: Record<string, number>;
+  }>();
+
+  questionBankPerformanceRows.forEach((row) => {
+    const subject = row.subjectName?.trim() || "General Practice";
+    const topic = row.chapterName?.trim() || "Mixed topics";
+    const existing = questionBankPerformanceMap.get(subject) ?? {
+      subject,
+      attempted: 0,
+      correct: 0,
+      topicCounts: {} as Record<string, number>,
+    };
+
+    existing.attempted += row.attemptCount ?? 0;
+    existing.correct += row.correctCount ?? 0;
+    existing.topicCounts[topic] = (existing.topicCounts[topic] ?? 0) + (row.attemptCount ?? 0);
+    questionBankPerformanceMap.set(subject, existing);
+  });
+
+  const questionBankPerformance = Array.from(questionBankPerformanceMap.values())
+    .map((item) => {
+      const topTopic = Object.entries(item.topicCounts)
+        .sort((a, b) => b[1] - a[1])[0]?.[0] ?? "Mixed topics";
+      return {
+        subject: item.subject,
+        topic: topTopic,
+        attempted: item.attempted,
+        correct: item.correct,
+        accuracy: item.attempted > 0 ? roundMetric((item.correct / item.attempted) * 100) : 0,
+      };
+    })
+    .sort((a, b) => b.attempted - a.attempted);
+
+  const studyActivityMap = new Map<string, number>();
+  const bumpStudyDay = (value: Date | string | null | undefined) => {
+    const parsed = toDateValue(value);
+    if (!parsed) return;
+    const key = parsed.toISOString().slice(0, 10);
+    studyActivityMap.set(key, (studyActivityMap.get(key) ?? 0) + 1);
+  };
+
+  activityLogs.forEach((entry) => bumpStudyDay(entry.createdAt));
+  sessions.forEach((session) => {
+    bumpStudyDay(session.startedAt);
+    bumpStudyDay(session.lastActiveAt);
+  });
+  submissions.forEach((submission) => bumpStudyDay(submission.submittedAt));
+
+  const heatmapStart = new Date(today);
+  heatmapStart.setHours(0, 0, 0, 0);
+  heatmapStart.setDate(heatmapStart.getDate() - 83);
+
+  const heatmap = Array.from({ length: 84 }, (_, index) => {
+    const date = new Date(heatmapStart);
+    date.setDate(heatmapStart.getDate() + index);
+    const key = date.toISOString().slice(0, 10);
+    const count = studyActivityMap.get(key) ?? 0;
+    const level = count === 0
+      ? 0
+      : count < 2
+        ? 1
+        : count < 4
+          ? 2
+          : count < 7
+            ? 3
+            : 4;
+
+    return {
+      date: key,
+      count,
+      level,
+    };
+  });
+
+  const dailyCounts = heatmap.map((item) => item.count);
+  let currentStreak = 0;
+  for (let index = dailyCounts.length - 1; index >= 0; index -= 1) {
+    if (dailyCounts[index] > 0) {
+      currentStreak += 1;
+    } else {
+      break;
+    }
+  }
+
+  let longestStreak = 0;
+  let activeRun = 0;
+  dailyCounts.forEach((count) => {
+    if (count > 0) {
+      activeRun += 1;
+      longestStreak = Math.max(longestStreak, activeRun);
+    } else {
+      activeRun = 0;
+    }
+  });
+
+  const sessionsHistory = sessions.slice(0, 8).map((session) => ({
+    id: session.id,
+    startedAt: session.startedAt,
+    lastActiveAt: session.lastActiveAt,
+    endedAt: session.endedAt,
+    totalSeconds: session.totalSeconds,
+    isActive: session.isActive,
+    ipAddress: session.ipAddress ?? null,
+    locationLabel: session.locationLabel ?? null,
+    browserName: session.browserName ?? null,
+    deviceType: session.deviceType ?? null,
+  }));
+
+  const emailHistory = emailLogs.map((entry) => ({
+    id: entry.id,
+    providerKey: entry.providerKey,
+    providerName: entry.providerName,
+    senderEmail: entry.senderEmail,
+    recipientEmail: entry.recipientEmail,
+    subject: entry.subject,
+    messageType: entry.messageType,
+    status: entry.status,
+    sentAt: entry.sentAt,
+  }));
+
   res.json({
     student: {
       id: user.id,
@@ -454,6 +627,15 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     activityTrend,
     activityBreakdown,
     recentActivity,
+    studyStreak: {
+      heatmap,
+      currentStreak,
+      longestStreak,
+      totalActiveDays: heatmap.filter((item) => item.count > 0).length,
+    },
+    questionBankPerformance,
+    sessionsHistory,
+    emailHistory,
     preparationSnapshot: {
       dateOfBirth: profileDetails?.dateOfBirth ?? null,
       whatsappOnSameNumber: profileDetails?.whatsappOnSameNumber === true,
@@ -629,6 +811,8 @@ router.patch("/users/:id/approve", async (req, res): Promise<void> => {
   }
   const setData: any = {
     status: newStatus,
+    reviewedById: approverId || null,
+    reviewedAt: new Date(),
     pendingReviewStartedAt: null,
     pendingReviewEscalatedAt: null,
   };
