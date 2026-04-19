@@ -538,7 +538,7 @@ function PendingPreviewDashboard({
                 <h2 className="mt-1 text-xl font-bold text-[#111827]">Student dashboard preview unlocked</h2>
               </div>
               <p className="max-w-2xl text-sm leading-6 text-[#6B7280]">
-                Abhi jo metrics dikh rahe hain woh sample preview values hain. Tests, question bank, aur deeper actions admin approval ke baad activate honge.
+                The metrics shown here are sample preview values for now. Tests, question bank, and deeper actions will unlock after admin approval.
               </p>
               <div className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
                 <Mail className="h-4 w-4 text-[#5B4DFF]" />

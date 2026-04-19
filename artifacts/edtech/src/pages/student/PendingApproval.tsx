@@ -79,8 +79,8 @@ export default function StudentPendingApproval() {
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-7 text-[#6B7280]">
                 {isRejected
-                  ? "Admin ne tumhare application ko review karke changes maange hain. Rejection reason neeche diya gaya hai. Details update karke dubara resubmit karo."
-                  : "Tumhara student profile setup complete ho chuka hai. Ab admin ya super admin verification karega. Approval ke baad hi student portal fully active hoga."}
+                  ? "Your application was reviewed and changes were requested. The rejection reason is shown below. Update your details and resubmit."
+                  : "Your student profile setup is complete. An admin or super admin will verify it next. The student portal will become fully active after approval."}
               </p>
             </div>
           </div>
@@ -126,15 +126,15 @@ export default function StudentPendingApproval() {
             <div className="mt-3 space-y-2 text-sm text-[#7C2D12]">
               {isRejected ? (
                 <>
-                  <p>1. Edit details pe click karke onboarding form dubara kholo.</p>
-                  <p>2. Required corrections karke form resubmit karo.</p>
-                  <p>3. Resubmit ke baad application phir se pending review me chali jayegi.</p>
+                  <p>1. Click Edit details to open the onboarding form again.</p>
+                  <p>2. Make the required corrections and resubmit the form.</p>
+                  <p>3. After resubmitting, the application will return to pending review.</p>
                 </>
               ) : (
                 <>
-                  <p>1. Student details admin ya super admin review queue me jayengi.</p>
-                  <p>2. Approval ke baad portal automatically active ho jayega.</p>
-                  <p>3. Approval se pehle preview dashboard available rahega, lekin baaki student features verification ke baad unlock honge.</p>
+                  <p>1. The student details will be added to the admin or super admin review queue.</p>
+                  <p>2. The portal will become active automatically after approval.</p>
+                  <p>3. Before approval, the preview dashboard will stay available, but the remaining student features will unlock after verification.</p>
                 </>
               )}
             </div>

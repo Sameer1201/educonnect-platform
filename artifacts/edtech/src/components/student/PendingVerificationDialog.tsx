@@ -40,7 +40,7 @@ export default function PendingVerificationDialog({
               <DialogHeader className="space-y-1 text-left">
                 <DialogTitle className="text-xl font-bold text-[#111827]">Verification Pending</DialogTitle>
                 <DialogDescription className="text-sm leading-6 text-[#6B7280]">
-                  Dashboard preview available hai, lekin yeh feature admin verification ke baad hi unlock hoga.
+                  The dashboard preview is available, but this feature will unlock only after admin verification.
                 </DialogDescription>
               </DialogHeader>
             </div>

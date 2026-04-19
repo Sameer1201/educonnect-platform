@@ -1837,9 +1837,9 @@ export default function StudentTests() {
                   <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 px-4 md:hidden">
                     <div className="w-full max-w-sm rounded-[28px] bg-white p-5 text-center shadow-[0_24px_70px_rgba(15,23,42,0.32)]">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#D97706]">Best On Landscape</p>
-                      <h2 className="mt-2 text-xl font-bold text-[#111827]">Phone ko horizontal rotate karo</h2>
+                      <h2 className="mt-2 text-xl font-bold text-[#111827]">Rotate your phone horizontally</h2>
                       <p className="mt-2 text-sm leading-6 text-[#64748B]">
-                        Test dene ke time landscape view zyada stable rahega. Hum auto-rotate try kar rahe hain, lekin kuch browsers permission maang sakte hain.
+                        Landscape mode is more stable during tests. We are trying auto-rotate, but some browsers may ask for permission.
                       </p>
                       <div className="mt-5 space-y-2">
                         <Button

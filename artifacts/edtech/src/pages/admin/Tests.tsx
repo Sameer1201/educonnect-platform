@@ -281,7 +281,7 @@ function formatApiErrorMessage(rawMessage: string, fallbackMessage: string) {
   }
 
   if (/Cannot POST\s+\/api\/tests\/\d+\/import-question-metadata/i.test(normalized)) {
-    return "Metadata import route abhi unavailable hai. Backend server restart karke dobara try karo.";
+    return "The metadata import route is currently unavailable. Restart the backend server and try again.";
   }
 
   return normalized || fallbackMessage;
@@ -975,8 +975,8 @@ export default function AdminTests() {
   const metadataImportConfig = metadataImportMode === "answers"
     ? {
         title: "Import Correct Answers",
-        intro: "Ye import sirf isi test ke correct answers ko update karega.",
-        helper: "Question match `questionCode`/`Q01` ya `questionNumber` ke basis par hoga.",
+        intro: "This import only updates the correct answers for this test.",
+        helper: "Questions are matched using `questionCode`/`Q01` or `questionNumber`.",
         loadedFileText: "Paste correct-answer JSON below for this test.",
         quickCards: [
           { label: "Match", value: "`questionCode`, `code`, `questionNumber`, `questionNo`" },
@@ -1000,15 +1000,15 @@ export default function AdminTests() {
   }
 ]`,
         pasteTitle: "Paste Correct Answer JSON",
-        pasteHelper: "Yahan direct answers paste karo. Existing test ke matched questions update ho jayenge.",
+        pasteHelper: "Paste answers directly here. Matching questions in the existing test will be updated.",
         submitLabel: "Import Correct Answer",
         invalidFileTitle: "Invalid correct-answer file",
         invalidJsonTitle: "Invalid correct-answer JSON",
       }
     : {
         title: "Import Question Metadata",
-        intro: "Ye import sirf isi test ke existing questions ko update karega.",
-        helper: "Naya test create nahi hoga. Match `questionCode`/`Q01` ya `questionNumber` ke basis par hoga.",
+        intro: "This import only updates existing questions in this test.",
+        helper: "No new test will be created. Matching is based on `questionCode`/`Q01` or `questionNumber`.",
         loadedFileText: "Paste metadata JSON below for this test.",
         quickCards: [
           { label: "Match", value: "`questionCode`, `code`, `questionNumber`, `questionNo`" },
@@ -1027,7 +1027,7 @@ export default function AdminTests() {
   }
 ]`,
         pasteTitle: "Paste Metadata JSON",
-        pasteHelper: "Yahan direct paste karo. Har line/question same selected test me apply hoga.",
+        pasteHelper: "Paste directly here. Each line or question will be applied to the selected test.",
         submitLabel: "Import Metadata",
         invalidFileTitle: "Invalid metadata file",
         invalidJsonTitle: "Invalid metadata JSON",
@@ -1712,7 +1712,7 @@ export default function AdminTests() {
                 <div className="min-w-0">
                   <h2 className="truncate text-xl font-extrabold tracking-tight">Test published</h2>
                   <p className="mt-1 text-sm leading-5 text-white/80">
-                    <span className="font-semibold text-white">{publishResultDialog.testTitle}</span> ka question bank sync complete ho gaya.
+                    Question bank sync for <span className="font-semibold text-white">{publishResultDialog.testTitle}</span> is complete.
                   </p>
                 </div>
               </div>
@@ -1748,7 +1748,7 @@ export default function AdminTests() {
 
               {publishResultDialog.summary.createdQuestionBankClassCount > 0 ? (
                 <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
-                  Same exam ka question-bank card missing tha, system ne auto-create kar diya.
+                  The question bank card for the same exam was missing, so the system created it automatically.
                 </div>
               ) : null}
             </div>
@@ -1789,7 +1789,7 @@ export default function AdminTests() {
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                 <Label className="text-sm font-medium text-slate-900">Test category</Label>
-                <p className="mt-1 text-xs text-slate-500">Student side par isi label ke saath badge show hoga.</p>
+                <p className="mt-1 text-xs text-slate-500">Students will see a badge with this label.</p>
                 <div className="mt-3">
                   <Select value={newTestCategory} onValueChange={(value) => setNewTestCategory(value as TestCategory)}>
                     <SelectTrigger>
@@ -1856,7 +1856,7 @@ export default function AdminTests() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-500">Ye decide karega ki imported test kis exam stream ka part hoga.</p>
+                <p className="text-xs text-slate-500">This determines which exam stream the imported test belongs to.</p>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule Date</Label>
@@ -1866,7 +1866,7 @@ export default function AdminTests() {
                   onChange={(event) => setImportScheduled(event.target.value)}
                   className="h-11 rounded-xl border-[#eadfcd] bg-white"
                 />
-                <p className="text-xs text-slate-500">Blank chhodo to test draft me without schedule import hoga.</p>
+                <p className="text-xs text-slate-500">Leave this blank to import the test as a draft without a schedule.</p>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -1923,7 +1923,7 @@ export default function AdminTests() {
             <div className="flex min-h-0 flex-col overflow-hidden bg-white">
               <DialogHeader className="border-b border-[#eadfcd] px-6 py-5 pr-14 text-left">
                 <DialogTitle>{metadataImportConfig.title}</DialogTitle>
-                <p className="mt-1 text-sm text-slate-500">Paste ya load karo, aur selected test ke questions bulk me update ho jayenge.</p>
+                <p className="mt-1 text-sm text-slate-500">Paste or load data to update questions in the selected test in bulk.</p>
               </DialogHeader>
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 <div className="rounded-2xl border border-[#cfd4ff] bg-white px-4 py-4">

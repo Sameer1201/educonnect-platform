@@ -1044,7 +1044,7 @@ router.post("/question-bank/exams/:examKey/import", async (req, res) => {
 
   const rawSubjects = Array.isArray(req.body?.subjects) ? req.body.subjects : [];
   if (rawSubjects.length === 0) {
-    return res.status(400).json({ error: "Import bundle me subjects nahi mile" });
+    return res.status(400).json({ error: "No subjects were found in the import bundle" });
   }
 
   const classIds = matchingClasses.map((cls) => cls.id);
@@ -1219,7 +1219,7 @@ router.post("/question-bank/subjects/:subjectId/import", async (req, res) => {
 
   const rawChapters = Array.isArray(req.body?.chapters) ? req.body.chapters : [];
   if (rawChapters.length === 0) {
-    return res.status(400).json({ error: "Import bundle me chapters nahi mile" });
+    return res.status(400).json({ error: "No chapters were found in the import bundle" });
   }
 
   const chapters = await db

@@ -50,7 +50,7 @@ export default function StudentQuestionBankQuestionPage() {
       queryClient.invalidateQueries({ queryKey: ["dashboard-question-bank-progress"] });
       toast({
         title: payload.isCorrect ? "Correct answer" : "Attempt recorded",
-        description: payload.isCorrect ? "Nice work." : "Keep going, progress save ho gaya hai.",
+        description: payload.isCorrect ? "Nice work." : "Keep going, your progress has been saved.",
       });
     },
     onError: (error: Error) => {

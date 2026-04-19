@@ -115,7 +115,7 @@ export default function RegisterPage() {
             </div>
             <h2 className="text-2xl font-bold mb-2">Registration Submitted!</h2>
             <p className="text-muted-foreground mb-6">
-              Firebase student account create ho gaya. Ab email/password ya Google se login karke setup complete karo, phir approval ke baad portal active hoga.
+              Your Firebase student account has been created. Sign in with email/password or Google to complete setup. The portal will become active after approval.
             </p>
             <Button onClick={() => setLocation("/login")} data-testid="button-go-login" className="w-full">
               Go to Login
@@ -136,7 +136,7 @@ export default function RegisterPage() {
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="text-2xl">Student Registration</CardTitle>
-            <CardDescription>Create your student account. Setup complete hone ke baad admin ya super admin approval required hoga.</CardDescription>
+            <CardDescription>Create your student account. Admin or super admin approval will be required after setup is complete.</CardDescription>
           </CardHeader>
 
           <CardContent>

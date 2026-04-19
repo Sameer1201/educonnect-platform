@@ -154,14 +154,14 @@ function ForgettingView() {
     retention: item.retentionPct,
   }));
 
-  if (chartData.length === 0) return <EmptyState title="Forgetting curve ke liye enough dip data nahi mila." />;
+  if (chartData.length === 0) return <EmptyState title="Not enough dip data was found for the forgetting curve." />;
 
   return (
     <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
       <div className="rounded-[28px] border border-[#EEF2F7] bg-[#FCFCFE] p-4">
         <div className="mb-4">
           <p className="text-sm font-semibold text-[#111827]">Retention drop tracker</p>
-          <p className="text-sm text-[#6B7280]">Grey line previous position dikhati hai, orange current retention drop.</p>
+          <p className="text-sm text-[#6B7280]">The grey line shows the previous position, and the orange line shows the current retention drop.</p>
         </div>
         <div className="h-[340px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -226,7 +226,7 @@ function SpeedView() {
     );
   });
 
-  if (rows.length === 0) return <EmptyState title="Speed vs accuracy data abhi available nahi hai." />;
+  if (rows.length === 0) return <EmptyState title="Speed vs accuracy data is not available yet." />;
 
   const maxPace = Math.max(
     100,
@@ -261,7 +261,7 @@ function SpeedView() {
           <div>
             <p className="text-sm font-semibold text-[#111827]">Simple pace tracker</p>
             <p className="mt-1 text-sm text-[#6B7280]">
-              Har subject ke liye ek card: upar accuracy, niche speed lane. Left fast hai, right slow.
+              Each subject has one card: accuracy on top and the speed lane below. Left is faster, right is slower.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -412,7 +412,7 @@ export default function AdvancedInsights() {
             </div>
             <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#111827]">Advanced Insights</h2>
             <p className="mt-2 max-w-xl text-sm leading-6 text-[#6B7280]">
-              Sirf do high-signal views: memory retention drop aur pace-quality map.
+              Two high-signal views only: memory retention drop and the pace-quality map.
             </p>
             <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-sm font-semibold text-[#111827] shadow-sm">
               <Sparkles className="h-4 w-4 text-[#D97706]" />
