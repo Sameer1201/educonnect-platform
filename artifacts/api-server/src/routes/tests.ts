@@ -1840,8 +1840,9 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
       .where(eq(testQuestionsTable.testId, testId)).orderBy(testQuestionsTable.order);
     const rawSections = await db.select().from(testSectionsTable)
       .where(eq(testSectionsTable.testId, testId)).orderBy(testSectionsTable.order);
-    const sections = shouldPreserveImportedSections(test.examConfig)
-      ? rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
+    const parsedSections = rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }));
+    const sections = shouldPreserveImportedSections(test.examConfig) || parsedSections.length > 0
+      ? parsedSections
       : await syncTestSectionsFromTemplate(test.id, test.examType, rawSections);
 
     const isAdmin = user.role === "admin" || user.role === "super_admin";

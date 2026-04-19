@@ -819,6 +819,7 @@ export default function AdminTestBuilder() {
       return response.json();
     },
     enabled: Number.isFinite(testId),
+    staleTime: 60_000,
   });
 
   const { data: examTemplates = [] } = useQuery<ExamTemplate[]>({
@@ -828,6 +829,7 @@ export default function AdminTestBuilder() {
       if (!response.ok) throw new Error("Failed to load exam templates");
       return response.json();
     },
+    staleTime: 60_000,
   });
 
   const currentExamTypeSelection = useMemo(

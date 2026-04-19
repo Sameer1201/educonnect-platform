@@ -250,6 +250,18 @@ interface PdfExportQuestionItem {
   imageData?: string | null;
 }
 
+async function fetchBuilderTestDetail(testId: number) {
+  const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
+  if (!response.ok) throw new Error("Failed to load test");
+  return response.json();
+}
+
+async function fetchExamTemplatesList() {
+  const response = await fetch(`${BASE}/api/planner/exam-templates`, { credentials: "include" });
+  if (!response.ok) throw new Error("Failed to load exam templates");
+  return response.json();
+}
+
 function formatDateTimeLocalValue(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -927,12 +939,29 @@ export default function AdminTests() {
 
   const { data: examTemplates = FALLBACK_TEMPLATES } = useQuery<ExamTemplate[]>({
     queryKey: ["exam-templates"],
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/planner/exam-templates`, { credentials: "include" });
-      if (!r.ok) throw new Error("Failed");
-      return r.json();
-    },
+    queryFn: fetchExamTemplatesList,
+    staleTime: 60_000,
   });
+
+  const prefetchBuilderResources = (testId: number) => {
+    void Promise.all([
+      queryClient.prefetchQuery({
+        queryKey: ["admin-test-builder", testId],
+        queryFn: () => fetchBuilderTestDetail(testId),
+        staleTime: 60_000,
+      }),
+      queryClient.prefetchQuery({
+        queryKey: ["exam-templates"],
+        queryFn: fetchExamTemplatesList,
+        staleTime: 60_000,
+      }),
+    ]);
+  };
+
+  const openBuilder = (testId: number, questionId?: number | null) => {
+    prefetchBuilderResources(testId);
+    setLocation(questionId ? `/admin/tests/${testId}/builder?questionId=${questionId}` : `/admin/tests/${testId}/builder`);
+  };
 
   const applyPreset = (preset: string) => {
     setNewExamType(preset);
@@ -1563,7 +1592,9 @@ export default function AdminTests() {
                         {openReportedQuestionCount > 0 ? (
                           <button
                             type="button"
-                            onClick={() => setLocation(`/admin/tests/${test.id}/builder?questionId=${firstReportedQuestionId}`)}
+                            onMouseEnter={() => prefetchBuilderResources(test.id)}
+                            onFocus={() => prefetchBuilderResources(test.id)}
+                            onClick={() => openBuilder(test.id, firstReportedQuestionId)}
                             className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
                             title={`${totalOpenReports} open student report${totalOpenReports === 1 ? "" : "s"}`}
                           >
@@ -1599,7 +1630,9 @@ export default function AdminTests() {
                             size="sm"
                             variant="outline"
                             className="h-8 gap-1.5 border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 hover:border-rose-300 hover:bg-rose-100 hover:text-rose-800"
-                            onClick={() => setLocation(`/admin/tests/${test.id}/builder?questionId=${firstReportedQuestionId}`)}
+                            onMouseEnter={() => prefetchBuilderResources(test.id)}
+                            onFocus={() => prefetchBuilderResources(test.id)}
+                            onClick={() => openBuilder(test.id, firstReportedQuestionId)}
                           >
                             <Flag size={13} />
                             Review reports
@@ -1608,7 +1641,9 @@ export default function AdminTests() {
                         <Button
                           size="sm"
                           className="chip-orange-solid h-8 gap-1.5 px-4 text-xs font-semibold"
-                          onClick={() => setLocation(`/admin/tests/${test.id}/builder`)}
+                          onMouseEnter={() => prefetchBuilderResources(test.id)}
+                          onFocus={() => prefetchBuilderResources(test.id)}
+                          onClick={() => openBuilder(test.id)}
                         >
                           <PencilLine size={13} />
                           Edit test
