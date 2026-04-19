@@ -127,7 +127,7 @@ async function getAccessibleQuestionBankClasses(auth: Auth) {
   }
 
   if (auth.role === "admin") {
-    const [ownedClasses, assignedSubjects] = await Promise.all([
+    const [ownedClasses, assignedSubjects, authoredQuestionClasses] = await Promise.all([
       db
         .select()
         .from(classesTable)
@@ -138,13 +138,18 @@ async function getAccessibleQuestionBankClasses(auth: Auth) {
           ),
         ),
       db.select({ classId: subjectsTable.classId }).from(subjectsTable).where(eq(subjectsTable.teacherId, auth.userId)),
+      db
+        .selectDistinct({ classId: questionBankQuestionsTable.classId })
+        .from(questionBankQuestionsTable)
+        .where(eq(questionBankQuestionsTable.createdBy, auth.userId)),
     ]);
 
     const ownedIds = new Set(ownedClasses.map((item) => item.id));
     const assignedIds = new Set(assignedSubjects.map((item) => item.classId));
-    if (assignedIds.size === 0) return ownedClasses;
+    const authoredIds = new Set(authoredQuestionClasses.map((item) => item.classId));
+    if (assignedIds.size === 0 && authoredIds.size === 0) return ownedClasses;
 
-    const extraClassIds = [...assignedIds].filter((id) => !ownedIds.has(id));
+    const extraClassIds = [...new Set([...assignedIds, ...authoredIds])].filter((id) => !ownedIds.has(id));
     const extraClasses = extraClassIds.length > 0
       ? await db
           .select()
