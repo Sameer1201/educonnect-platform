@@ -1,6 +1,7 @@
 import { lazy, useEffect, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { PremiumWhiteLoader } from "@/components/ui/PremiumWhiteLoader";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -57,8 +58,10 @@ export type ViewMode = "personal" | "comparative";
 
 function AppLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen flex items-center justify-center bg-[#fffaf2] px-4 py-8">
+      <div className="w-full max-w-xl">
+        <PremiumWhiteLoader progress={72} />
+      </div>
     </div>
   );
 }
@@ -137,9 +140,7 @@ function AppRouter() {
     <Switch>
       <Route path="/">
         {isLoading ? (
-          <div className="min-h-screen flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
+          <AppLoader />
         ) : user ? (
           <RedirectTo href={getRoleHomePath(user.role, user)} />
         ) : (
