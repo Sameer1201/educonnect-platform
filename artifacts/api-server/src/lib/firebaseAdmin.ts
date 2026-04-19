@@ -5,6 +5,9 @@ type FirebaseServiceAccountConfig = {
   projectId?: string;
   clientEmail?: string;
   privateKey?: string;
+  project_id?: string;
+  client_email?: string;
+  private_key?: string;
 };
 
 function readFirebasePrivateKey() {
@@ -18,11 +21,15 @@ function readFirebaseServiceAccountJson(): FirebaseServiceAccountConfig | undefi
 
   try {
     const parsed = JSON.parse(value) as FirebaseServiceAccountConfig;
+    const projectId = parsed.projectId ?? parsed.project_id;
+    const clientEmail = parsed.clientEmail ?? parsed.client_email;
+    const privateKey = parsed.privateKey ?? parsed.private_key;
+
     return {
-      projectId: parsed.projectId,
-      clientEmail: parsed.clientEmail,
-      privateKey: typeof parsed.privateKey === "string"
-        ? parsed.privateKey.replace(/\\n/g, "\n")
+      projectId,
+      clientEmail,
+      privateKey: typeof privateKey === "string"
+        ? privateKey.replace(/\\n/g, "\n")
         : undefined,
     };
   } catch {
