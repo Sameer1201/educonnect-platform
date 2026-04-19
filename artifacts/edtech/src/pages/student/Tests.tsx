@@ -1840,7 +1840,7 @@ export default function StudentTests() {
           onEscapeKeyDown={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
-          className="left-0 top-0 h-screen max-h-screen w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none dark:bg-white"
+          className="inset-0 h-[100dvh] max-h-[100dvh] w-[100vw] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none sm:h-[100dvh] sm:max-h-[100dvh] sm:w-[100vw] sm:max-w-none sm:rounded-none sm:p-0 dark:bg-white"
         >
           {activeTest && (
             <>
