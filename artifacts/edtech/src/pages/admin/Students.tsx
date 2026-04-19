@@ -47,7 +47,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,7 @@ interface StudentViewModel {
   targetExam: string;
   status: StudentUiStatus;
   onboardingComplete: boolean;
+  avatarUrl?: string | null;
   avatarInitials: string;
   joinedAt: string;
   createdAt: string;
@@ -109,6 +110,7 @@ function getStudentTargetExam(student: User) {
 
 function buildStudentViewModel(student: User): StudentViewModel {
   const onboardingComplete = (student as User & { onboardingComplete?: boolean }).onboardingComplete === true;
+  const avatarUrl = (student as User & { avatarUrl?: string | null }).avatarUrl ?? null;
   return {
     id: student.id,
     name: student.fullName,
@@ -117,6 +119,7 @@ function buildStudentViewModel(student: User): StudentViewModel {
     targetExam: getStudentTargetExam(student),
     status: toStudentUiStatus(student.status),
     onboardingComplete,
+    avatarUrl,
     avatarInitials: getInitials(student.fullName || student.username),
     joinedAt: format(new Date(student.createdAt), "MMM d, yyyy"),
     createdAt: student.createdAt,
@@ -396,6 +399,7 @@ export default function AdminStudents() {
                   >
                     <div className="flex items-start gap-3 min-w-0">
                       <Avatar className="h-10 w-10 ring-2 ring-indigo-200 shrink-0">
+                        <AvatarImage src={student.avatarUrl ?? undefined} alt={student.name} className="object-cover" />
                         <AvatarFallback className="bg-indigo-600 text-white font-bold text-sm">
                           {student.avatarInitials}
                         </AvatarFallback>
@@ -619,6 +623,7 @@ export default function AdminStudents() {
                       data-testid={`button-view-profile-${student.id}`}
                     >
                       <Avatar className="h-10 w-10 shrink-0 ring-2 ring-offset-1 ring-indigo-100 transition-all group-hover:ring-orange-200">
+                        <AvatarImage src={student.avatarUrl ?? undefined} alt={student.name} className="object-cover" />
                         <AvatarFallback
                           className={`text-sm font-bold ${
                             student.status === "revoked"
@@ -754,6 +759,7 @@ export default function AdminStudents() {
                       data-testid={`button-view-profile-desktop-${student.id}`}
                     >
                       <Avatar className="h-9 w-9 shrink-0 ring-2 ring-offset-1 ring-indigo-100 transition-all group-hover:ring-orange-200">
+                        <AvatarImage src={student.avatarUrl ?? undefined} alt={student.name} className="object-cover" />
                         <AvatarFallback
                           className={`text-xs font-bold ${
                             student.status === "revoked"
@@ -911,6 +917,7 @@ export default function AdminStudents() {
                   rejectionReason: selectedStudent.rejectionReason,
                   targetExam: selectedStudent.targetExam,
                   email: selectedStudent.email,
+                  avatarUrl: selectedStudent.avatarUrl,
                   initials: selectedStudent.avatarInitials,
                 }
               : null
