@@ -89,6 +89,13 @@ function requireRole(req: any, res: any, allowedRoles: string[]): string | null 
   return callerRole;
 }
 
+function isMissingRelationError(error: unknown) {
+  const candidate = error as { code?: string; cause?: { code?: string }; message?: string } | null;
+  const code = candidate?.cause?.code ?? candidate?.code;
+  if (code === "42P01") return true;
+  return typeof candidate?.message === "string" && candidate.message.toLowerCase().includes("does not exist");
+}
+
 router.get("/users", async (req, res): Promise<void> => {
   const callerRole = requireRole(req, res, ["super_admin", "admin"]);
   if (!callerRole) return;
@@ -753,7 +760,12 @@ router.delete("/users/:id", async (req, res): Promise<void> => {
     await db.delete(directMessagesTable).where(or(eq(directMessagesTable.senderId, userId), eq(directMessagesTable.receiverId, userId)));
     await db.delete(communityPostsTable).where(eq(communityPostsTable.authorId, userId));
     await db.delete(questionBankReportsTable).where(or(eq(questionBankReportsTable.reportedBy, userId), eq(questionBankReportsTable.teacherId, userId)));
-    await db.delete(testQuestionReportsTable).where(or(eq(testQuestionReportsTable.reportedBy, userId), eq(testQuestionReportsTable.teacherId, userId)));
+    await db
+      .delete(testQuestionReportsTable)
+      .where(or(eq(testQuestionReportsTable.reportedBy, userId), eq(testQuestionReportsTable.teacherId, userId)))
+      .catch((error) => {
+        if (!isMissingRelationError(error)) throw error;
+      });
     await db.delete(supportTicketMessagesTable).where(eq(supportTicketMessagesTable.senderId, userId));
     await db.delete(notificationsTable).where(eq(notificationsTable.userId, userId));
     await db.delete(notificationPreferencesTable).where(eq(notificationPreferencesTable.userId, userId));
