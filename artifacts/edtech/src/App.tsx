@@ -1,4 +1,4 @@
-import { lazy, useEffect, type ReactNode } from "react";
+import { lazy, useEffect, useRef, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PremiumWhiteLoader } from "@/components/ui/PremiumWhiteLoader";
@@ -55,6 +55,85 @@ const queryClient = new QueryClient({
 });
 
 export type ViewMode = "personal" | "comparative";
+
+function getCurrentIndexScriptPath() {
+  if (typeof document === "undefined") return null;
+  const script = document.querySelector('script[type="module"][src*="/assets/index-"]');
+  const src = script?.getAttribute("src");
+  if (!src) return null;
+
+  try {
+    return new URL(src, window.location.origin).pathname;
+  } catch {
+    return src;
+  }
+}
+
+function extractIndexScriptPath(html: string) {
+  const match = html.match(/src="([^"]*\/assets\/index-[^"]+\.js)"/i);
+  if (!match?.[1]) return null;
+
+  try {
+    return new URL(match[1], window.location.origin).pathname;
+  } catch {
+    return match[1];
+  }
+}
+
+function useDeployRefresh() {
+  const currentScriptPathRef = useRef<string | null>(null);
+  const reloadTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    currentScriptPathRef.current = getCurrentIndexScriptPath();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let cancelled = false;
+
+    const checkForNewDeploy = async () => {
+      if (cancelled || reloadTriggeredRef.current) return;
+
+      try {
+        const response = await fetch(`${import.meta.env.BASE_URL || "/"}?deploy-check=${Date.now()}`, {
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        const html = await response.text();
+        const latestScriptPath = extractIndexScriptPath(html);
+        const currentScriptPath = currentScriptPathRef.current ?? getCurrentIndexScriptPath();
+
+        if (latestScriptPath && currentScriptPath && latestScriptPath !== currentScriptPath) {
+          reloadTriggeredRef.current = true;
+          window.location.reload();
+        }
+      } catch {
+        // Ignore transient network errors; we'll retry on the next visibility change.
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void checkForNewDeploy();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void checkForNewDeploy();
+      }
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+}
 
 function AppLoader() {
   return (
@@ -337,6 +416,8 @@ function AppRouter() {
 }
 
 function App() {
+  useDeployRefresh();
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
