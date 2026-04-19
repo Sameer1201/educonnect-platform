@@ -39,6 +39,36 @@ type DailyUsageSummary = {
   lastSentAt: Date | null;
 };
 
+type StudentTestResultSubjectBreakdown = {
+  label: string;
+  totalQuestions: number;
+  attemptedQuestions: number;
+  correctQuestions: number;
+  incorrectQuestions: number;
+  unattemptedQuestions: number;
+  accuracyPct: number;
+};
+
+type StudentTestResultEmailArgs = {
+  studentName: string;
+  email: string;
+  testId: number;
+  testTitle: string;
+  score: number;
+  totalPoints: number;
+  percentage: number;
+  passed: boolean;
+  passingScore?: number | null;
+  submittedAt: Date | string | null;
+  totalQuestions: number;
+  attemptedQuestions: number;
+  correctQuestions: number;
+  incorrectQuestions: number;
+  unattemptedQuestions: number;
+  timeSpentSeconds?: number | null;
+  subjectBreakdown: StudentTestResultSubjectBreakdown[];
+};
+
 function readTrimmedEnv(name: string) {
   const value = process.env[name];
   return typeof value === "string" ? value.trim() : "";
@@ -217,6 +247,36 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatMetricNumber(value: number, maximumFractionDigits = 2) {
+  const numeric = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: Number.isInteger(numeric) ? 0 : Math.min(2, maximumFractionDigits),
+    maximumFractionDigits,
+  }).format(numeric);
+}
+
+function formatPercentLabel(value: number) {
+  return `${formatMetricNumber(clampPercent(value), 2)}%`;
+}
+
+function formatDurationLabel(totalSeconds: number | null | undefined) {
+  const normalized = Math.round(Number(totalSeconds) || 0);
+  if (normalized <= 0) return "Not captured";
+  const hours = Math.floor(normalized / 3600);
+  const minutes = Math.floor((normalized % 3600) / 60);
+  const seconds = normalized % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.join(" ");
 }
 
 export function isBrevoConfigured() {
@@ -599,6 +659,14 @@ function readPortalUrl() {
   return readTrimmedEnv("PUBLIC_APP_URL") || "http://localhost:5173";
 }
 
+function buildStudentTestAnalysisUrl(testId: number) {
+  try {
+    return new URL(`/student/tests/${testId}/analysis`, readPortalUrl()).toString();
+  } catch {
+    return readPortalUrl();
+  }
+}
+
 export async function sendStudentApprovedEmail({
   studentName,
   email,
@@ -895,6 +963,234 @@ export async function sendTeacherWelcomeEmail({
   });
 }
 
+export async function sendStudentTestResultEmail({
+  studentName,
+  email,
+  testId,
+  testTitle,
+  score,
+  totalPoints,
+  percentage,
+  passed,
+  passingScore,
+  submittedAt,
+  totalQuestions,
+  attemptedQuestions,
+  correctQuestions,
+  incorrectQuestions,
+  unattemptedQuestions,
+  timeSpentSeconds,
+  subjectBreakdown,
+}: StudentTestResultEmailArgs) {
+  const safeStudentName = escapeHtml(studentName.trim() || "Student");
+  const safeTestTitle = escapeHtml(testTitle.trim() || "Your test");
+  const safeScore = escapeHtml(formatMetricNumber(score, 2));
+  const safeTotalPoints = escapeHtml(formatMetricNumber(totalPoints, 2));
+  const safePercentage = escapeHtml(formatPercentLabel(percentage));
+  const safeAttemptedLabel = escapeHtml(`${attemptedQuestions}/${totalQuestions}`);
+  const safeCorrectLabel = escapeHtml(String(correctQuestions));
+  const safeIncorrectLabel = escapeHtml(String(incorrectQuestions));
+  const safeUnattemptedLabel = escapeHtml(String(unattemptedQuestions));
+  const safeTimeSpentLabel = escapeHtml(formatDurationLabel(timeSpentSeconds));
+  const analysisUrl = buildStudentTestAnalysisUrl(testId);
+  const safeAnalysisUrl = escapeHtml(analysisUrl);
+  const submittedDate = submittedAt ? new Date(submittedAt) : null;
+  const submittedLabel = submittedDate && !Number.isNaN(submittedDate.getTime())
+    ? submittedDate.toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Kolkata",
+      })
+    : "Just now";
+  const safeSubmittedLabel = escapeHtml(submittedLabel);
+  const scoreStatus = passed ? "Passed" : passingScore == null ? "Submitted" : "Keep going";
+  const safeScoreStatus = escapeHtml(scoreStatus);
+  const passingBenchmarkLabel = passingScore == null ? "Not set" : formatPercentLabel(passingScore);
+  const safePassingBenchmarkLabel = escapeHtml(passingBenchmarkLabel);
+  const correctPct = totalQuestions > 0 ? clampPercent((correctQuestions / totalQuestions) * 100) : 0;
+  const incorrectPct = totalQuestions > 0 ? clampPercent((incorrectQuestions / totalQuestions) * 100) : 0;
+  const unattemptedPct = totalQuestions > 0 ? clampPercent((unattemptedQuestions / totalQuestions) * 100) : 0;
+
+  const subjectSummaryLines = subjectBreakdown.map((item) => (
+    `${item.label}: ${item.correctQuestions}/${item.totalQuestions} correct (${formatPercentLabel(item.accuracyPct)})`
+  ));
+
+  const subjectRowsHtml = subjectBreakdown.length > 0
+    ? subjectBreakdown.map((item) => {
+        const safeLabel = escapeHtml(item.label);
+        const safeCounts = escapeHtml(`${item.correctQuestions}/${item.totalQuestions} correct`);
+        const safeAccuracy = escapeHtml(formatPercentLabel(item.accuracyPct));
+        const safeAttempted = escapeHtml(`${item.attemptedQuestions}/${item.totalQuestions}`);
+        const safeIncorrect = escapeHtml(String(item.incorrectQuestions));
+        const safeUnattempted = escapeHtml(String(item.unattemptedQuestions));
+        const accuracyWidth = clampPercent(item.accuracyPct);
+
+        return `
+          <tr>
+            <td style="padding:0 0 18px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                <tr>
+                  <td style="font-size:14px;font-weight:700;color:#111827;padding-bottom:4px;">${safeLabel}</td>
+                  <td align="right" style="font-size:12px;color:#4b5563;padding-bottom:4px;">${safeCounts} · ${safeAccuracy}</td>
+                </tr>
+              </table>
+              <div style="margin-top:6px;background:#e5e7eb;border-radius:999px;height:10px;overflow:hidden;">
+                <div style="width:${accuracyWidth}%;height:10px;background:linear-gradient(90deg,#2563eb 0%,#0ea5e9 100%);border-radius:999px;"></div>
+              </div>
+              <p style="margin:6px 0 0;font-size:12px;line-height:1.5;color:#6b7280;">
+                Attempted ${safeAttempted} · Incorrect ${safeIncorrect} · Not attempted ${safeUnattempted}
+              </p>
+            </td>
+          </tr>
+        `.trim();
+      }).join("")
+    : `
+      <tr>
+        <td style="font-size:13px;line-height:1.7;color:#6b7280;">
+          Subject-wise performance will appear once the test has mapped sections or subject labels.
+        </td>
+      </tr>
+    `.trim();
+
+  const subject = `Your Rank Pulse result is ready: ${testTitle}`;
+  const textContent = [
+    `Hi ${studentName || "Student"},`,
+    "",
+    `Your result for ${testTitle} is now ready.`,
+    `Score: ${formatMetricNumber(score, 2)} / ${formatMetricNumber(totalPoints, 2)}`,
+    `Score percentage: ${formatPercentLabel(percentage)}`,
+    `Status: ${scoreStatus}`,
+    `Passing benchmark: ${passingBenchmarkLabel}`,
+    `Attempted: ${attemptedQuestions}/${totalQuestions}`,
+    `Correct: ${correctQuestions}`,
+    `Incorrect: ${incorrectQuestions}`,
+    `Not attempted: ${unattemptedQuestions}`,
+    `Time spent: ${formatDurationLabel(timeSpentSeconds)}`,
+    `Submitted at: ${submittedLabel}`,
+    "",
+    "Subject performance:",
+    ...subjectSummaryLines,
+    "",
+    `Open full analysis: ${analysisUrl}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:${passed ? "#16a34a" : "#d97706"};color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            ${safeScoreStatus}
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.15;color:#111827;">Your test result is ready</h1>
+          <p style="margin:0;font-size:15px;line-height:1.7;color:#4b5563;">
+            Hi ${safeStudentName}, here is the latest performance snapshot for <strong>${safeTestTitle}</strong>.
+          </p>
+          <p style="margin:10px 0 0;font-size:13px;line-height:1.6;color:#6b7280;">
+            Submitted on ${safeSubmittedLabel}
+          </p>
+        </div>
+
+        <div style="padding:28px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:12px 12px;">
+            <tr>
+              <td width="50%" valign="top" style="border:1px solid #fed7aa;border-radius:18px;background:#fffaf0;padding:16px 18px;">
+                <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#92400e;">Score</p>
+                <p style="margin:0;font-size:28px;font-weight:700;color:#111827;">${safeScore}<span style="font-size:16px;color:#6b7280;"> / ${safeTotalPoints}</span></p>
+              </td>
+              <td width="50%" valign="top" style="border:1px solid #dbeafe;border-radius:18px;background:#f8fbff;padding:16px 18px;">
+                <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1d4ed8;">Score Percentage</p>
+                <p style="margin:0;font-size:28px;font-weight:700;color:#111827;">${safePercentage}</p>
+              </td>
+            </tr>
+            <tr>
+              <td width="50%" valign="top" style="border:1px solid #e5e7eb;border-radius:18px;background:#ffffff;padding:16px 18px;">
+                <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4b5563;">Attempted</p>
+                <p style="margin:0;font-size:28px;font-weight:700;color:#111827;">${safeAttemptedLabel}</p>
+              </td>
+              <td width="50%" valign="top" style="border:1px solid #dcfce7;border-radius:18px;background:#f0fdf4;padding:16px 18px;">
+                <p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#166534;">Correct</p>
+                <p style="margin:0;font-size:28px;font-weight:700;color:#111827;">${safeCorrectLabel}</p>
+              </td>
+            </tr>
+          </table>
+
+          <div style="margin-top:20px;border:1px solid #fed7aa;border-radius:20px;background:#fffaf0;padding:20px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              <tr>
+                <td style="font-size:16px;font-weight:700;color:#111827;">Answer distribution</td>
+                <td align="right" style="font-size:12px;color:#6b7280;">Passing benchmark: ${safePassingBenchmarkLabel}</td>
+              </tr>
+            </table>
+
+            <div style="margin-top:14px;background:#e5e7eb;border-radius:999px;height:14px;overflow:hidden;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="height:14px;border-collapse:collapse;">
+                <tr>
+                  <td style="width:${correctPct}%;background:#22c55e;"></td>
+                  <td style="width:${incorrectPct}%;background:#ef4444;"></td>
+                  <td style="width:${unattemptedPct}%;background:#94a3b8;"></td>
+                </tr>
+              </table>
+            </div>
+
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:0 10px;margin-top:14px;">
+              <tr>
+                <td style="font-size:13px;color:#374151;"><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#22c55e;margin-right:8px;"></span>Correct: ${safeCorrectLabel}</td>
+                <td style="font-size:13px;color:#374151;"><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#ef4444;margin-right:8px;"></span>Incorrect: ${safeIncorrectLabel}</td>
+              </tr>
+              <tr>
+                <td style="font-size:13px;color:#374151;"><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#94a3b8;margin-right:8px;"></span>Not attempted: ${safeUnattemptedLabel}</td>
+                <td style="font-size:13px;color:#374151;"><span style="display:inline-block;width:10px;height:10px;border-radius:999px;background:#f59e0b;margin-right:8px;"></span>Time spent: ${safeTimeSpentLabel}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="margin-top:20px;border:1px solid #e5e7eb;border-radius:20px;background:#ffffff;padding:20px;">
+            <h2 style="margin:0 0 14px;font-size:18px;line-height:1.3;color:#111827;">Subject performance graph</h2>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              ${subjectRowsHtml}
+            </table>
+          </div>
+
+          <div style="margin-top:24px;">
+            <a href="${safeAnalysisUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Open Full Analysis
+            </a>
+          </div>
+
+          <p style="margin:18px 0 0;font-size:13px;line-height:1.7;color:#6b7280;">
+            You can review detailed analysis, question-wise solutions, and next-step improvements from your student dashboard.
+          </p>
+          <p style="margin:12px 0 0;font-size:12px;line-height:1.7;color:#6b7280;">
+            If the button does not open, copy and paste this link into your browser:<br />
+            <span style="word-break:break-all;">${safeAnalysisUrl}</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "student-test-result",
+    metadata: {
+      testId,
+      testTitle,
+      percentage,
+      passed,
+      totalQuestions,
+      attemptedQuestions,
+      correctQuestions,
+      incorrectQuestions,
+      unattemptedQuestions,
+    },
+  });
+}
+
 export async function sendPendingStudentReviewEscalationEmail({
   studentName,
   studentEmail,
@@ -1149,6 +1445,12 @@ export function queueTeacherWelcomeEmail(args: {
 }) {
   void sendTeacherWelcomeEmail(args).catch((error) => {
     logger.warn({ error, email: args.email }, "Failed to send teacher welcome email via Brevo");
+  });
+}
+
+export function queueStudentTestResultEmail(args: StudentTestResultEmailArgs) {
+  void sendStudentTestResultEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, testId: args.testId }, "Failed to send student test result email via Brevo");
   });
 }
 

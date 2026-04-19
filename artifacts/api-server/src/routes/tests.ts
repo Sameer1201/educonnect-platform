@@ -16,6 +16,8 @@ import {
   subjectsTable,
   questionBankQuestionsTable,
 } from "@workspace/db";
+import { hasBrevoAccounts, queueStudentTestResultEmail } from "../lib/brevo";
+import { logger } from "../lib/logger";
 import { pushNotificationToMany } from "../lib/pushNotification";
 import { eq, and, inArray, isNull, or, asc, desc } from "drizzle-orm";
 
@@ -179,6 +181,105 @@ function firstTrimmedString(...values: unknown[]): string | null {
     }
   }
   return null;
+}
+
+type SubmissionResultEmailSubjectBreakdown = {
+  label: string;
+  totalQuestions: number;
+  attemptedQuestions: number;
+  correctQuestions: number;
+  incorrectQuestions: number;
+  unattemptedQuestions: number;
+  accuracyPct: number;
+};
+
+function buildSubmissionResultEmailSummary(params: {
+  testTitle: string;
+  questions: Array<typeof testQuestionsTable.$inferSelect>;
+  sections: Array<typeof testSectionsTable.$inferSelect>;
+  answers: Record<string, unknown> | null | undefined;
+  questionTimings: Record<string, number> | null | undefined;
+}) {
+  const sectionsById = new Map(params.sections.map((section) => [section.id, section] as const));
+  const answers = params.answers ?? {};
+  const timings = params.questionTimings ?? {};
+  const subjectStats = new Map<string, Omit<SubmissionResultEmailSubjectBreakdown, "accuracyPct">>();
+
+  let totalQuestions = 0;
+  let attemptedQuestions = 0;
+  let correctQuestions = 0;
+  let incorrectQuestions = 0;
+  let unattemptedQuestions = 0;
+
+  for (const question of params.questions) {
+    totalQuestions += 1;
+    const answer = answers[String(question.id)];
+    const attempted = hasAnsweredQuestion(question, answer);
+    const correct = attempted ? gradeQuestion(question, answer) : false;
+    const section = question.sectionId ? sectionsById.get(question.sectionId) ?? null : null;
+    const subjectLabel = firstTrimmedString(
+      question.subjectLabel,
+      section?.subjectLabel,
+      section?.title,
+      params.testTitle,
+    ) ?? "General";
+
+    const current = subjectStats.get(subjectLabel) ?? {
+      label: subjectLabel,
+      totalQuestions: 0,
+      attemptedQuestions: 0,
+      correctQuestions: 0,
+      incorrectQuestions: 0,
+      unattemptedQuestions: 0,
+    };
+
+    current.totalQuestions += 1;
+
+    if (attempted) {
+      attemptedQuestions += 1;
+      current.attemptedQuestions += 1;
+
+      if (correct) {
+        correctQuestions += 1;
+        current.correctQuestions += 1;
+      } else {
+        incorrectQuestions += 1;
+        current.incorrectQuestions += 1;
+      }
+    } else {
+      unattemptedQuestions += 1;
+      current.unattemptedQuestions += 1;
+    }
+
+    subjectStats.set(subjectLabel, current);
+  }
+
+  let timeSpentSeconds = 0;
+  for (const value of Object.values(timings)) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      timeSpentSeconds += numeric;
+    }
+  }
+
+  const subjectBreakdown = Array.from(subjectStats.values())
+    .map((entry) => ({
+      ...entry,
+      accuracyPct: entry.totalQuestions > 0
+        ? Number(((entry.correctQuestions / entry.totalQuestions) * 100).toFixed(2))
+        : 0,
+    }))
+    .sort((left, right) => right.totalQuestions - left.totalQuestions || left.label.localeCompare(right.label));
+
+  return {
+    totalQuestions,
+    attemptedQuestions,
+    correctQuestions,
+    incorrectQuestions,
+    unattemptedQuestions,
+    timeSpentSeconds: Math.round(timeSpentSeconds),
+    subjectBreakdown,
+  };
 }
 
 function normalizeImportedQuestionCodeKey(value: unknown): string | null {
@@ -3081,6 +3182,7 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
 
     const [test] = await db.select({
       id: testsTable.id,
+      title: testsTable.title,
       classId: testsTable.classId,
       examType: testsTable.examType,
       isPublished: testsTable.isPublished,
@@ -3104,7 +3206,14 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
       reviewQuestionIds,
       interactionLog,
     } = req.body;
-    const questions = await db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId));
+    const [questions, sections] = await Promise.all([
+      db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId)),
+      db
+        .select()
+        .from(testSectionsTable)
+        .where(eq(testSectionsTable.testId, testId))
+        .orderBy(asc(testSectionsTable.order), asc(testSectionsTable.id)),
+    ]);
 
     let score = 0, totalPoints = 0;
     for (const q of questions) {
@@ -3120,6 +3229,13 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
     const normalizedScore = Number(score.toFixed(2));
     const percentage = totalPoints > 0 ? Number(((normalizedScore / totalPoints) * 100).toFixed(2)) : 0;
     const passed = test.passingScore == null ? true : percentage >= test.passingScore;
+    const resultEmailSummary = buildSubmissionResultEmailSummary({
+      testTitle: test.title,
+      questions,
+      sections,
+      answers: safeParseJson<Record<string, unknown> | null>(answers ?? {}, {}),
+      questionTimings: safeParseJson<Record<string, number> | null>(questionTimings ?? {}, {}),
+    });
 
     const [submission] = await db.insert(testSubmissionsTable).values({
       testId, studentId: userId,
@@ -3131,6 +3247,38 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
       interactionLog: interactionLog ? JSON.stringify(interactionLog) : null,
       score: normalizedScore, totalPoints, percentage, passed,
     }).returning();
+
+    if (user.email?.trim()) {
+      try {
+        if (await hasBrevoAccounts()) {
+          queueStudentTestResultEmail({
+            studentName: user.fullName?.trim() || user.username || "Student",
+            email: user.email.trim(),
+            testId,
+            testTitle: test.title,
+            score: normalizedScore,
+            totalPoints,
+            percentage,
+            passed,
+            passingScore: test.passingScore,
+            submittedAt: submission.submittedAt ?? new Date(),
+            totalQuestions: resultEmailSummary.totalQuestions,
+            attemptedQuestions: resultEmailSummary.attemptedQuestions,
+            correctQuestions: resultEmailSummary.correctQuestions,
+            incorrectQuestions: resultEmailSummary.incorrectQuestions,
+            unattemptedQuestions: resultEmailSummary.unattemptedQuestions,
+            timeSpentSeconds: resultEmailSummary.timeSpentSeconds,
+            subjectBreakdown: resultEmailSummary.subjectBreakdown,
+          });
+        }
+      } catch (error) {
+        logger.warn(
+          { error, testId, studentId: userId, email: user.email },
+          "Failed to queue student test result email",
+        );
+      }
+    }
+
     return res.status(201).json(submission);
   } catch { return res.status(500).json({ error: "Internal server error" }); }
 });
