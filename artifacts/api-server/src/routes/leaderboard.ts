@@ -15,7 +15,12 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const students = await db
-    .select({ id: usersTable.id, fullName: usersTable.fullName, username: usersTable.username })
+    .select({
+      id: usersTable.id,
+      fullName: usersTable.fullName,
+      username: usersTable.username,
+      avatarUrl: usersTable.avatarUrl,
+    })
     .from(usersTable)
     .where(eq(usersTable.role, "student"));
 
@@ -40,6 +45,7 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
       id: student.id,
       fullName: student.fullName,
       username: student.username,
+      avatarUrl: student.avatarUrl,
       points: avgTestPct,
       avgTestScore: avgTestPct,
       avgAssignmentGrade: 0,

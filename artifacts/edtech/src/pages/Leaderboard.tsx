@@ -9,6 +9,7 @@ interface LeaderboardEntry {
   id: number;
   fullName: string;
   username: string;
+  avatarUrl?: string | null;
   points: number;
   rank: number;
   avgTestScore: number;
@@ -22,6 +23,34 @@ const medalIcons = [
   <Medal size={20} className="text-slate-400" />,
   <Medal size={20} className="text-amber-600" />,
 ];
+
+function getInitials(value: string) {
+  return value
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function LeaderboardAvatar({ entry }: { entry: LeaderboardEntry }) {
+  if (entry.avatarUrl) {
+    return (
+      <img
+        src={entry.avatarUrl}
+        alt={entry.fullName}
+        className="h-11 w-11 rounded-full border border-border object-cover"
+        decoding="async"
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-sm font-bold text-white">
+      {getInitials(entry.fullName)}
+    </div>
+  );
+}
 
 export default function Leaderboard() {
   const { user } = useAuth();
@@ -103,6 +132,7 @@ export default function Leaderboard() {
                     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-bold ${isTop3 ? "" : "bg-muted text-muted-foreground"}`}>
                       {isTop3 ? medalIcons[entry.rank - 1] : <span className="text-base">#{entry.rank}</span>}
                     </div>
+                    <LeaderboardAvatar entry={entry} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className={`font-semibold ${isMe ? "text-primary" : ""}`}>{entry.fullName}</span>

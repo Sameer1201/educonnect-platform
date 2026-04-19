@@ -10,6 +10,7 @@ interface LeaderboardEntry {
   id: number;
   fullName: string;
   username: string;
+  avatarUrl?: string | null;
   points: number;
   rank: number;
   avgTestScore: number;
@@ -41,11 +42,15 @@ function getShortName(value: string) {
 }
 
 function Avatar({
+  avatarUrl,
   initials,
+  name,
   rank,
   size = "md",
 }: {
+  avatarUrl?: string | null;
   initials: string;
+  name: string;
   rank?: number;
   size?: "sm" | "md" | "lg";
 }) {
@@ -60,8 +65,12 @@ function Avatar({
         : "";
 
   return (
-    <div className={`${sizeClass} ${ringClass} rounded-full bg-gradient-to-br ${avatarGradients[colorIndex]} flex items-center justify-center font-bold text-white`}>
-      {initials}
+    <div className={`${sizeClass} ${ringClass} overflow-hidden rounded-full bg-gradient-to-br ${avatarGradients[colorIndex]} flex items-center justify-center font-bold text-white`}>
+      {avatarUrl ? (
+        <img src={avatarUrl} alt={name} className="h-full w-full object-cover" decoding="async" />
+      ) : (
+        initials
+      )}
     </div>
   );
 }
@@ -97,7 +106,13 @@ function TopThree({ entries }: { entries: LeaderboardEntry[] }) {
                   <Zap className="h-4 w-4 text-amber-400" />
                 </motion.div>
               ) : null}
-              <Avatar initials={getInitials(slot.entry.fullName)} rank={slot.rank} size={slot.rank === 1 ? "lg" : "md"} />
+              <Avatar
+                avatarUrl={slot.entry.avatarUrl}
+                initials={getInitials(slot.entry.fullName)}
+                name={slot.entry.fullName}
+                rank={slot.rank}
+                size={slot.rank === 1 ? "lg" : "md"}
+              />
               <div className={`absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-black shadow ${slot.badge}`}>
                 {slot.rank}
               </div>
@@ -143,7 +158,7 @@ function StudentRow({
       <div className="flex w-6 flex-shrink-0 items-center justify-center">
         <RankIcon rank={entry.rank} />
       </div>
-      <Avatar initials={getInitials(entry.fullName)} size="md" />
+      <Avatar avatarUrl={entry.avatarUrl} initials={getInitials(entry.fullName)} name={entry.fullName} size="md" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <p className={`truncate text-xs font-semibold ${isCurrentUser ? "text-violet-700" : "text-slate-800"}`}>
