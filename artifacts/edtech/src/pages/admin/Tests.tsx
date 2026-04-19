@@ -1276,8 +1276,22 @@ export default function AdminTests() {
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["admin-tests"] });
+      const previousTests = queryClient.getQueryData<Test[]>(["admin-tests"]);
+      queryClient.setQueryData<Test[]>(["admin-tests"], (current = []) =>
+        current.map((test) => (
+          test.id === variables.id
+            ? { ...test, isPublished: variables.isPublished }
+            : test
+        )),
+      );
+      return { previousTests };
+    },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-question-bank"] });
       if (variables.isPublished) {
         const sync = data?.questionBankSync as PublishSyncSummary | null | undefined;
         if (sync) {
@@ -1302,6 +1316,21 @@ export default function AdminTests() {
         }
       }
       toast({ title: variables.isPublished ? "Test published" : "Test unpublished" });
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousTests) {
+        queryClient.setQueryData(["admin-tests"], context.previousTests);
+      }
+      toast({
+        title: "Publish update failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-question-bank"] });
     },
   });
 

@@ -2928,7 +2928,9 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
         ? await cleanupUnpublishedTestQuestionsFromQuestionBank(testId, userId, beforeTest.examType)
         : null;
 
-    // Notify enrolled students when a test is first published
+    let publishNotificationStudentIds: number[] = [];
+
+    // Prepare student notifications when a test is first published.
     if (updates.isPublished === true && !beforeTest?.isPublished) {
       const students = await db.select({
         id: usersTable.id,
@@ -2944,7 +2946,7 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
               .map((row) => row.studentId),
           )
         : new Set<number>();
-      const studentIds = students
+      publishNotificationStudentIds = students
         .filter((student) =>
           enrolledStudentIds.has(student.id) ||
           canStudentAccessTest(test, {
@@ -2953,26 +2955,32 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
           }),
         )
         .map((student) => student.id);
-
-      if (studentIds.length > 0) {
-        await pushNotificationToMany(studentIds, {
-          type: "test",
-          title: `New Test: ${test.title}`,
-          message: test.durationMinutes
-            ? `Duration: ${test.durationMinutes} min${test.durationMinutes !== 1 ? "s" : ""}. Head to My Tests to start.`
-            : "A new test is now available in My Tests.",
-          link: "/student/tests",
-        });
-      }
     }
 
-    return res.json({
+    const payload = {
       ...test,
       examConfig: normalizeObjectValue(test.examConfig, null),
       sections: syncedSections,
       questionBankSync,
       questionBankCleanup,
-    });
+    };
+
+    res.json(payload);
+
+    if (publishNotificationStudentIds.length > 0) {
+      void pushNotificationToMany(publishNotificationStudentIds, {
+        type: "test",
+        title: `New Test: ${test.title}`,
+        message: test.durationMinutes
+          ? `Duration: ${test.durationMinutes} min${test.durationMinutes !== 1 ? "s" : ""}. Head to My Tests to start.`
+          : "A new test is now available in My Tests.",
+        link: "/student/tests",
+      }).catch((error) => {
+        logger.error({ error, testId, studentCount: publishNotificationStudentIds.length }, "Failed to dispatch publish notifications");
+      });
+    }
+
+    return;
   } catch (error) {
     console.error("PATCH /api/tests/:id failed", error);
     return res.status(500).json({ error: "Internal server error" });
