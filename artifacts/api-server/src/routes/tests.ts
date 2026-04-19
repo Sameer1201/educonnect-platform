@@ -19,7 +19,7 @@ import {
 import { hasBrevoAccounts, queueStudentTestResultEmail } from "../lib/brevo";
 import { logger } from "../lib/logger";
 import { pushNotificationToMany } from "../lib/pushNotification";
-import { eq, and, inArray, isNull, or, asc, desc } from "drizzle-orm";
+import { eq, and, inArray, isNull, or, asc, desc, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -1512,12 +1512,29 @@ router.get("/tests", requireAuth, async (req, res) => {
         durationMinutes: testsTable.durationMinutes,
         passingScore: testsTable.passingScore,
         isPublished: testsTable.isPublished,
+        questionCount: sql<number>`count(${testQuestionsTable.id})::int`,
         scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt,
         className: classesTable.title, chapterName: chaptersTable.title, subjectName: subjectsTable.title,
       }).from(testsTable)
         .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
         .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
         .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
+        .leftJoin(testQuestionsTable, eq(testQuestionsTable.testId, testsTable.id))
+        .groupBy(
+          testsTable.id,
+          testsTable.classId,
+          testsTable.title,
+          testsTable.chapterId,
+          testsTable.examConfig,
+          testsTable.durationMinutes,
+          testsTable.passingScore,
+          testsTable.isPublished,
+          testsTable.scheduledAt,
+          testsTable.createdAt,
+          classesTable.title,
+          chaptersTable.title,
+          subjectsTable.title,
+        )
         .orderBy(testsTable.createdAt);
       return res.json(tests.map((test) => ({ ...test, examConfig: normalizeObjectValue(test.examConfig, null) })));
     }
@@ -1533,13 +1550,33 @@ router.get("/tests", requireAuth, async (req, res) => {
       defaultNegativeMarks: testsTable.defaultNegativeMarks,
       passingScore: testsTable.passingScore,
       isPublished: testsTable.isPublished,
+        questionCount: sql<number>`count(${testQuestionsTable.id})::int`,
         scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt,
         className: classesTable.title, chapterName: chaptersTable.title, subjectName: subjectsTable.title,
       }).from(testsTable)
         .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
         .leftJoin(chaptersTable, eq(testsTable.chapterId, chaptersTable.id))
         .leftJoin(subjectsTable, eq(chaptersTable.subjectId, subjectsTable.id))
+        .leftJoin(testQuestionsTable, eq(testQuestionsTable.testId, testsTable.id))
         .where(eq(testsTable.createdBy, userId))
+        .groupBy(
+          testsTable.id,
+          testsTable.classId,
+          testsTable.title,
+          testsTable.chapterId,
+          testsTable.examType,
+          testsTable.examConfig,
+          testsTable.durationMinutes,
+          testsTable.defaultPositiveMarks,
+          testsTable.defaultNegativeMarks,
+          testsTable.passingScore,
+          testsTable.isPublished,
+          testsTable.scheduledAt,
+          testsTable.createdAt,
+          classesTable.title,
+          chaptersTable.title,
+          subjectsTable.title,
+        )
         .orderBy(testsTable.createdAt);
       return res.json(tests.map((test) => ({ ...test, examConfig: normalizeObjectValue(test.examConfig, null) })));
     }

@@ -62,6 +62,7 @@ interface Test {
   examConfig?: Record<string, unknown> | null;
   defaultPositiveMarks?: number | null;
   defaultNegativeMarks?: number | null;
+  questionCount?: number | null;
   chapterId: number | null; durationMinutes: number; passingScore: number | null; isPublished: boolean;
   scheduledAt: string | null; className: string | null; chapterName?: string | null; subjectName?: string | null;
 }
@@ -1022,7 +1023,7 @@ export default function AdminTests() {
   const totalTests = tests.length;
   const publishedTests = tests.filter((test) => test.isPublished).length;
   const draftTests = totalTests - publishedTests;
-  const totalQuestions = Object.values(questionsMap).reduce((sum, items) => sum + items.length, 0);
+  const totalQuestions = tests.reduce((sum, test) => sum + Math.max(0, Number(test.questionCount) || 0), 0);
   const metadataImportTest = metadataImportTestId != null
     ? tests.find((test) => test.id === metadataImportTestId) ?? null
     : null;
@@ -1621,6 +1622,7 @@ export default function AdminTests() {
           {tests.map((test) => {
             const qs = questionsMap[test.id] ?? [];
             const sections = sectionsMap[test.id] ?? [];
+            const loadedQuestionCount = qs.length > 0 ? qs.length : Math.max(0, Number(test.questionCount) || 0);
             const isJsonExporting = exportingTestId === test.id;
             const isPdfExporting = exportingTestPdfId === test.id;
             const calculatorEnabled = getCalculatorEnabledFromExamConfig(test.examConfig);
@@ -1630,7 +1632,7 @@ export default function AdminTests() {
             const totalOpenReports = reportedQuestions.reduce((sum, question) => sum + getOpenReportCount(question), 0);
             const firstReportedQuestionId = reportedQuestions[0]?.id ?? null;
             const totalPlannedQuestions = sections.reduce((sum, section) => sum + Number(section.questionCount ?? 0), 0);
-            const progress = totalPlannedQuestions > 0 ? Math.min(100, (qs.length / totalPlannedQuestions) * 100) : 0;
+            const progress = totalPlannedQuestions > 0 ? Math.min(100, (loadedQuestionCount / totalPlannedQuestions) * 100) : 0;
             return (
               <Card key={test.id} className="overflow-hidden rounded-xl border border-[#eadfcd] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.04)]" data-testid={`test-card-${test.id}`}>
                 <CardContent className="p-0">
