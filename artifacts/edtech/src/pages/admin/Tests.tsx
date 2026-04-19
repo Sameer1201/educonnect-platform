@@ -245,11 +245,36 @@ interface ExportedTestBundle {
   };
 }
 
+interface PdfExportSectionPayload {
+  id?: number | string | null;
+  exportRef?: string | null;
+  order?: number | null;
+}
+
+interface PdfExportQuestionPayload {
+  question: string;
+  imageData?: string | null;
+  order?: number | null;
+  sectionId?: number | string | null;
+  sectionRef?: string | null;
+}
+
 interface PdfExportQuestionItem {
   question: string;
   imageData?: string | null;
 }
 
+function getPdfSectionKey(section: TestSection | PdfExportSectionPayload, fallbackIndex: number) {
+  if (section.id !== undefined && section.id !== null) return String(section.id);
+  if ("exportRef" in section && section.exportRef) return String(section.exportRef);
+  return `section-${fallbackIndex}`;
+}
+
+function getPdfQuestionSectionKey(question: Question | PdfExportQuestionPayload) {
+  if (question.sectionId !== undefined && question.sectionId !== null) return String(question.sectionId);
+  if ("sectionRef" in question && question.sectionRef) return String(question.sectionRef);
+  return "__unsectioned__";
+}
 async function fetchBuilderTestDetail(testId: number) {
   const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
   if (!response.ok) throw new Error("Failed to load test");
@@ -1288,13 +1313,41 @@ export default function AdminTests() {
   const slugifyFilename = (value: string) =>
     value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "test";
 
-  const loadTestDetailForExport = async (testId: number) => {
-    const response = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
-    if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || "Failed to load test questions");
+  const getResponseErrorMessage = async (response: Response, fallback: string) => {
+    const raw = await response.text();
+    if (!raw) return fallback;
+
+    try {
+      const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+      if (typeof parsed?.error === "string" && parsed.error.trim()) return parsed.error.trim();
+      if (typeof parsed?.message === "string" && parsed.message.trim()) return parsed.message.trim();
+    } catch {
+      // Ignore JSON parse failure and fall back to the raw text.
     }
-    return response.json() as Promise<{ questions?: Question[]; sections?: TestSection[] }>;
+
+    return raw.trim() || fallback;
+  };
+
+  const loadTestDetailForExport = async (testId: number) => {
+    const exportResponse = await fetch(`${BASE}/api/tests/${testId}/export`, { credentials: "include" });
+    if (exportResponse.ok) {
+      const bundle = await exportResponse.json() as ExportedTestBundle;
+      return {
+        questions: Array.isArray(bundle.test?.questions) ? (bundle.test.questions as unknown as PdfExportQuestionPayload[]) : [],
+        sections: Array.isArray(bundle.test?.sections) ? (bundle.test.sections as unknown as PdfExportSectionPayload[]) : [],
+      };
+    }
+
+    const detailResponse = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
+    if (!detailResponse.ok) {
+      throw new Error(await getResponseErrorMessage(detailResponse, "Failed to load test questions"));
+    }
+
+    const detail = await detailResponse.json() as { questions?: Question[]; sections?: TestSection[] };
+    return {
+      questions: Array.isArray(detail.questions) ? detail.questions : [],
+      sections: Array.isArray(detail.sections) ? detail.sections : [],
+    };
   };
 
   const handleExportTest = async (test: Test) => {
@@ -1338,16 +1391,20 @@ export default function AdminTests() {
         throw new Error("No questions are available for PDF export.");
       }
 
-      setQuestionsMap((prev) => ({ ...prev, [test.id]: questions }));
-      setSectionsMap((prev) => ({ ...prev, [test.id]: sections }));
-
-      const sectionOrder = new Map(sections.map((section, index) => [section.id, section.order ?? index]));
+      const sectionOrder = new Map(
+        sections.map((section, index) => {
+          return [getPdfSectionKey(section, index), section.order ?? index] as const;
+        }),
+      );
       const orderedQuestions = [...questions].sort((left, right) => {
-        const leftSectionOrder = sectionOrder.get(left.sectionId ?? -1) ?? Number.MAX_SAFE_INTEGER;
-        const rightSectionOrder = sectionOrder.get(right.sectionId ?? -1) ?? Number.MAX_SAFE_INTEGER;
+        const leftSectionKey = getPdfQuestionSectionKey(left);
+        const rightSectionKey = getPdfQuestionSectionKey(right);
+        const leftSectionOrder = sectionOrder.get(leftSectionKey) ?? Number.MAX_SAFE_INTEGER;
+        const rightSectionOrder = sectionOrder.get(rightSectionKey) ?? Number.MAX_SAFE_INTEGER;
         if (leftSectionOrder !== rightSectionOrder) return leftSectionOrder - rightSectionOrder;
-        if (left.order !== right.order) return left.order - right.order;
-        return left.id - right.id;
+        const leftOrder = typeof left.order === "number" ? left.order : Number.MAX_SAFE_INTEGER;
+        const rightOrder = typeof right.order === "number" ? right.order : Number.MAX_SAFE_INTEGER;
+        return leftOrder - rightOrder;
       });
 
       const { skippedImageCount } = await exportQuestionsPdf({
