@@ -1426,7 +1426,9 @@ async function getQuestionContext(questionId: number) {
 
 function canViewClassQuestionBank(auth: Auth, cls: typeof classesTable.$inferSelect, isEnrolled: boolean) {
   if (auth.role === "super_admin") return true;
-  if (auth.role === "admin") return (cls.assignedTeacherIds ?? []).includes(auth.userId);
+  if (auth.role === "admin") {
+    return cls.adminId === auth.userId || (cls.assignedTeacherIds ?? []).includes(auth.userId);
+  }
   if (auth.role === "student") return isEnrolled;
   return false;
 }

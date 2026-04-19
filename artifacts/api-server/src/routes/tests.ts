@@ -546,6 +546,28 @@ type ResolvedQuestionBankContext = {
   createdQuestionBankClassCount: number;
 };
 
+async function ensureTeacherAssignedToQuestionBankClass(
+  targetClass: typeof classesTable.$inferSelect,
+  teacherId: number,
+) {
+  const assignedTeacherIds = Array.isArray(targetClass.assignedTeacherIds)
+    ? targetClass.assignedTeacherIds.filter((value): value is number => Number.isInteger(value))
+    : [];
+
+  if (assignedTeacherIds.includes(teacherId)) {
+    return targetClass;
+  }
+
+  const nextAssignedTeacherIds = [...new Set([...assignedTeacherIds, teacherId])];
+  const [updatedClass] = await db
+    .update(classesTable)
+    .set({ assignedTeacherIds: nextAssignedTeacherIds })
+    .where(eq(classesTable.id, targetClass.id))
+    .returning();
+
+  return updatedClass ?? { ...targetClass, assignedTeacherIds: nextAssignedTeacherIds };
+}
+
 async function resolveQuestionBankClassForExam(
   teacherId: number,
   examType: unknown,
@@ -605,6 +627,8 @@ async function resolveQuestionBankClassForExam(
       createdQuestionBankClassCount: 1,
     };
   }
+
+  targetClass = await ensureTeacherAssignedToQuestionBankClass(targetClass, teacherId);
 
   return {
     targetClass,
