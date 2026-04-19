@@ -46,8 +46,10 @@ import {
 } from "@workspace/api-zod";
 import { hashPassword } from "../lib/auth";
 import { autoEnrollStudentIntoMatchingClasses } from "../lib/batchAssignment";
-import { queueStudentApprovedEmail, queueStudentRejectedEmail } from "../lib/brevo";
-import { createFirebaseEmailUser, deleteFirebaseUser, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
+import { hasBrevoAccounts, queueStudentApprovedEmail, queueStudentRejectedEmail, queueTeacherWelcomeEmail } from "../lib/brevo";
+import { createFirebaseEmailUser, deleteFirebaseUser, generateFirebasePasswordResetLink, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
+import { logger } from "../lib/logger";
+import { buildCustomPasswordResetUrl } from "../lib/passwordReset";
 
 const router: IRouter = Router();
 
@@ -171,6 +173,22 @@ router.post("/users", async (req, res): Promise<void> => {
       role,
       status: "active",
     }).returning();
+
+    if (isFirebaseAdminConfigured() && await hasBrevoAccounts()) {
+      try {
+        const firebaseLink = await generateFirebasePasswordResetLink(email);
+        const resetUrl = buildCustomPasswordResetUrl(firebaseLink);
+        queueTeacherWelcomeEmail({
+          teacherName: fullName,
+          email,
+          username,
+          resetUrl,
+          subject: subject ?? null,
+        });
+      } catch (inviteError) {
+        logger.warn({ error: inviteError, email }, "Failed to prepare teacher welcome email");
+      }
+    }
 
     res.status(201).json(serializeUser(newAdmin));
   } catch (error) {

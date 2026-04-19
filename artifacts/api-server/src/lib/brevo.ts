@@ -804,6 +804,97 @@ export async function sendPasswordResetEmail({
   });
 }
 
+export async function sendTeacherWelcomeEmail({
+  teacherName,
+  email,
+  username,
+  resetUrl,
+  subject,
+}: {
+  teacherName: string;
+  email: string;
+  username: string;
+  resetUrl: string;
+  subject?: string | null;
+}) {
+  const safeTeacherName = escapeHtml(teacherName.trim() || "Teacher");
+  const safeUsername = escapeHtml(username.trim());
+  const safeEmail = escapeHtml(email.trim());
+  const safeResetUrl = escapeHtml(resetUrl);
+  const safeSubject = escapeHtml(subject?.trim() || "Not assigned yet");
+  const portalUrl = readPortalUrl();
+  const safePortalUrl = escapeHtml(portalUrl);
+
+  const mailSubject = "Your Rank Pulse teacher account is ready";
+  const textContent = [
+    `Hi ${teacherName || "Teacher"},`,
+    "",
+    "A teacher account has been created for you on Rank Pulse.",
+    `Username: ${username}`,
+    `Email: ${email}`,
+    `Subject: ${subject?.trim() || "Not assigned yet"}`,
+    "",
+    "Use the secure link below to set your password and sign in.",
+    `Set password: ${resetUrl}`,
+    "",
+    `Portal: ${portalUrl}`,
+    "",
+    "If you were not expecting this account, please contact your administrator.",
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#d97706;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            Teacher Account
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">Welcome to Rank Pulse</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeTeacherName}, your teacher account is now ready. Set your password securely to start using the platform.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #fed7aa;border-radius:18px;background:#fffaf0;padding:18px 20px;">
+            <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#92400e;">
+              Account details
+            </p>
+            <p style="margin:0;font-size:14px;line-height:1.8;color:#374151;">
+              <strong>Username:</strong> ${safeUsername}<br />
+              <strong>Email:</strong> ${safeEmail}<br />
+              <strong>Subject:</strong> ${safeSubject}
+            </p>
+          </div>
+          <div style="margin-top:24px;">
+            <a href="${safeResetUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Set Password
+            </a>
+          </div>
+          <p style="margin:18px 0 0;font-size:13px;line-height:1.7;color:#6b7280;">
+            After setting your password, sign in using your email address on Rank Pulse.<br />
+            Portal: <a href="${safePortalUrl}" style="color:#d97706;text-decoration:none;">${safePortalUrl}</a>
+          </p>
+          <p style="margin:14px 0 0;font-size:12px;line-height:1.7;color:#6b7280;">
+            If the button does not open, copy and paste this link into your browser:<br />
+            <span style="word-break:break-all;">${safeResetUrl}</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject: mailSubject,
+    htmlContent,
+    textContent,
+    messageType: "teacher-welcome",
+    metadata: { teacherName, username, subject: subject?.trim() || null },
+  });
+}
+
 export async function sendPendingStudentReviewEscalationEmail({
   studentName,
   studentEmail,
@@ -1046,6 +1137,18 @@ export async function sendNewStudentReviewRequestEmail({
 export function queueStudentApprovedEmail(args: { studentName: string; email: string }) {
   void sendStudentApprovedEmail(args).catch((error) => {
     logger.warn({ error, email: args.email }, "Failed to send student approval email via Brevo");
+  });
+}
+
+export function queueTeacherWelcomeEmail(args: {
+  teacherName: string;
+  email: string;
+  username: string;
+  resetUrl: string;
+  subject?: string | null;
+}) {
+  void sendTeacherWelcomeEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email }, "Failed to send teacher welcome email via Brevo");
   });
 }
 

@@ -160,6 +160,23 @@ export default function ResetPasswordPage() {
 
     try {
       await confirmFirebaseResetPassword(oobCode, password);
+
+      const syncResponse = await fetch(`${API_BASE}/api/auth/password-reset/finalize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          oobCode,
+          sig,
+          expiresAt,
+          email,
+          newPassword: password,
+        }),
+      });
+      const syncPayload = await syncResponse.json().catch(() => ({}));
+      if (!syncResponse.ok) {
+        throw new Error(syncPayload.error ?? "Password was updated, but account sync could not be completed.");
+      }
+
       setStatus("success");
       setPassword("");
       setConfirmPassword("");

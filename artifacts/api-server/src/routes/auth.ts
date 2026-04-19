@@ -2,10 +2,16 @@ import { Router, type IRouter, type Response } from "express";
 import { db, examTemplatesTable, usersTable } from "@workspace/db";
 import { eq, or, ilike } from "drizzle-orm";
 import { LoginBody } from "@workspace/api-zod";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { hashPassword, verifyPassword } from "../lib/auth";
 import { hasBrevoAccounts, sendPasswordResetEmail } from "../lib/brevo";
 import { getStudentReviewAutomationSettings } from "../lib/platformSettings";
+import {
+  buildCustomPasswordResetUrl,
+  formatPasswordResetCooldown,
+  getPasswordResetCooldownRemaining,
+  isPasswordResetLinkSignatureValid,
+} from "../lib/passwordReset";
 import {
   buildStudentReviewSummary,
   getStudentReviewCycleAt,
@@ -28,69 +34,6 @@ function readTrimmedString(value: unknown) {
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
-}
-
-function readPublicAppUrl() {
-  return readTrimmedString(process.env.PUBLIC_APP_URL) || "http://localhost:5173";
-}
-
-function buildCustomPasswordResetUrl(firebaseLink: string) {
-  const firebaseUrl = new URL(firebaseLink);
-  const appUrl = new URL("/reset-password", readPublicAppUrl());
-  const expiresAt = Date.now() + PASSWORD_RESET_EMAIL_COOLDOWN_MS;
-  const oobCode = firebaseUrl.searchParams.get("oobCode") ?? "";
-  const sig = signPasswordResetLink(oobCode, expiresAt);
-
-  ["oobCode", "mode", "apiKey", "lang", "continueUrl"].forEach((key) => {
-    const value = firebaseUrl.searchParams.get(key);
-    if (value) appUrl.searchParams.set(key, value);
-  });
-
-  appUrl.searchParams.set("expiresAt", String(expiresAt));
-  appUrl.searchParams.set("sig", sig);
-
-  return appUrl.toString();
-}
-
-const PASSWORD_RESET_EMAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
-
-function readPasswordResetSigningSecret() {
-  return readTrimmedString(process.env.PASSWORD_RESET_LINK_SECRET)
-    || readTrimmedString(process.env.FIREBASE_PRIVATE_KEY)
-    || readTrimmedString(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
-    || readTrimmedString(process.env.BREVO_API_KEY)
-    || "rank-pulse-reset-link-secret";
-}
-
-function signPasswordResetLink(oobCode: string, expiresAt: number) {
-  return createHmac("sha256", readPasswordResetSigningSecret())
-    .update(`${oobCode}:${expiresAt}`)
-    .digest("hex");
-}
-
-function isPasswordResetLinkSignatureValid(oobCode: string, expiresAt: number, sig: string) {
-  if (!oobCode || !Number.isFinite(expiresAt) || !sig) return false;
-  const expected = signPasswordResetLink(oobCode, expiresAt);
-  const expectedBuffer = Buffer.from(expected, "utf8");
-  const actualBuffer = Buffer.from(sig, "utf8");
-  if (expectedBuffer.length !== actualBuffer.length) return false;
-  return timingSafeEqual(expectedBuffer, actualBuffer);
-}
-
-function getPasswordResetCooldownRemaining(lastSentAt: Date | null | undefined) {
-  if (!lastSentAt) return 0;
-  const elapsed = Date.now() - lastSentAt.getTime();
-  return Math.max(0, PASSWORD_RESET_EMAIL_COOLDOWN_MS - elapsed);
-}
-
-function formatPasswordResetCooldown(remainingMs: number) {
-  const totalMinutes = Math.ceil(remainingMs / (60 * 1000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours <= 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  if (minutes === 0) return `${hours} hour${hours === 1 ? "" : "s"}`;
-  return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 router.post("/auth/password-reset-link/validate", async (req, res): Promise<void> => {
@@ -119,6 +62,59 @@ router.post("/auth/password-reset-link/validate", async (req, res): Promise<void
     expiresAt: new Date(expiresAtRaw).toISOString(),
     remainingMs,
   });
+});
+
+router.post("/auth/password-reset/finalize", async (req, res): Promise<void> => {
+  const oobCode = readTrimmedString(req.body?.oobCode);
+  const sig = readTrimmedString(req.body?.sig);
+  const expiresAtRaw = Number(req.body?.expiresAt);
+  const email = normalizeEmail(readTrimmedString(req.body?.email));
+  const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword.trim() : "";
+
+  if (!oobCode || !sig || !Number.isFinite(expiresAtRaw)) {
+    res.status(400).json({ error: "Reset link is invalid or incomplete." });
+    return;
+  }
+
+  if (!isPasswordResetLinkSignatureValid(oobCode, expiresAtRaw, sig)) {
+    res.status(400).json({ error: "Reset link signature is invalid." });
+    return;
+  }
+
+  if (expiresAtRaw <= Date.now()) {
+    res.status(400).json({ error: "This reset link has expired. Please request a new one." });
+    return;
+  }
+
+  if (!email) {
+    res.status(400).json({ error: "A valid email address is required." });
+    return;
+  }
+
+  if (newPassword.length < 6) {
+    res.status(400).json({ error: "New password must be at least 6 characters." });
+    return;
+  }
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(ilike(usersTable.email, email));
+
+  if (!user) {
+    res.status(404).json({ error: "This account was not found anymore. Please request a fresh reset link." });
+    return;
+  }
+
+  await db
+    .update(usersTable)
+    .set({
+      passwordHash: hashPassword(newPassword),
+      mustChangePassword: false,
+    })
+    .where(eq(usersTable.id, user.id));
+
+  res.json({ message: "Password reset completed." });
 });
 
 function sanitizeGoogleUsernameBase(email: string, name: string) {
