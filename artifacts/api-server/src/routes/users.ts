@@ -12,12 +12,18 @@ import {
   whiteboardsTable,
   lecturePlansTable,
   attendanceTable,
+  assignmentsTable,
   assignmentSubmissionsTable,
   testSubmissionsTable,
+  testQuestionReportsTable,
   lectureEnrollmentsTable,
   directMessagesTable,
   communityPostsTable,
+  contactSubmissionsTable,
+  examTemplatesTable,
+  passwordResetRequestsTable,
   questionBankSavedQuestionsTable,
+  questionBankQuestionsTable,
   questionBankQuestionProgressTable,
   questionBankReportsTable,
   notificationsTable,
@@ -731,59 +737,81 @@ router.delete("/users/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  // Cascade delete: remove all related records before deleting the user
-  if (user.role === "admin") {
-    await db.delete(lecturePlansTable).where(eq(lecturePlansTable.teacherId, userId));
-    // Get all classes owned by this admin
-    const adminClasses = await db.select({ id: classesTable.id }).from(classesTable).where(eq(classesTable.adminId, userId));
-    const classIds = adminClasses.map((c) => c.id);
+  try {
+    // Clear nullable references that can otherwise block staff deletion.
+    await db.update(subjectsTable).set({ teacherId: null }).where(eq(subjectsTable.teacherId, userId));
+    await db.update(attendanceTable).set({ markedBy: null }).where(eq(attendanceTable.markedBy, userId));
+    await db.update(assignmentSubmissionsTable).set({ gradedBy: null }).where(eq(assignmentSubmissionsTable.gradedBy, userId));
+    await db.update(supportTicketsTable).set({ respondedBy: null }).where(eq(supportTicketsTable.respondedBy, userId));
+    await db.update(contactSubmissionsTable).set({ reviewedBy: null }).where(eq(contactSubmissionsTable.reviewedBy, userId));
+    await db.update(passwordResetRequestsTable).set({ resolvedBy: null }).where(eq(passwordResetRequestsTable.resolvedBy, userId));
+    await db.update(questionBankQuestionsTable).set({ createdBy: null }).where(eq(questionBankQuestionsTable.createdBy, userId));
+    await db.update(testsTable).set({ createdBy: null }).where(eq(testsTable.createdBy, userId));
+    await db.update(examTemplatesTable).set({ createdBy: null }).where(eq(examTemplatesTable.createdBy, userId));
 
-    for (const classId of classIds) {
-      // Delete feedback for this class
-      await db.delete(feedbackTable).where(eq(feedbackTable.classId, classId));
-      // Delete enrollments for this class
-      await db.delete(enrollmentsTable).where(eq(enrollmentsTable.classId, classId));
-      // Delete whiteboard for this class
-      await db.delete(whiteboardsTable).where(eq(whiteboardsTable.classId, classId));
-    }
-    // Delete all classes owned by this admin
-    if (classIds.length > 0) {
-      await db.delete(classesTable).where(eq(classesTable.adminId, userId));
-    }
-  } else if (user.role === "student") {
-    // Delete all student-specific data before removing the account
-    const ticketIds = await db
-      .select({ id: supportTicketsTable.id })
-      .from(supportTicketsTable)
-      .where(eq(supportTicketsTable.studentId, userId))
-      .then((rows) => rows.map((row) => row.id));
-
-    for (const ticketId of ticketIds) {
-      await db.delete(supportTicketMessagesTable).where(eq(supportTicketMessagesTable.ticketId, ticketId));
-    }
-
-    await db.delete(attendanceTable).where(eq(attendanceTable.studentId, userId));
-    await db.delete(assignmentSubmissionsTable).where(eq(assignmentSubmissionsTable.studentId, userId));
-    await db.delete(testSubmissionsTable).where(eq(testSubmissionsTable.studentId, userId));
-    await db.delete(lectureEnrollmentsTable).where(eq(lectureEnrollmentsTable.studentId, userId));
+    // Delete direct references that should disappear with the account.
     await db.delete(directMessagesTable).where(or(eq(directMessagesTable.senderId, userId), eq(directMessagesTable.receiverId, userId)));
     await db.delete(communityPostsTable).where(eq(communityPostsTable.authorId, userId));
-    await db.delete(questionBankSavedQuestionsTable).where(eq(questionBankSavedQuestionsTable.studentId, userId));
-    await db.delete(questionBankReportsTable).where(eq(questionBankReportsTable.reportedBy, userId));
+    await db.delete(questionBankReportsTable).where(or(eq(questionBankReportsTable.reportedBy, userId), eq(questionBankReportsTable.teacherId, userId)));
+    await db.delete(testQuestionReportsTable).where(or(eq(testQuestionReportsTable.reportedBy, userId), eq(testQuestionReportsTable.teacherId, userId)));
+    await db.delete(supportTicketMessagesTable).where(eq(supportTicketMessagesTable.senderId, userId));
     await db.delete(notificationsTable).where(eq(notificationsTable.userId, userId));
     await db.delete(notificationPreferencesTable).where(eq(notificationPreferencesTable.userId, userId));
     await db.delete(userActivityLogs).where(eq(userActivityLogs.userId, userId));
     await db.delete(userSessions).where(eq(userSessions.userId, userId));
-    await db.delete(enrollmentsTable).where(eq(enrollmentsTable.studentId, userId));
-    await db.delete(feedbackTable).where(eq(feedbackTable.studentId, userId));
-    await db.delete(supportTicketsTable).where(eq(supportTicketsTable.studentId, userId));
-  } else if (user.role === "planner") {
-    await db.delete(lecturePlansTable).where(eq(lecturePlansTable.plannerId, userId));
+
+    // Cascade delete: remove role-specific data before deleting the user.
+    if (user.role === "admin") {
+      await db.delete(lecturePlansTable).where(eq(lecturePlansTable.teacherId, userId));
+      await db.delete(assignmentsTable).where(eq(assignmentsTable.createdBy, userId));
+
+      const adminClasses = await db
+        .select({ id: classesTable.id })
+        .from(classesTable)
+        .where(eq(classesTable.adminId, userId));
+      const classIds = adminClasses.map((c) => c.id);
+
+      for (const classId of classIds) {
+        await db.delete(feedbackTable).where(eq(feedbackTable.classId, classId));
+        await db.delete(enrollmentsTable).where(eq(enrollmentsTable.classId, classId));
+        await db.delete(whiteboardsTable).where(eq(whiteboardsTable.classId, classId));
+      }
+
+      if (classIds.length > 0) {
+        await db.delete(classesTable).where(eq(classesTable.adminId, userId));
+      }
+    } else if (user.role === "student") {
+      const ticketIds = await db
+        .select({ id: supportTicketsTable.id })
+        .from(supportTicketsTable)
+        .where(eq(supportTicketsTable.studentId, userId))
+        .then((rows) => rows.map((row) => row.id));
+
+      for (const ticketId of ticketIds) {
+        await db.delete(supportTicketMessagesTable).where(eq(supportTicketMessagesTable.ticketId, ticketId));
+      }
+
+      await db.delete(attendanceTable).where(eq(attendanceTable.studentId, userId));
+      await db.delete(assignmentSubmissionsTable).where(eq(assignmentSubmissionsTable.studentId, userId));
+      await db.delete(testSubmissionsTable).where(eq(testSubmissionsTable.studentId, userId));
+      await db.delete(lectureEnrollmentsTable).where(eq(lectureEnrollmentsTable.studentId, userId));
+      await db.delete(questionBankSavedQuestionsTable).where(eq(questionBankSavedQuestionsTable.studentId, userId));
+      await db.delete(enrollmentsTable).where(eq(enrollmentsTable.studentId, userId));
+      await db.delete(feedbackTable).where(eq(feedbackTable.studentId, userId));
+      await db.delete(supportTicketsTable).where(eq(supportTicketsTable.studentId, userId));
+      await db.delete(passwordResetRequestsTable).where(eq(passwordResetRequestsTable.userId, userId));
+    } else if (user.role === "planner") {
+      await db.delete(lecturePlansTable).where(eq(lecturePlansTable.plannerId, userId));
+    }
+
+    await db.delete(usersTable).where(eq(usersTable.id, userId));
+
+    res.sendStatus(204);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to delete user",
+    });
   }
-
-  await db.delete(usersTable).where(eq(usersTable.id, userId));
-
-  res.sendStatus(204);
 });
 
 router.patch("/users/:id/approve", async (req, res): Promise<void> => {

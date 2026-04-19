@@ -525,6 +525,13 @@ export default function SuperAdminAdmins() {
             description: `${staff.fullName} has been removed.`,
           });
         },
+        onError: (err: any) => {
+          toast({
+            title: `Failed to delete ${roleLabel(staff.role).toLowerCase()}`,
+            description: err?.data?.error ?? "The account could not be deleted. Please try again.",
+            variant: "destructive",
+          });
+        },
       }
     );
   };
