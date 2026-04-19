@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import indiaStateDistrictSource from "@/data/india-state-districts.json";
+import { invalidateStudentContentQueries } from "@/lib/student-content-cache";
 import type { AuthUser, StudentProfileDetails } from "@/types/auth";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -201,6 +202,7 @@ function buildInitialDetails(user: AuthUser): StudentProfileDetails {
 
 export default function StudentOnboardingGate() {
   const { user, login } = useAuth();
+  const queryClient = useQueryClient();
   const [location, setLocation] = useLocation();
   const authUser = user as AuthUser | null;
   const rejectedResubmission = authUser?.role === "student" && authUser.status === "rejected";
@@ -439,6 +441,7 @@ export default function StudentOnboardingGate() {
         window.localStorage.removeItem(draftStorageKey);
       }
       login(payload as AuthUser);
+      await invalidateStudentContentQueries(queryClient);
       setLocation("/student/pending-approval");
     } catch (err: any) {
       setError(err.message ?? "Failed to save setup");

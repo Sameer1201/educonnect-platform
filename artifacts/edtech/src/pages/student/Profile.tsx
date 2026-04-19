@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
+import { invalidateStudentContentQueries } from "@/lib/student-content-cache";
 import {
   BookOpen,
   CalendarDays,
@@ -144,7 +145,7 @@ export default function StudentProfile() {
       const updated = await response.json();
       login(updated);
       await refetch();
-      queryClient.invalidateQueries({ queryKey: ["current-user"] });
+      await invalidateStudentContentQueries(queryClient);
       setAvatarChanged(false);
       toast({ title: "Profile updated", description: "Your student profile is now up to date." });
     } catch (err: any) {
