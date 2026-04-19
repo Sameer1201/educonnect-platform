@@ -3,9 +3,6 @@ modules = ["nodejs-24", "postgresql-16"]
 [[artifacts]]
 id = "artifacts/api-server"
 
-[[artifacts]]
-id = "artifacts/mockup-sandbox"
-
 [deployment]
 deploymentTarget = "autoscale"
 build = ["bash", "-c", "pnpm install --frozen-lockfile && pnpm --filter @workspace/edtech run build && pnpm --filter @workspace/api-server run build"]
