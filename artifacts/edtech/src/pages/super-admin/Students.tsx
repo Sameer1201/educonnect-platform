@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  BarChart3,
   CheckCircle,
   Clock,
   Eye,
@@ -18,7 +19,9 @@ import {
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
-import { StudentProfileInsightsPanel, type StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
+import type { StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
+import { StudentProfileAnalysisPanel } from "@/components/student/StudentProfileAnalysisPanel";
+import { StudentVerificationReviewDialog } from "@/components/student/StudentVerificationReviewDialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -59,10 +62,20 @@ function getStudentTargetExam(student: User) {
   return student.profileDetails?.preparation?.targetExam?.trim() || student.subject?.trim() || "";
 }
 
+async function fetchStudentInsights(studentId: number) {
+  const response = await fetch(`${BASE}/api/users/${studentId}/profile-insights`, { credentials: "include" });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error ?? "Failed to load student profile");
+  }
+  return response.json() as Promise<StudentProfileInsights>;
+}
+
 export default function SuperAdminStudents() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [selectedStudent, setSelectedStudent] = useState<User | null>(null);
+  const [analysisStudent, setAnalysisStudent] = useState<User | null>(null);
   const [rejectionDialog, setRejectionDialog] = useState<User | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
@@ -87,11 +100,18 @@ export default function SuperAdminStudents() {
   const studentInsightsQuery = useQuery<StudentProfileInsights>({
     queryKey: ["sa-student-insights", selectedStudent?.id],
     enabled: !!selectedStudent,
+    queryFn: () => fetchStudentInsights(selectedStudent!.id),
+    staleTime: 30_000,
+  });
+
+  const studentAnalysisQuery = useQuery<StudentProfileInsights>({
+    queryKey: ["sa-student-analysis", analysisStudent?.id],
+    enabled: !!analysisStudent,
     queryFn: async () => {
-      const response = await fetch(`${BASE}/api/users/${selectedStudent?.id}/profile-insights`, { credentials: "include" });
+      const response = await fetch(`${BASE}/api/users/${analysisStudent?.id}/profile-insights`, { credentials: "include" });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? "Failed to load student profile");
+        throw new Error(payload.error ?? "Failed to load student profile analysis");
       }
       return response.json();
     },
@@ -158,6 +178,19 @@ export default function SuperAdminStudents() {
   const reviewableStudents = students.filter((student) => student.onboardingComplete === true);
   const pending = reviewableStudents.filter((student) => student.status === "pending");
   const approved = reviewableStudents.filter((student) => student.status === "approved");
+
+  const prefetchStudentInsights = (studentId: number) => {
+    void queryClient.prefetchQuery({
+      queryKey: ["sa-student-insights", studentId],
+      queryFn: () => fetchStudentInsights(studentId),
+      staleTime: 30_000,
+    });
+  };
+
+  const openStudentReview = (student: User) => {
+    prefetchStudentInsights(student.id);
+    setSelectedStudent(student);
+  };
 
   const handleDelete = (student: User) => {
     if (!confirm(`Delete ${student.fullName} permanently? This will remove all data related to this student.`)) return;
@@ -269,11 +302,26 @@ export default function SuperAdminStudents() {
                       size="sm"
                       variant="outline"
                       className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                      onClick={() => setSelectedStudent(student)}
+                      onMouseEnter={() => prefetchStudentInsights(student.id)}
+                      onFocus={() => prefetchStudentInsights(student.id)}
+                      onClick={() => openStudentReview(student)}
                     >
                       <Eye size={14} className="mr-1" />
                       View Profile
                     </Button>
+
+                    {student.status === "approved" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100"
+                        onClick={() => setAnalysisStudent(student)}
+                        data-testid={`button-analysis-${student.id}`}
+                      >
+                        <BarChart3 size={14} className="mr-1" />
+                        Profile Analysis
+                      </Button>
+                    )}
 
                     {student.status === "approved" && (
                       <Button
@@ -364,42 +412,69 @@ export default function SuperAdminStudents() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selectedStudent} onOpenChange={(open) => !open && setSelectedStudent(null)}>
-        <DialogContent className="max-w-[min(96vw,72rem)] overflow-hidden p-0">
-          <DialogHeader className="border-b bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5">
-            <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
-              <span>Student profile insights</span>
-              {selectedStudent && (
-                <Badge variant="secondary" className="bg-white text-amber-700 hover:bg-white">
-                  @{selectedStudent.username}
-                </Badge>
-              )}
-            </DialogTitle>
-          </DialogHeader>
+      <StudentVerificationReviewDialog
+        open={!!selectedStudent}
+        onOpenChange={(open) => {
+          if (!open) setSelectedStudent(null);
+        }}
+        student={
+          selectedStudent
+            ? {
+                fullName: selectedStudent.fullName,
+                username: selectedStudent.username,
+                status: selectedStudent.status,
+                onboardingComplete: selectedStudent.onboardingComplete,
+                rejectionReason: selectedStudent.rejectionReason,
+                targetExam: getStudentTargetExam(selectedStudent),
+                email: selectedStudent.email,
+              }
+            : null
+        }
+        insights={studentInsightsQuery.data}
+        isLoading={studentInsightsQuery.isLoading}
+        errorMessage={studentInsightsQuery.isError ? (studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile.") : null}
+        onPrimaryAction={
+          selectedStudent?.status === "pending"
+            ? () => restoreMutation.mutate(selectedStudent.id)
+            : undefined
+        }
+        onSecondaryAction={
+          selectedStudent?.status === "pending"
+            ? () => {
+                setRejectionDialog(selectedStudent);
+                setRejectionReason(selectedStudent.rejectionReason ?? "");
+              }
+            : undefined
+        }
+        primaryActionLabel="Approve"
+        secondaryActionLabel="Reject"
+        primaryActionDisabled={restoreMutation.isPending}
+        secondaryActionDisabled={revokeMutation.isPending}
+      />
 
-          <div className="max-h-[calc(100dvh-7rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
-            {studentInsightsQuery.isLoading ? (
-              <div className="space-y-4">
-                <div className="h-52 animate-pulse rounded-3xl bg-muted" />
-                <div className="grid gap-4 xl:grid-cols-2">
+      <Dialog open={!!analysisStudent} onOpenChange={(open) => !open && setAnalysisStudent(null)}>
+        <DialogContent className="max-w-[min(98vw,96rem)] overflow-hidden p-0">
+          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto">
+            {studentAnalysisQuery.isLoading ? (
+              <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+                <div className="h-40 animate-pulse rounded-3xl bg-muted" />
+                <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                  <div className="h-72 animate-pulse rounded-3xl bg-muted" />
                   <div className="h-72 animate-pulse rounded-3xl bg-muted" />
                   <div className="h-72 animate-pulse rounded-3xl bg-muted" />
                 </div>
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="h-80 animate-pulse rounded-3xl bg-muted" />
-                  <div className="h-80 animate-pulse rounded-3xl bg-muted" />
+                <div className="h-96 animate-pulse rounded-3xl bg-muted" />
+              </div>
+            ) : studentAnalysisQuery.isError ? (
+              <div className="px-4 py-4 sm:px-6 sm:py-6">
+                <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-muted-foreground">
+                  {studentAnalysisQuery.error instanceof Error
+                    ? studentAnalysisQuery.error.message
+                    : "Could not load student profile analysis."}
                 </div>
               </div>
-            ) : studentInsightsQuery.isError ? (
-              <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-muted-foreground">
-                {studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile."}
-              </div>
-            ) : studentInsightsQuery.data ? (
-              <StudentProfileInsightsPanel
-                insights={studentInsightsQuery.data}
-                viewerLabel="Super admin review"
-                mode={selectedStudent?.status === "pending" ? "submittedOnly" : "full"}
-              />
+            ) : studentAnalysisQuery.data ? (
+              <StudentProfileAnalysisPanel insights={studentAnalysisQuery.data} />
             ) : null}
           </div>
         </DialogContent>

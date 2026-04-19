@@ -54,6 +54,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { StudentProfileInsightsPanel, type StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
+import { StudentVerificationReviewDialog } from "@/components/student/StudentVerificationReviewDialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -139,25 +140,29 @@ function renderLoadingCard() {
   return <div className="h-36 rounded-2xl border border-slate-100 bg-white shadow-sm animate-pulse" />;
 }
 
+async function fetchStudentInsights(studentId: number) {
+  const response = await fetch(`${BASE}/api/users/${studentId}/profile-insights`, { credentials: "include" });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error ?? "Failed to load student profile");
+  }
+  return response.json() as Promise<StudentProfileInsights>;
+}
+
 export default function AdminStudents() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<StudentViewModel | null>(null);
+  const [profileStudent, setProfileStudent] = useState<StudentViewModel | null>(null);
   const [rejectionDialog, setRejectionDialog] = useState<StudentViewModel | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const activeInsightsStudent = profileStudent ?? selectedStudent;
   const { data: studentRecords = [], isLoading } = useListUsers({ role: "student" });
   const studentInsightsQuery = useQuery<StudentProfileInsights>({
-    queryKey: ["admin-student-insights", selectedStudent?.id],
-    enabled: !!selectedStudent,
-    queryFn: async () => {
-      const response = await fetch(`${BASE}/api/users/${selectedStudent?.id}/profile-insights`, { credentials: "include" });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? "Failed to load student profile");
-      }
-      return response.json();
-    },
+    queryKey: ["admin-student-insights", activeInsightsStudent?.id],
+    enabled: !!activeInsightsStudent,
+    queryFn: () => fetchStudentInsights(activeInsightsStudent!.id),
     staleTime: 30_000,
   });
   const approveStudent = useApproveStudent();
@@ -208,6 +213,26 @@ export default function AdminStudents() {
     void queryClient.invalidateQueries({ queryKey: ["admin-student-insights"] });
   };
 
+  const prefetchStudentInsights = (studentId: number) => {
+    void queryClient.prefetchQuery({
+      queryKey: ["admin-student-insights", studentId],
+      queryFn: () => fetchStudentInsights(studentId),
+      staleTime: 30_000,
+    });
+  };
+
+  const openStudentReview = (student: StudentViewModel) => {
+    prefetchStudentInsights(student.id);
+    if (student.status === "pending") {
+      setProfileStudent(null);
+      setSelectedStudent(student);
+      return;
+    }
+
+    setSelectedStudent(null);
+    setProfileStudent(student);
+  };
+
   const handleStudentStatusChange = (
     student: StudentViewModel,
     status: "approved" | "rejected",
@@ -237,6 +262,9 @@ export default function AdminStudents() {
         refreshStudentData();
         if (selectedStudent?.id === student.id) {
           setSelectedStudent(null);
+        }
+        if (profileStudent?.id === student.id) {
+          setProfileStudent(null);
         }
         toast({
           title: "Student removed",
@@ -385,7 +413,9 @@ export default function AdminStudents() {
                         size="sm"
                         variant="outline"
                         className="h-9 text-xs border-amber-200 text-amber-700 hover:bg-amber-50 col-span-2"
-                        onClick={() => setSelectedStudent(student)}
+                        onMouseEnter={() => prefetchStudentInsights(student.id)}
+                        onFocus={() => prefetchStudentInsights(student.id)}
+                        onClick={() => openStudentReview(student)}
                       >
                         <Eye className="w-3.5 h-3.5 mr-1" />
                         Review details
@@ -580,9 +610,15 @@ export default function AdminStudents() {
                     student.status === "revoked" ? "opacity-60" : ""
                   }`}
                 >
-                  <div className="flex items-center gap-3 mb-2.5">
-                    <button onClick={() => setSelectedStudent(student)} className="shrink-0 focus:outline-none">
-                      <Avatar className="h-10 w-10 ring-2 ring-offset-1 ring-indigo-100">
+                  <div className="mb-2.5 flex items-center gap-3">
+                    <button
+                      onMouseEnter={() => prefetchStudentInsights(student.id)}
+                      onFocus={() => prefetchStudentInsights(student.id)}
+                      onClick={() => openStudentReview(student)}
+                      className="group flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-1.5 py-1.5 text-left transition-colors hover:bg-orange-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-200"
+                      data-testid={`button-view-profile-${student.id}`}
+                    >
+                      <Avatar className="h-10 w-10 shrink-0 ring-2 ring-offset-1 ring-indigo-100 transition-all group-hover:ring-orange-200">
                         <AvatarFallback
                           className={`text-sm font-bold ${
                             student.status === "revoked"
@@ -595,13 +631,10 @@ export default function AdminStudents() {
                           {student.avatarInitials}
                         </AvatarFallback>
                       </Avatar>
-                    </button>
-                    <button
-                      onClick={() => setSelectedStudent(student)}
-                      className="flex-1 min-w-0 text-left focus:outline-none"
-                    >
-                      <p className="text-sm font-semibold text-slate-800 leading-tight">{student.name}</p>
-                      <p className="text-xs text-slate-400 font-mono">{student.username}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold leading-tight text-slate-800 transition-colors group-hover:text-orange-700">{student.name}</p>
+                        <p className="text-xs font-mono text-slate-400">{student.username}</p>
+                      </div>
                     </button>
                     {student.status === "approved" ? (
                       <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold shrink-0">
@@ -714,10 +747,13 @@ export default function AdminStudents() {
                 >
                   <div className="col-span-4 flex items-center gap-3">
                     <button
-                      onClick={() => setSelectedStudent(student)}
-                      className="flex items-center gap-3 focus:outline-none group"
+                      onMouseEnter={() => prefetchStudentInsights(student.id)}
+                      onFocus={() => prefetchStudentInsights(student.id)}
+                      onClick={() => openStudentReview(student)}
+                      className="group flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-orange-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-200"
+                      data-testid={`button-view-profile-desktop-${student.id}`}
                     >
-                      <Avatar className="h-9 w-9 ring-2 ring-offset-1 ring-indigo-100 shrink-0 group-hover:ring-indigo-300 transition-all">
+                      <Avatar className="h-9 w-9 shrink-0 ring-2 ring-offset-1 ring-indigo-100 transition-all group-hover:ring-orange-200">
                         <AvatarFallback
                           className={`text-xs font-bold ${
                             student.status === "revoked"
@@ -730,11 +766,14 @@ export default function AdminStudents() {
                           {student.avatarInitials}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="text-left">
-                        <p className="text-sm font-semibold text-slate-800 leading-tight group-hover:text-indigo-600 transition-colors">
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="text-sm font-semibold text-slate-800 leading-tight transition-colors group-hover:text-orange-700">
                           {student.name}
                         </p>
                         <p className="text-xs text-slate-400 font-mono">{student.username}</p>
+                        <p className="mt-1 text-[11px] font-medium text-orange-600 opacity-0 transition-opacity group-hover:opacity-100">
+                          View full profile details
+                        </p>
                       </div>
                     </button>
                   </div>
@@ -856,48 +895,95 @@ export default function AdminStudents() {
         </div>
       </div>
 
-      <Dialog open={!!selectedStudent} onOpenChange={(open) => !open && setSelectedStudent(null)}>
-        <DialogContent className="max-w-6xl overflow-hidden p-0">
-          {selectedStudent ? (
-            <>
-              <DialogHeader className="border-b bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5">
-                <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
-                  <span>Student verification profile</span>
-                  <span className="rounded-full bg-white px-2.5 py-1 text-sm font-medium text-amber-700 shadow-sm">
-                    {selectedStudent.username}
+      {selectedStudent?.status === "pending" ? (
+        <StudentVerificationReviewDialog
+          open={!!selectedStudent}
+          onOpenChange={(open) => {
+            if (!open) setSelectedStudent(null);
+          }}
+          student={
+            selectedStudent
+              ? {
+                  fullName: selectedStudent.name,
+                  username: selectedStudent.username,
+                  status: selectedStudent.status,
+                  onboardingComplete: selectedStudent.onboardingComplete,
+                  rejectionReason: selectedStudent.rejectionReason,
+                  targetExam: selectedStudent.targetExam,
+                  email: selectedStudent.email,
+                  initials: selectedStudent.avatarInitials,
+                }
+              : null
+          }
+          insights={studentInsightsQuery.data}
+          isLoading={studentInsightsQuery.isLoading}
+          errorMessage={studentInsightsQuery.isError ? (studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile.") : null}
+          onPrimaryAction={
+            selectedStudent
+              ? () =>
+                  handleStudentStatusChange(
+                    selectedStudent,
+                    "approved",
+                    "Student approved",
+                    `${selectedStudent.name} can now log in.`,
+                  )
+              : undefined
+          }
+          onSecondaryAction={
+            selectedStudent
+              ? () => {
+                  setRejectionDialog(selectedStudent);
+                  setRejectionReason(selectedStudent.rejectionReason ?? "");
+                }
+              : undefined
+          }
+          primaryActionDisabled={approveStudent.isPending}
+          secondaryActionDisabled={approveStudent.isPending}
+        />
+      ) : (
+        <Dialog open={!!profileStudent} onOpenChange={(open) => !open && setProfileStudent(null)}>
+          <DialogContent className="max-w-[min(96vw,72rem)] overflow-hidden p-0">
+            <DialogHeader className="border-b bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5">
+              <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
+                <span>Student profile insights</span>
+                {profileStudent && (
+                  <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-sm text-amber-700 shadow-sm">
+                    {profileStudent.username}
                   </span>
-                </DialogTitle>
-              </DialogHeader>
+                )}
+              </DialogTitle>
+            </DialogHeader>
 
-              <div className="max-h-[80vh] overflow-y-auto px-6 py-6">
-                {studentInsightsQuery.isLoading ? (
-                  <div className="space-y-4">
-                    <div className="h-52 animate-pulse rounded-3xl bg-muted" />
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      <div className="h-72 animate-pulse rounded-3xl bg-muted" />
-                      <div className="h-72 animate-pulse rounded-3xl bg-muted" />
-                    </div>
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      <div className="h-80 animate-pulse rounded-3xl bg-muted" />
-                      <div className="h-80 animate-pulse rounded-3xl bg-muted" />
-                    </div>
+            <div className="max-h-[calc(100dvh-7rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
+              {studentInsightsQuery.isLoading ? (
+                <div className="space-y-4">
+                  <div className="h-52 animate-pulse rounded-3xl bg-muted" />
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="h-72 animate-pulse rounded-3xl bg-muted" />
+                    <div className="h-72 animate-pulse rounded-3xl bg-muted" />
                   </div>
-                ) : studentInsightsQuery.isError ? (
-                  <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-muted-foreground">
-                    {studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile."}
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="h-80 animate-pulse rounded-3xl bg-muted" />
+                    <div className="h-80 animate-pulse rounded-3xl bg-muted" />
                   </div>
-                ) : studentInsightsQuery.data ? (
-                  <StudentProfileInsightsPanel
-                    insights={studentInsightsQuery.data}
-                    viewerLabel="Admin review"
-                    mode={selectedStudent?.status === "pending" ? "submittedOnly" : "full"}
-                  />
-                ) : null}
-              </div>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+                </div>
+              ) : studentInsightsQuery.isError ? (
+                <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-muted-foreground">
+                  {studentInsightsQuery.error instanceof Error
+                    ? studentInsightsQuery.error.message
+                    : "Could not load student profile."}
+                </div>
+              ) : studentInsightsQuery.data ? (
+                <StudentProfileInsightsPanel
+                  insights={studentInsightsQuery.data}
+                  viewerLabel="Admin review"
+                  mode="full"
+                />
+              ) : null}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog
         open={!!rejectionDialog}

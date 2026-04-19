@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import {
   Search, LayoutDashboard, BookOpen, ClipboardList,
   Trophy,
-  Users, UserCheck, Activity,
+  Users, Activity,
   ArrowRight, Zap,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/brand";

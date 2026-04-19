@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import { format, formatDistanceToNowStrict } from "date-fns";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -50,7 +48,6 @@ import {
   TrendingUp,
   User,
   UserCheck,
-  Users,
   XCircle,
 } from "lucide-react";
 
@@ -317,21 +314,6 @@ function SnapshotTile({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
       <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">{label}</p>
       <p className="mt-2 text-sm font-semibold text-slate-900">{value || "Not provided"}</p>
-    </div>
-  );
-}
-
-function CompletionDetail({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-white/80 bg-white/75 px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value || "Not provided"}</p>
     </div>
   );
 }

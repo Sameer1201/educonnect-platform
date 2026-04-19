@@ -9,7 +9,7 @@ import { BrandLogo } from "@/components/ui/brand-logo";
 import { isStudentPendingVerification } from "@/lib/student-access";
 import {
   LayoutDashboard, Users, BookOpen,
-  LogOut, Menu, X, UserCheck,
+  LogOut, Menu, X,
   ClipboardList, Activity,
   ChevronLeft, ChevronRight,
   Bell, Medal,
