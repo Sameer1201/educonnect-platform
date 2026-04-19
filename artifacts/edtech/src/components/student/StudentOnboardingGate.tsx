@@ -476,13 +476,13 @@ export default function StudentOnboardingGate() {
   );
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#111827]/20 backdrop-blur-[3px] px-4 py-6">
-      <div className="flex max-h-[92vh] w-full max-w-[760px] flex-col overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_80px_rgba(17,24,39,0.18)]">
-        <div className="border-b border-[#EEF2F7] px-5 py-4 sm:px-6">
+    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-[#111827]/20 px-3 py-3 backdrop-blur-[3px] sm:items-center sm:px-4 sm:py-6">
+      <div className="flex max-h-[calc(100dvh-0.75rem)] w-full max-w-[760px] flex-col overflow-hidden rounded-[24px] border border-white/70 bg-white shadow-[0_30px_80px_rgba(17,24,39,0.18)] sm:max-h-[92vh] sm:rounded-[28px]">
+        <div className="border-b border-[#EEF2F7] px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5B4DFF]">Complete Setup</p>
-              <h2 className="mt-1 text-2xl font-bold text-[#111827]">
+              <h2 className="mt-1 text-xl font-bold text-[#111827] sm:text-2xl">
                 {rejectedResubmission ? "Update and resubmit your profile" : "Finish your student profile"}
               </h2>
               {rejectedResubmission && authUser.rejectionReason ? (
@@ -496,11 +496,11 @@ export default function StudentOnboardingGate() {
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-5 gap-2">
+          <div className="-mx-1 mt-5 flex gap-2 overflow-x-auto px-1 pb-1 no-scrollbar">
             {steps.map((entry, index) => {
               const state = indicator(index);
               return (
-                <div key={entry.title} className="min-w-0">
+                <div key={entry.title} className="min-w-[104px] flex-1">
                   <div className="flex items-center gap-2">
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
@@ -524,7 +524,7 @@ export default function StudentOnboardingGate() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {error ? (
             <div className="mb-4 rounded-2xl border border-[#FECACA] bg-[#FEF2F2] px-4 py-3 text-sm text-[#B91C1C]">
               {error}
@@ -534,7 +534,7 @@ export default function StudentOnboardingGate() {
           {step === 0 ? (
             <div className="space-y-4">
               <div>
-                <p className="text-3xl font-bold tracking-tight text-[#111827]">Personal details</p>
+                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">Personal details</p>
                 <p className="mt-2 text-sm text-[#6B7280]">We need a few details before we personalize your student experience.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -602,7 +602,7 @@ export default function StudentOnboardingGate() {
           {step === 1 ? (
             <div className="space-y-4">
               <div>
-                <p className="text-3xl font-bold tracking-tight text-[#111827]">Address</p>
+                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">Address</p>
                 <p className="mt-2 text-sm text-[#6B7280]">This helps us keep your location and communication details organized.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -675,7 +675,7 @@ export default function StudentOnboardingGate() {
           {step === 2 ? (
             <div className="space-y-4">
               <div>
-                <p className="text-3xl font-bold tracking-tight text-[#111827]">Schooling and target</p>
+                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">Schooling and target</p>
                 <p className="mt-2 text-sm text-[#6B7280]">Your target exam is required so we can match tests, analysis, and question banks correctly.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -729,7 +729,7 @@ export default function StudentOnboardingGate() {
           {step === 3 ? (
             <div className="space-y-4">
               <div>
-                <p className="text-3xl font-bold tracking-tight text-[#111827]">Learning mode</p>
+                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">Learning mode</p>
                 <p className="mt-2 text-sm text-[#6B7280]">Tell us how you are preparing so we can tune the experience and recommendations.</p>
               </div>
               <div className="grid gap-4">
@@ -773,7 +773,7 @@ export default function StudentOnboardingGate() {
           {step === 4 ? (
             <div className="space-y-4">
               <div>
-                <p className="text-3xl font-bold tracking-tight text-[#111827]">How did you hear about us?</p>
+                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">How did you hear about us?</p>
                 <p className="mt-2 text-sm text-[#6B7280]">This helps us understand how students discover the platform.</p>
               </div>
               <div>
@@ -793,7 +793,7 @@ export default function StudentOnboardingGate() {
           ) : null}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#EEF2F7] px-5 py-4 sm:px-6">
+        <div className="flex flex-col-reverse items-stretch gap-3 border-t border-[#EEF2F7] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <Button
             type="button"
             variant="outline"
@@ -802,7 +802,7 @@ export default function StudentOnboardingGate() {
               setStep((current) => Math.max(0, current - 1));
             }}
             disabled={step === 0 || saving}
-            className="min-w-[120px] rounded-2xl"
+            className="w-full rounded-2xl sm:w-auto sm:min-w-[120px]"
           >
             Previous
           </Button>
@@ -810,7 +810,7 @@ export default function StudentOnboardingGate() {
             type="button"
             onClick={handleNext}
             disabled={saving}
-            className="min-w-[180px] rounded-2xl bg-[#5B4DFF] hover:bg-[#4A3EE0]"
+            className="w-full rounded-2xl bg-[#5B4DFF] hover:bg-[#4A3EE0] sm:w-auto sm:min-w-[180px]"
           >
             {saving ? (
               <>

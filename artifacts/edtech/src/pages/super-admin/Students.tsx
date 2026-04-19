@@ -365,7 +365,7 @@ export default function SuperAdminStudents() {
       </Dialog>
 
       <Dialog open={!!selectedStudent} onOpenChange={(open) => !open && setSelectedStudent(null)}>
-        <DialogContent className="max-w-6xl overflow-hidden p-0">
+        <DialogContent className="max-w-[min(96vw,72rem)] overflow-hidden p-0">
           <DialogHeader className="border-b bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5">
             <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
               <span>Student profile insights</span>
@@ -377,7 +377,7 @@ export default function SuperAdminStudents() {
             </DialogTitle>
           </DialogHeader>
 
-          <div className="max-h-[80vh] overflow-y-auto px-6 py-6">
+          <div className="max-h-[calc(100dvh-7rem)] overflow-y-auto px-4 py-4 sm:px-6 sm:py-6">
             {studentInsightsQuery.isLoading ? (
               <div className="space-y-4">
                 <div className="h-52 animate-pulse rounded-3xl bg-muted" />

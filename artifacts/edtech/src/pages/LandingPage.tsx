@@ -19,7 +19,7 @@ import { RankPulseLandingPreview } from "@/components/marketing/RankPulseLanding
 const features = [
   {
     icon: <Timer className="h-5 w-5" />,
-    iconBg: "bg-purple-100 text-purple-500",
+    iconBg: "bg-amber-100 text-amber-600",
     title: "Timed Tests",
     desc: "Full-screen mock tests with section switching, save-and-next flow, and an exam-style experience.",
   },
@@ -31,13 +31,13 @@ const features = [
   },
   {
     icon: <LineChart className="h-5 w-5" />,
-    iconBg: "bg-orange-100 text-orange-500",
+    iconBg: "bg-orange-100 text-orange-600",
     title: "Advanced Analysis",
     desc: "Performance, time, attempt, difficulty, and question-wise analysis with visual graphs.",
   },
   {
     icon: <MessageSquare className="h-5 w-5" />,
-    iconBg: "bg-blue-100 text-blue-500",
+    iconBg: "bg-emerald-100 text-emerald-600",
     title: "Review Bucket",
     desc: "Keep incorrect and unattempted questions in one clean place and revise them with solutions later.",
   },
@@ -74,22 +74,25 @@ export default function LandingPage() {
             />
           </Link>
           <nav className="hidden items-center gap-8 md:flex">
-            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600" onClick={() => featuresRef.current?.scrollIntoView({ behavior: "smooth" })}>
+            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-orange-600" onClick={() => featuresRef.current?.scrollIntoView({ behavior: "smooth" })}>
               Features
             </button>
-            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600" onClick={() => analysisRef.current?.scrollIntoView({ behavior: "smooth" })}>
+            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-orange-600" onClick={() => analysisRef.current?.scrollIntoView({ behavior: "smooth" })}>
               Analysis
             </button>
-            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600" onClick={() => contactRef.current?.scrollIntoView({ behavior: "smooth" })}>
+            <button className="text-sm font-medium text-gray-600 transition-colors hover:text-orange-600" onClick={() => contactRef.current?.scrollIntoView({ behavior: "smooth" })}>
               Contact
             </button>
           </nav>
-          <div className="flex items-center gap-3">
-            <button className="hidden text-sm font-medium text-gray-600 transition-colors hover:text-indigo-600 sm:block" onClick={() => setLocation("/login")}>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              className="rounded-md border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 transition-colors hover:border-orange-200 hover:text-orange-600 sm:px-4 sm:text-sm"
+              onClick={() => setLocation("/login")}
+            >
               Log In
             </button>
             <button
-              className="rounded-md bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition-colors hover:bg-indigo-700"
+              className="rounded-md bg-orange-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-orange-500/20 transition-colors hover:bg-orange-600 sm:px-5 sm:py-2.5 sm:text-sm"
               onClick={() => setLocation("/register")}
             >
               Sign Up
@@ -102,10 +105,10 @@ export default function LandingPage() {
         <section
           ref={analysisRef}
           className="relative overflow-hidden pb-24 pt-32 md:pb-32 md:pt-44"
-          style={{ background: "linear-gradient(135deg, #1a0533 0%, #2d1060 40%, #1e1b6e 100%)" }}
+          style={{ background: "linear-gradient(135deg, #fffaf2 0%, #fff4e5 42%, #ffedd5 100%)" }}
         >
-          <div className="absolute right-0 top-0 h-96 w-96 rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(circle, #a855f7, transparent)" }} />
-          <div className="absolute bottom-0 left-0 h-80 w-80 rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(circle, #6366f1, transparent)" }} />
+          <div className="absolute right-0 top-0 h-96 w-96 rounded-full opacity-35 blur-3xl" style={{ background: "radial-gradient(circle, rgba(249,115,22,0.32), transparent)" }} />
+          <div className="absolute bottom-0 left-0 h-80 w-80 rounded-full opacity-25 blur-3xl" style={{ background: "radial-gradient(circle, rgba(245,158,11,0.26), transparent)" }} />
           <div className="relative z-10 mx-auto grid max-w-7xl gap-12 px-4 lg:grid-cols-2 lg:items-center sm:px-6 lg:px-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -113,35 +116,35 @@ export default function LandingPage() {
               transition={{ duration: 0.7, ease: "easeOut" }}
               className="max-w-2xl"
             >
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white">
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm">
+                <ShieldCheck className="h-4 w-4 text-emerald-500" />
                 Student-first exam intelligence
               </div>
-              <h1 className="mb-6 text-5xl font-extrabold leading-tight tracking-tight text-white md:text-6xl lg:text-7xl">
+              <h1 className="mb-6 text-5xl font-extrabold leading-tight tracking-tight text-slate-900 md:text-6xl lg:text-7xl">
                 Don&apos;t just practice.
                 <br />
-                <span className="bg-gradient-to-r from-amber-400 to-orange-400 bg-clip-text text-transparent">Climb faster.</span>
+                <span className="bg-gradient-to-r from-amber-500 to-orange-600 bg-clip-text text-transparent">Climb faster.</span>
               </h1>
-              <p className="mb-8 max-w-xl text-lg leading-relaxed text-purple-200 md:text-xl">
+              <p className="mb-8 max-w-xl text-lg leading-relaxed text-slate-600 md:text-xl">
                 RankPulse gives serious students timed tests, a smart review bucket, structured question practice, and deep analysis in one clean workspace.
               </p>
               <div className="flex flex-col gap-4 sm:flex-row">
                 <button
                   className="group flex items-center justify-center gap-2 rounded-lg px-8 py-4 text-lg font-semibold text-white transition-all"
-                  style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", boxShadow: "0 0 40px -5px rgba(168,85,247,0.6)" }}
+                  style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)", boxShadow: "0 0 40px -5px rgba(249,115,22,0.45)" }}
                   onClick={() => setLocation("/register")}
                 >
                   Start for Free
                   <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
                 </button>
                 <button
-                  className="flex items-center justify-center rounded-lg border border-purple-400/40 px-8 py-4 text-lg font-semibold text-purple-200 transition-colors hover:bg-white/10"
+                  className="flex items-center justify-center rounded-lg border border-orange-200 bg-white/70 px-8 py-4 text-lg font-semibold text-orange-700 transition-colors hover:bg-white"
                   onClick={() => featuresRef.current?.scrollIntoView({ behavior: "smooth" })}
                 >
                   Explore Features
                 </button>
               </div>
-              <div className="mt-10 flex flex-wrap items-center gap-6 text-sm font-medium text-purple-300">
+              <div className="mt-10 flex flex-wrap items-center gap-6 text-sm font-medium text-slate-600">
                 {["Timed tests", "Review bucket", "Detailed graphs"].map((item) => (
                   <div key={item} className="flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -181,7 +184,7 @@ export default function LandingPage() {
         <section id="features" ref={featuresRef} className="bg-white py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-12">
-              <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">Core Features</p>
+              <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-orange-600">Core Features</p>
               <h2 className="text-3xl font-bold text-gray-900 md:text-4xl">Everything important, without clutter.</h2>
             </div>
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -209,7 +212,7 @@ export default function LandingPage() {
         <section className="overflow-hidden border-y border-gray-100 bg-gray-50 py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mb-16 max-w-3xl text-center mx-auto">
-              <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">Advanced Analysis</p>
+              <p className="mb-3 text-xs font-bold uppercase tracking-[0.24em] text-orange-600">Advanced Analysis</p>
               <h2 className="mb-4 text-3xl font-bold text-gray-900 md:text-4xl">Deep insight into every attempt</h2>
               <p className="text-lg text-gray-500">
                 Stop guessing what went wrong. RankPulse breaks down accuracy, time, difficulty, and question journey clearly after every test.
@@ -229,7 +232,7 @@ export default function LandingPage() {
                   transition={{ duration: 0.45, delay: index * 0.08 }}
                   className="flex items-start gap-4"
                 >
-                  <div className="mt-1 rounded p-1.5 text-indigo-600 bg-indigo-100 shrink-0">
+                  <div className="mt-1 rounded p-1.5 text-orange-600 bg-orange-100 shrink-0">
                     <Zap className="h-5 w-5" />
                   </div>
                   <div>
@@ -267,7 +270,7 @@ export default function LandingPage() {
               </div>
               <button
                 className="group flex items-center gap-2 rounded-lg px-8 py-4 text-lg font-semibold text-white transition-all hover:opacity-90"
-                style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", boxShadow: "0 0 30px -5px rgba(124,58,237,0.5)" }}
+                style={{ background: "linear-gradient(135deg, #f59e0b, #ea580c)", boxShadow: "0 0 30px -5px rgba(249,115,22,0.4)" }}
                 onClick={() => setLocation("/register")}
               >
                 Get Started Free
@@ -285,12 +288,12 @@ export default function LandingPage() {
               <h3 className="text-xl font-bold text-gray-900">Built around student practice</h3>
               <div className="grid grid-cols-2 gap-4">
                 {[
-                  { name: "Mock Tests", color: "bg-blue-100 text-blue-700" },
+                  { name: "Mock Tests", color: "bg-amber-100 text-amber-700" },
                   { name: "Question Bank", color: "bg-green-100 text-green-700" },
-                  { name: "Review Bucket", color: "bg-purple-100 text-purple-700" },
+                  { name: "Review Bucket", color: "bg-orange-100 text-orange-700" },
                   { name: "Deep Analysis", color: "bg-orange-100 text-orange-700" },
                   { name: "Time Tracking", color: "bg-red-100 text-red-700" },
-                  { name: "Progress Graphs", color: "bg-indigo-100 text-indigo-700" },
+                  { name: "Progress Graphs", color: "bg-emerald-100 text-emerald-700" },
                 ].map((item) => (
                   <div key={item.name} className={`${item.color} rounded-lg px-3 py-2 text-center text-xs font-bold`}>
                     {item.name}
@@ -299,7 +302,7 @@ export default function LandingPage() {
               </div>
               <div className="border-t border-gray-200 pt-4">
                 <div className="flex items-center gap-3 text-sm text-gray-500">
-                  <BarChart3 className="h-5 w-5 shrink-0 text-indigo-600" />
+                  <BarChart3 className="h-5 w-5 shrink-0 text-orange-600" />
                   <span>Clean full-screen test flow, bucket-based revision, and post-test analytics in one place.</span>
                 </div>
               </div>
@@ -318,7 +321,7 @@ export default function LandingPage() {
                 className="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-8 shadow-sm"
               >
                 <div className="space-y-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">Contact</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.24em] text-orange-600">Contact</p>
                   <h2 className="text-2xl font-extrabold text-gray-900">Need help getting started?</h2>
                   <p className="leading-relaxed text-gray-500">
                     Send a message if you need help with access, test flow, revision flow, or understanding your analysis.
@@ -326,7 +329,7 @@ export default function LandingPage() {
                 </div>
                 <div className="mt-10 space-y-4">
                   <div className="flex items-center gap-3 text-sm text-gray-500">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-500 shrink-0">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-50 text-orange-500 shrink-0">
                       <Mail className="h-4 w-4" />
                     </div>
                     <span>sameermajhi339@gmail.com</span>
@@ -349,9 +352,9 @@ export default function LandingPage() {
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
                     <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 shadow-sm">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm">
                         <Mail className="h-4 w-4" />
                       </div>
                       <div>
@@ -373,7 +376,7 @@ export default function LandingPage() {
 
                   <button
                     type="button"
-                    className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                    className="w-full rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white transition-colors hover:bg-orange-600"
                     onClick={openContactEmail}
                   >
                     Email the Team

@@ -581,7 +581,7 @@ function PendingPreviewDashboard({
         isSaving={false}
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="hover-elevate transition-all border-l-4 border-l-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Tests Taken</CardTitle>
@@ -772,7 +772,7 @@ function PendingPreviewDashboard({
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
         <Card className="md:col-span-2 shadow-sm border-border/60 overflow-hidden">
           <CardHeader className="bg-muted/30 border-b border-border/50">
             <CardTitle>Recent Tests</CardTitle>
@@ -1274,7 +1274,7 @@ export default function Dashboard() {
       <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
         <div className="h-12 w-56 bg-muted rounded animate-pulse" />
         <div className="h-20 rounded-2xl bg-muted animate-pulse" />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => <div key={i} className="h-32 rounded-xl bg-muted animate-pulse" />)}
         </div>
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
@@ -1353,7 +1353,7 @@ export default function Dashboard() {
         isSaving={isSavingDailyGoal}
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="hover-elevate transition-all border-l-4 border-l-primary">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Tests Taken</CardTitle>
@@ -1615,7 +1615,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
         <Card className="md:col-span-2 shadow-sm border-border/60 overflow-hidden">
           <CardHeader className="bg-muted/30 border-b border-border/50">
             <CardTitle>Recent Tests</CardTitle>

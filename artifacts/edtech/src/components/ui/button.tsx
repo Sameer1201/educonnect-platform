@@ -5,13 +5,13 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "interactive-3d inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-all [&_svg]:duration-300 hover:[&_svg]:scale-110 hover:[&_svg]:drop-shadow-[0_0_16px_rgba(125,211,252,0.42)] hover-elevate active-elevate-2 relative overflow-hidden before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_38%)] before:opacity-80 after:pointer-events-none after:absolute after:inset-x-[12%] after:bottom-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-white/55 after:to-transparent hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(15,23,42,0.18)] active:translate-y-0",
+  "interactive-3d inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-all [&_svg]:duration-300 hover:[&_svg]:scale-110 hover:[&_svg]:drop-shadow-[0_0_16px_rgba(251,146,60,0.42)] hover-elevate active-elevate-2 relative overflow-hidden before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.24),transparent_38%)] before:opacity-80 after:pointer-events-none after:absolute after:inset-x-[12%] after:bottom-0 after:h-px after:bg-gradient-to-r after:from-transparent after:via-white/55 after:to-transparent hover:-translate-y-0.5 hover:shadow-[0_14px_34px_rgba(15,23,42,0.18)] active:translate-y-0",
   {
     variants: {
       variant: {
         default:
            // @replit: no hover, and add primary border
-           "bg-[linear-gradient(180deg,rgba(59,130,246,0.98),rgba(37,99,235,0.92))] text-primary-foreground border border-primary-border shadow-[0_10px_24px_rgba(37,99,235,0.28),inset_0_1px_0_rgba(255,255,255,0.18)]",
+           "bg-[linear-gradient(180deg,rgba(245,158,11,0.98),rgba(217,119,6,0.92))] text-primary-foreground border border-primary-border shadow-[0_10px_24px_rgba(217,119,6,0.28),inset_0_1px_0_rgba(255,255,255,0.18)]",
         destructive:
           "bg-[linear-gradient(180deg,rgba(239,68,68,0.98),rgba(220,38,38,0.9))] text-destructive-foreground shadow-[0_10px_24px_rgba(220,38,38,0.24),inset_0_1px_0_rgba(255,255,255,0.14)] border-destructive-border",
         outline:

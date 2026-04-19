@@ -271,7 +271,7 @@ export default function AdminStudents() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Students</span>
@@ -462,7 +462,7 @@ export default function AdminStudents() {
                 <span className="text-xs text-slate-400">total</span>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-5">
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {[
                 { label: "Approved", count: approvedCount, color: "bg-indigo-500" },
                 { label: "Pending", count: pendingCount, color: "bg-amber-400" },
@@ -512,7 +512,7 @@ export default function AdminStudents() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-5">
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
                 <p className="text-[11px] font-medium text-slate-500">This Week</p>
                 <p className="mt-2 text-lg font-black text-slate-800">{weeklyRegistrationsTotal}</p>

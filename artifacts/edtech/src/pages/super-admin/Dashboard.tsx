@@ -470,57 +470,83 @@ export default function SuperAdminDashboard() {
       </div>
 
       <TiltCard>
-      <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+      <Card className="border-orange-200/70 bg-white shadow-[0_20px_48px_rgba(15,23,42,0.14)]">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Mail size={14} className="text-orange-500" /> Student Review Email Automation
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 pt-0">
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-white">Send new setup review emails</p>
-                <p className="text-xs text-white/60">
-                  Student onboarding complete hote hi super admin inbox me full profile summary chali jayegi.
+          <div className="rounded-2xl border border-orange-200/80 bg-orange-50/70 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 space-y-1">
+                <p className="text-sm font-semibold text-slate-900">Send new setup review emails</p>
+                <p className="max-w-3xl text-xs leading-5 text-slate-600">
+                  Send a full student profile summary to the super admin inbox as soon as onboarding is completed.
                 </p>
               </div>
-              <Switch
-                checked={reviewEmailEnabled}
-                disabled={savingSetting !== null}
-                onCheckedChange={(checked) => updateStudentReviewSetting({ emailEnabled: checked }, "email")}
-              />
+              <div className="flex items-center gap-3 self-start rounded-full border border-orange-200 bg-white px-3 py-2 shadow-sm">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700">
+                  {reviewEmailEnabled ? "On" : "Off"}
+                </span>
+                <Switch
+                  checked={reviewEmailEnabled}
+                  disabled={savingSetting !== null}
+                  onCheckedChange={(checked) => updateStudentReviewSetting({ emailEnabled: checked }, "email")}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
+          <div className="rounded-2xl border border-orange-200/80 bg-amber-50/60 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-white">Enable email approve/reject buttons</p>
-                  <MousePointerClick size={13} className="text-amber-300" />
+                  <p className="text-sm font-semibold text-slate-900">Enable email approve/reject buttons</p>
+                  <MousePointerClick size={13} className="text-amber-500" />
                 </div>
-                <p className="text-xs text-white/60">
-                  Email ke andar direct verify/reject action buttons visible rahenge. Off karne par links instantly disable ho jayenge.
+                <p className="max-w-3xl text-xs leading-5 text-slate-600">
+                  Show direct approve and reject action buttons inside the email. Turning this off disables those links immediately.
                 </p>
               </div>
-              <Switch
-                checked={reviewQuickActionsEnabled}
-                disabled={savingSetting !== null}
-                onCheckedChange={(checked) => updateStudentReviewSetting({ quickActionsEnabled: checked }, "actions")}
-              />
+              <div className="flex items-center gap-3 self-start rounded-full border border-orange-200 bg-white px-3 py-2 shadow-sm">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700">
+                  {reviewQuickActionsEnabled ? "On" : "Off"}
+                </span>
+                <Switch
+                  checked={reviewQuickActionsEnabled}
+                  disabled={savingSetting !== null}
+                  onCheckedChange={(checked) => updateStudentReviewSetting({ quickActionsEnabled: checked }, "actions")}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs text-white/65">
-            <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/10">
-              {studentReviewAutomation.recipientsCount} recipient{studentReviewAutomation.recipientsCount === 1 ? "" : "s"}
-            </Badge>
-            {(studentReviewAutomation.recipientEmails ?? []).slice(0, 3).map((email: string) => (
-              <span key={email} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                {email}
-              </span>
-            ))}
+          <div className="rounded-2xl border border-orange-200/70 bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Recipients
+                </p>
+                <p className="text-sm text-slate-700">
+                  Super admin inboxes receiving new setup review emails.
+                </p>
+              </div>
+              <Badge variant="secondary" className="w-fit border border-orange-200 bg-orange-100 text-orange-800 hover:bg-orange-100">
+                {studentReviewAutomation.recipientsCount} recipient{studentReviewAutomation.recipientsCount === 1 ? "" : "s"}
+              </Badge>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(studentReviewAutomation.recipientEmails ?? []).length > 0 ? (
+                (studentReviewAutomation.recipientEmails ?? []).slice(0, 4).map((email: string) => (
+                  <span key={email} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm">
+                    {email}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-slate-500">No recipient email configured yet.</span>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

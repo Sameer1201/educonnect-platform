@@ -124,7 +124,7 @@ function DownloadCsvButton({
     <button
       type="button"
       onClick={handleDownload}
-      className="print:hidden flex items-center justify-center w-[26px] h-[26px] rounded-[6px] transition-colors hover:opacity-80"
+      className="print:hidden flex h-[28px] w-[28px] items-center justify-center rounded-[6px] transition-colors hover:opacity-80"
       style={{ backgroundColor: "#F0F1F2", color: "#4B5563" }}
       aria-label={`Export ${filename} data as CSV`}
     >
@@ -142,9 +142,9 @@ function DashboardHeader({ studentName }: { studentName: string }) {
   }, []);
 
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-      <div className="pt-2">
-        <h1 className="font-bold text-[32px] flex items-center gap-2">
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+      <div className="min-w-0 pt-1 sm:pt-2">
+        <h1 className="flex flex-wrap items-center gap-2 text-[26px] font-bold leading-tight sm:text-[32px]">
           <span className="text-[#795EFF]">RankPulse</span>
           <span>Analytics</span>
         </h1>
@@ -167,11 +167,11 @@ function DashboardHeader({ studentName }: { studentName: string }) {
         <p className="text-[12px] text-muted-foreground mt-3">Last refresh: {lastRefreshed}</p>
       </div>
 
-      <div className="flex items-center gap-3 pt-2 print:hidden">
+      <div className="flex w-full flex-wrap items-center gap-2 pt-1 sm:w-auto sm:gap-3 sm:pt-2 print:hidden">
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="relative flex items-center rounded-[6px] overflow-visible h-[26px] text-[12px] px-2 gap-1.5"
+          className="relative flex h-[32px] items-center gap-1.5 overflow-visible rounded-[8px] px-3 text-[12px]"
           style={{ backgroundColor: "#F0F1F2", color: "#4b5563" }}
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -181,7 +181,7 @@ function DashboardHeader({ studentName }: { studentName: string }) {
         <button
           type="button"
           onClick={() => window.print()}
-          className="flex items-center justify-center w-[26px] h-[26px] rounded-[6px] transition-colors"
+          className="flex h-[32px] w-[32px] items-center justify-center rounded-[8px] transition-colors"
           style={{ backgroundColor: "#F0F1F2", color: "#4b5563" }}
           aria-label="Export as PDF"
         >
@@ -390,9 +390,9 @@ function SessionAuditTable({ rows }: { rows: StudentProfileInsights["sessionsHis
   const pagedRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-4 items-end">
-        <div className="flex-1 min-w-[200px] relative">
+      <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-4">
+        <div className="relative min-w-0 flex-1">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search by IP, browser, location..."
@@ -405,7 +405,7 @@ function SessionAuditTable({ rows }: { rows: StudentProfileInsights["sessionsHis
           />
         </div>
 
-        <div className="w-[180px]">
+        <div className="w-full sm:w-[180px]">
           <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setPage(1); }}>
             <SelectTrigger>
               <SelectValue placeholder="All Status" />
@@ -418,7 +418,7 @@ function SessionAuditTable({ rows }: { rows: StudentProfileInsights["sessionsHis
           </Select>
         </div>
 
-        <div className="w-[180px]">
+        <div className="w-full sm:w-[180px]">
           <Select value={deviceFilter} onValueChange={(value) => { setDeviceFilter(value); setPage(1); }}>
             <SelectTrigger>
               <SelectValue placeholder="All Devices" />
@@ -470,11 +470,11 @@ function SessionAuditTable({ rows }: { rows: StudentProfileInsights["sessionsHis
         </table>
       </div>
 
-      <div className="flex items-center justify-between px-2">
+      <div className="flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-muted-foreground">
           Showing {filteredRows.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0} to {Math.min(page * PAGE_SIZE, filteredRows.length)} of {filteredRows.length} results
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page <= 1}>
             Previous
           </Button>
@@ -545,7 +545,7 @@ export function StudentProfileAnalysisPanel({ insights }: { insights: StudentPro
   }, [insights.profileCompletion.steps]);
 
   return (
-    <div className="min-h-full bg-background px-5 py-4 pt-[32px] pb-[32px] pl-[24px] pr-[24px]">
+    <div className="min-h-full bg-background px-3 py-4 sm:px-5 sm:py-6">
       <div className="max-w-[1400px] mx-auto">
         <DashboardHeader studentName={insights.student.fullName} />
 
