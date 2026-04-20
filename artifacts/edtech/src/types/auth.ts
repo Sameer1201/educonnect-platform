@@ -17,6 +17,9 @@ export interface StudentProfileDetails {
     board: string;
     targetYear: string;
     targetExam: string;
+    institutionName: string;
+    collegeName: string;
+    universityName: string;
   };
   learningMode: {
     mode: string;

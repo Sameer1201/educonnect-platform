@@ -82,6 +82,22 @@ function toStatusLabel(status: string | null | undefined) {
   return "Pending";
 }
 
+function getPreparationInstitutionMeta(preparation: StudentProfileInsights["preparationSnapshot"]["preparation"]) {
+  const isUgUniversity = preparation.board.trim() === "UG University";
+  const institutionValue = (
+    isUgUniversity
+      ? preparation.collegeName.trim()
+      : preparation.institutionName.trim()
+  ) || preparation.institutionName.trim() || preparation.collegeName.trim() || "Not provided";
+
+  return {
+    isUgUniversity,
+    institutionLabel: isUgUniversity ? "College" : "School / College",
+    institutionValue,
+    universityValue: isUgUniversity ? (preparation.universityName.trim() || "Not provided") : "",
+  };
+}
+
 function InfoCard({
   icon,
   label,
@@ -235,6 +251,10 @@ export function StudentVerificationReviewDialog({
       .filter((value, index, all) => Boolean(value) && all.indexOf(value) === index);
     return values.join(" · ");
   }, [insights]);
+  const preparationInstitution = useMemo(
+    () => insights ? getPreparationInstitutionMeta(insights.preparationSnapshot.preparation) : null,
+    [insights],
+  );
 
   const fullLocation = useMemo(() => {
     if (!insights) return "";
@@ -541,6 +561,10 @@ export function StudentVerificationReviewDialog({
                       <InfoCard icon={<BookOpen className="h-4 w-4" />} label="Current Stage" value={insights.preparationSnapshot.preparation.classLevel || "Not provided"} iconBg="bg-amber-50" iconColor="text-amber-500" hoverBorder="hover:border-amber-200" hoverBg="group-hover:bg-amber-100" />
                     </div>
                     <InfoCard icon={<GraduationCap className="h-4 w-4" />} label="Board" value={insights.preparationSnapshot.preparation.board || "Not provided"} iconBg="bg-emerald-50" iconColor="text-emerald-500" hoverBorder="hover:border-emerald-200" hoverBg="group-hover:bg-emerald-100" />
+                    <InfoCard icon={<Building2 className="h-4 w-4" />} label={preparationInstitution?.institutionLabel || "School / College"} value={preparationInstitution?.institutionValue || "Not provided"} iconBg="bg-sky-50" iconColor="text-sky-500" hoverBorder="hover:border-sky-200" hoverBg="group-hover:bg-sky-100" />
+                    {preparationInstitution?.isUgUniversity ? (
+                      <InfoCard icon={<Landmark className="h-4 w-4" />} label="University" value={preparationInstitution.universityValue} iconBg="bg-indigo-50" iconColor="text-indigo-500" hoverBorder="hover:border-indigo-200" hoverBg="group-hover:bg-indigo-100" />
+                    ) : null}
                     <InfoCard icon={<Target className="h-4 w-4" />} label="Target Exam" value={primaryExam || "Not provided"} iconBg="bg-rose-50" iconColor="text-rose-500" hoverBorder="hover:border-rose-200" hoverBg="group-hover:bg-rose-100" />
                     <div className="md:col-span-2">
                       <InfoCard icon={<Calendar className="h-4 w-4" />} label="Target Year" value={insights.preparationSnapshot.preparation.targetYear || "Not provided"} iconBg="bg-violet-50" iconColor="text-violet-500" hoverBorder="hover:border-violet-200" hoverBg="group-hover:bg-violet-100" />

@@ -231,6 +231,9 @@ function validateStudentOnboardingBody(body: unknown) {
       board: readTrimmedString(preparation.board),
       targetYear: readTrimmedString(preparation.targetYear),
       targetExam: readTrimmedString(preparation.targetExam) || subject,
+      institutionName: "",
+      collegeName: "",
+      universityName: "",
     },
     learningMode: {
       mode: readTrimmedString(learningMode.mode),
@@ -238,6 +241,12 @@ function validateStudentOnboardingBody(body: unknown) {
     },
     hearAboutUs: readTrimmedString(details.hearAboutUs),
   };
+  const isUgUniversityBoard = normalized.preparation.board === "UG University";
+  const institutionName = readTrimmedString(preparation.institutionName);
+  const collegeName = readTrimmedString(preparation.collegeName);
+  normalized.preparation.institutionName = isUgUniversityBoard ? "" : (institutionName || collegeName);
+  normalized.preparation.collegeName = isUgUniversityBoard ? (collegeName || institutionName) : "";
+  normalized.preparation.universityName = isUgUniversityBoard ? readTrimmedString(preparation.universityName) : "";
 
   if (!normalized.dateOfBirth) return { error: "Date of birth is required" } as const;
   if (!normalized.whatsappOnSameNumber && !normalized.whatsappNumber) {
@@ -251,6 +260,12 @@ function validateStudentOnboardingBody(body: unknown) {
   if (!normalized.address.pincode) return { error: "Pincode is required" } as const;
   if (!normalized.preparation.classLevel) return { error: "Current stage is required" } as const;
   if (!normalized.preparation.board) return { error: "Board is required" } as const;
+  if (isUgUniversityBoard) {
+    if (!normalized.preparation.collegeName) return { error: "College name is required" } as const;
+    if (!normalized.preparation.universityName) return { error: "University name is required" } as const;
+  } else if (!normalized.preparation.institutionName) {
+    return { error: "School / college name is required" } as const;
+  }
   if (!normalized.preparation.targetYear) return { error: "Target year is required" } as const;
   if (!normalized.preparation.targetExam) return { error: "Target exam is required" } as const;
   if (!normalized.learningMode.mode) return { error: "Learning mode is required" } as const;

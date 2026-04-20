@@ -376,6 +376,14 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
   const targetExam = typeof preparation.targetExam === "string" && preparation.targetExam.trim()
     ? preparation.targetExam.trim()
     : (typeof user.subject === "string" ? user.subject.trim() : "");
+  const isUgUniversityBoard = board === "UG University";
+  const rawInstitutionName = typeof preparation.institutionName === "string" ? preparation.institutionName.trim() : "";
+  const rawCollegeName = typeof preparation.collegeName === "string" ? preparation.collegeName.trim() : "";
+  const institutionName = isUgUniversityBoard ? (rawCollegeName || rawInstitutionName) : (rawInstitutionName || rawCollegeName);
+  const collegeName = isUgUniversityBoard ? (rawCollegeName || rawInstitutionName) : "";
+  const universityName = isUgUniversityBoard && typeof preparation.universityName === "string"
+    ? preparation.universityName.trim()
+    : "";
   const learningModeName = typeof learningMode.mode === "string" ? learningMode.mode.trim() : "";
   const learningProvider = typeof learningMode.provider === "string" && learningMode.provider.trim()
     ? learningMode.provider.trim()
@@ -401,7 +409,13 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     {
       key: "preparation",
       label: "Schooling & target",
-      complete: Boolean(classLevel && board && targetYear && targetExam),
+      complete: Boolean(
+        classLevel
+        && board
+        && targetYear
+        && targetExam
+        && (isUgUniversityBoard ? (collegeName && universityName) : institutionName),
+      ),
     },
     {
       key: "learning",
@@ -701,6 +715,9 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
         board,
         targetYear,
         targetExam,
+        institutionName,
+        collegeName,
+        universityName,
       },
       learningMode: {
         mode: learningModeName,

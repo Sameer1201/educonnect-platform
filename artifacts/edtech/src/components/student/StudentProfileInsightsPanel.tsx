@@ -35,6 +35,7 @@ import {
   GraduationCap,
   Hash,
   LogIn,
+  Landmark,
   MessageCircle,
   Mail,
   MapPin,
@@ -179,6 +180,9 @@ export interface StudentProfileInsights {
       board: string;
       targetYear: string;
       targetExam: string;
+      institutionName: string;
+      collegeName: string;
+      universityName: string;
     };
     learningMode: {
       mode: string;
@@ -225,6 +229,22 @@ function getStatusVariant(status: string): "default" | "outline" | "destructive"
   if (status === "approved" || status === "active") return "default";
   if (status === "pending") return "outline";
   return "destructive";
+}
+
+function getPreparationInstitutionMeta(preparation: StudentProfileInsights["preparationSnapshot"]["preparation"]) {
+  const isUgUniversity = preparation.board.trim() === "UG University";
+  const institutionValue = (
+    isUgUniversity
+      ? preparation.collegeName.trim()
+      : preparation.institutionName.trim()
+  ) || preparation.institutionName.trim() || preparation.collegeName.trim() || "Not provided";
+
+  return {
+    isUgUniversity,
+    institutionLabel: isUgUniversity ? "College" : "School / College",
+    institutionValue,
+    universityValue: isUgUniversity ? (preparation.universityName.trim() || "Not provided") : "",
+  };
 }
 
 function EmptyChartState({ message }: { message: string }) {
@@ -396,6 +416,10 @@ export function StudentProfileInsightsPanel({
         : ""),
     [insights.preparationSnapshot.learningMode.mode, insights.preparationSnapshot.learningMode.provider],
   );
+  const preparationInstitution = useMemo(
+    () => getPreparationInstitutionMeta(insights.preparationSnapshot.preparation),
+    [insights.preparationSnapshot.preparation],
+  );
 
   const location = [
     insights.preparationSnapshot.address.street,
@@ -433,6 +457,10 @@ export function StudentProfileInsightsPanel({
       preparation: [
         { label: "Stage", value: insights.preparationSnapshot.preparation.classLevel || "Not provided" },
         { label: "Board", value: insights.preparationSnapshot.preparation.board || "Not provided" },
+        { label: preparationInstitution.institutionLabel, value: preparationInstitution.institutionValue },
+        ...(preparationInstitution.isUgUniversity
+          ? [{ label: "University", value: preparationInstitution.universityValue }]
+          : []),
         { label: "Target year", value: insights.preparationSnapshot.preparation.targetYear || "Not provided" },
         { label: "Target exam", value: insights.preparationSnapshot.preparation.targetExam || "Not provided" },
       ],
@@ -450,7 +478,7 @@ export function StudentProfileInsightsPanel({
       ...step,
       details: detailMap[step.key] ?? [],
     }));
-  }, [insights]);
+  }, [insights, preparationInstitution.institutionLabel, preparationInstitution.institutionValue, preparationInstitution.isUgUniversity, preparationInstitution.universityValue]);
 
   const heatmapWeeks = useMemo(
     () => Array.from({ length: Math.ceil(insights.studyStreak.heatmap.length / 7) }, (_, index) => insights.studyStreak.heatmap.slice(index * 7, index * 7 + 7)),
@@ -601,6 +629,18 @@ export function StudentProfileInsightsPanel({
                           icon={<GraduationCap size={15} />}
                         />
                         <ReviewSummaryRow
+                          label={preparationInstitution.institutionLabel}
+                          value={preparationInstitution.institutionValue}
+                          icon={<Building2 size={15} />}
+                        />
+                        {preparationInstitution.isUgUniversity ? (
+                          <ReviewSummaryRow
+                            label="University"
+                            value={preparationInstitution.universityValue}
+                            icon={<Landmark size={15} />}
+                          />
+                        ) : null}
+                        <ReviewSummaryRow
                           label="Lead source"
                           value={insights.preparationSnapshot.hearAboutUs || "Not provided"}
                           icon={<Search size={15} />}
@@ -723,6 +763,18 @@ export function StudentProfileInsightsPanel({
                   value={insights.preparationSnapshot.preparation.board || "Not provided"}
                   icon={<BookOpen size={18} />}
                 />
+                <ReviewField
+                  label={preparationInstitution.institutionLabel}
+                  value={preparationInstitution.institutionValue}
+                  icon={<Building2 size={18} />}
+                />
+                {preparationInstitution.isUgUniversity ? (
+                  <ReviewField
+                    label="University"
+                    value={preparationInstitution.universityValue}
+                    icon={<Landmark size={18} />}
+                  />
+                ) : null}
                 <ReviewField label="Target exam" value={primaryExam || "Not provided"} icon={<Target size={18} />} />
                 <ReviewField
                   label="Target year"
@@ -1405,15 +1457,19 @@ export function StudentProfileInsightsPanel({
               <h2 className="font-bold text-slate-800">Preparation Snapshot</h2>
             </div>
             <div className="space-y-4 p-5 text-sm">
-              <div>
-                <p className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-400"><GraduationCap className="h-3 w-3 text-orange-500" /> Academics</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <SnapshotTile label="Stage" value={insights.preparationSnapshot.preparation.classLevel} />
-                  <SnapshotTile label="Board" value={insights.preparationSnapshot.preparation.board} />
-                  <SnapshotTile label="Target Exam" value={primaryExam} />
-                  <SnapshotTile label="Target Year" value={insights.preparationSnapshot.preparation.targetYear} />
+                <div>
+                  <p className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-400"><GraduationCap className="h-3 w-3 text-orange-500" /> Academics</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <SnapshotTile label="Stage" value={insights.preparationSnapshot.preparation.classLevel} />
+                    <SnapshotTile label="Board" value={insights.preparationSnapshot.preparation.board} />
+                    <SnapshotTile label={preparationInstitution.institutionLabel} value={preparationInstitution.institutionValue} />
+                    {preparationInstitution.isUgUniversity ? (
+                      <SnapshotTile label="University" value={preparationInstitution.universityValue} />
+                    ) : null}
+                    <SnapshotTile label="Target Exam" value={primaryExam} />
+                    <SnapshotTile label="Target Year" value={insights.preparationSnapshot.preparation.targetYear} />
+                  </div>
                 </div>
-              </div>
 
               <div>
                 <p className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-400"><BookOpen className="h-3 w-3 text-sky-500" /> Learning</p>

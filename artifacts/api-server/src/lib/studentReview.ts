@@ -20,6 +20,8 @@ export type StudentReviewSummary = {
   addressLine: string;
   classLevel: string;
   board: string;
+  institutionName: string;
+  universityName: string;
   targetYear: string;
   learningMode: string;
   learningProvider: string;
@@ -201,6 +203,16 @@ export function buildStudentReviewSummary(user: {
   const learningMode = profile?.learningMode && typeof profile.learningMode === "object" ? profile.learningMode as Record<string, unknown> : {};
 
   const targetExam = readTrimmedRecordValue(preparation, "targetExam") || user.subject?.trim() || "Not selected";
+  const board = readTrimmedRecordValue(preparation, "board") || "Not provided";
+  const isUgUniversityBoard = board === "UG University";
+  const rawInstitutionName = readTrimmedRecordValue(preparation, "institutionName");
+  const rawCollegeName = readTrimmedRecordValue(preparation, "collegeName");
+  const institutionName = isUgUniversityBoard
+    ? (rawCollegeName || rawInstitutionName || "Not provided")
+    : (rawInstitutionName || rawCollegeName || "Not provided");
+  const universityName = isUgUniversityBoard
+    ? (readTrimmedRecordValue(preparation, "universityName") || "Not provided")
+    : "Not applicable";
   const learningModeName = readTrimmedRecordValue(learningMode, "mode") || "Not provided";
   const learningProvider = readTrimmedRecordValue(learningMode, "provider") || "Not provided";
 
@@ -227,7 +239,9 @@ export function buildStudentReviewSummary(user: {
       "Not provided",
     ),
     classLevel: readTrimmedRecordValue(preparation, "classLevel") || "Not provided",
-    board: readTrimmedRecordValue(preparation, "board") || "Not provided",
+    board,
+    institutionName,
+    universityName,
     targetYear: readTrimmedRecordValue(preparation, "targetYear") || "Not provided",
     learningMode: learningModeName,
     learningProvider,
