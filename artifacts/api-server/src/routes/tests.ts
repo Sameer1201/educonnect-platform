@@ -616,6 +616,82 @@ type ResolvedQuestionBankContext = {
   createdQuestionBankClassCount: number;
 };
 
+type QuestionBankSectionLookup = Map<number, typeof testSectionsTable.$inferSelect>;
+type QuestionBankSubjectsByKey = Map<string, typeof subjectsTable.$inferSelect>;
+type QuestionBankChaptersBySubjectId = Map<number, Array<typeof chaptersTable.$inferSelect>>;
+
+type ResolvedQuestionBankTaxonomy = {
+  subjectLabel: string;
+  subjectKey: string;
+  chapterTitle: string;
+  chapterKey: string;
+};
+
+function buildQuestionBankSectionLookup(sections: Array<typeof testSectionsTable.$inferSelect>): QuestionBankSectionLookup {
+  return new Map(sections.map((section) => [section.id, section] as const));
+}
+
+function buildQuestionBankSubjectsByKey(subjects: Array<typeof subjectsTable.$inferSelect>): QuestionBankSubjectsByKey {
+  return new Map(
+    subjects
+      .map((subject) => {
+        const key = normalizeTitleKey(subject.title);
+        return key ? [key, subject] as const : null;
+      })
+      .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
+  );
+}
+
+function buildQuestionBankChaptersBySubjectId(chapters: Array<typeof chaptersTable.$inferSelect>): QuestionBankChaptersBySubjectId {
+  const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
+  chapters.forEach((chapter) => {
+    const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
+    current.push(chapter);
+    chaptersBySubjectId.set(chapter.subjectId, current);
+  });
+  return chaptersBySubjectId;
+}
+
+function resolveQuestionBankTaxonomyForTestQuestion(
+  question: typeof testQuestionsTable.$inferSelect,
+  sectionById: QuestionBankSectionLookup,
+): ResolvedQuestionBankTaxonomy | null {
+  const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+  const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+  const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
+  const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+  const subjectLabel = firstTrimmedString(
+    resolvedTaxonomy.subjectName,
+    typeof question.subjectLabel === "string" ? question.subjectLabel : null,
+    typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+  );
+  const subjectKey = normalizeTitleKey(subjectLabel ?? "");
+  if (!subjectLabel || !subjectKey) return null;
+
+  const chapterTitle = firstTrimmedString(
+    resolvedTaxonomy.chapterName,
+    meta?.chapterTitle,
+    meta?.topicTag,
+    meta?.topic,
+  ) ?? "Imported from Tests";
+  const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
+
+  return {
+    subjectLabel,
+    subjectKey,
+    chapterTitle,
+    chapterKey,
+  };
+}
+
+function findQuestionBankChapterForTaxonomy(
+  targetSubjectId: number,
+  chapterKey: string,
+  chaptersBySubjectId: QuestionBankChaptersBySubjectId,
+) {
+  return (chaptersBySubjectId.get(targetSubjectId) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+}
+
 async function ensureTeacherAssignedToQuestionBankClass(
   targetClass: typeof classesTable.$inferSelect,
   teacherId: number,
@@ -744,24 +820,12 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
     existingLinksByTestQuestionId.set(link.testQuestionId, link);
   }
 
-  const sectionById = new Map(sections.map((section) => [section.id, section]));
-  const subjectsByKey = new Map<string, typeof subjectsTable.$inferSelect>(
-    subjects
-      .map((subject) => {
-        const key = normalizeTitleKey(subject.title);
-        return key ? [key, subject] as const : null;
-      })
-      .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
-  );
+  const sectionById = buildQuestionBankSectionLookup(sections);
+  const subjectsByKey = buildQuestionBankSubjectsByKey(subjects);
   const chapters = subjects.length > 0
     ? await db.select().from(chaptersTable).where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id))).orderBy(asc(chaptersTable.order), asc(chaptersTable.id))
     : [];
-  const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
-  chapters.forEach((chapter) => {
-    const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
-    current.push(chapter);
-    chaptersBySubjectId.set(chapter.subjectId, current);
-  });
+  const chaptersBySubjectId = buildQuestionBankChaptersBySubjectId(chapters);
   const duplicateKeysByChapterId = new Map<number, Map<string, number>>();
 
   for (const question of testQuestions) {
@@ -769,59 +833,34 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
       continue;
     }
 
-    const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
-    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
-    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
-    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
-    const subjectLabel =
-      firstTrimmedString(
-        resolvedTaxonomy.subjectName,
-        typeof question.subjectLabel === "string" ? question.subjectLabel : null,
-        typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
-      );
-
-    if (!subjectLabel) {
+    const resolvedTaxonomy = resolveQuestionBankTaxonomyForTestQuestion(question, sectionById);
+    if (!resolvedTaxonomy) {
       summary.skippedNoSubjectCount += 1;
       continue;
     }
 
-    const subjectKey = normalizeTitleKey(subjectLabel);
-    if (!subjectKey) {
-      summary.skippedNoSubjectCount += 1;
-      continue;
-    }
-
-    let targetSubject = subjectsByKey.get(subjectKey) ?? null;
+    let targetSubject = subjectsByKey.get(resolvedTaxonomy.subjectKey) ?? null;
     if (!targetSubject) {
       const nextOrder = subjectsByKey.size;
       const [createdSubject] = await db.insert(subjectsTable).values({
         classId: targetClass.id,
         teacherId,
-        title: subjectLabel,
+        title: resolvedTaxonomy.subjectLabel,
         description: null,
         order: nextOrder,
       }).returning();
       targetSubject = createdSubject;
-      subjectsByKey.set(subjectKey, createdSubject);
+      subjectsByKey.set(resolvedTaxonomy.subjectKey, createdSubject);
       chaptersBySubjectId.set(createdSubject.id, []);
       summary.createdSubjectCount += 1;
     }
-    const chapterTitle =
-      firstTrimmedString(
-        resolvedTaxonomy.chapterName,
-        meta?.chapterTitle,
-        meta?.topicTag,
-        meta?.topic,
-      ) ??
-      "Imported from Tests";
-    const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
 
     let subjectChapters = chaptersBySubjectId.get(targetSubject.id) ?? [];
-    let targetChapter = subjectChapters.find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+    let targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId);
     if (!targetChapter) {
       const [createdChapter] = await db.insert(chaptersTable).values({
         subjectId: targetSubject.id,
-        title: chapterTitle,
+        title: resolvedTaxonomy.chapterTitle,
         description: null,
         targetQuestions: 0,
         order: subjectChapters.length,
@@ -899,6 +938,7 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
         : questionType === "mcq"
           ? options[correctAnswer ?? 0] ?? null
           : correctAnswerMulti.map((index) => options[index]).filter(Boolean).join(", ");
+    const questionMeta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
 
     const [createdQuestion] = await db.insert(questionBankQuestionsTable).values({
       classId: targetClass.id,
@@ -914,8 +954,8 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
       correctAnswerMax: Number.isInteger(correctAnswerMax) ? correctAnswerMax : null,
       answer,
       explanation: question.solutionText?.trim() || question.aiSolutionText?.trim() || null,
-      topicTag: typeof meta?.topicTag === "string" && meta.topicTag.trim() ? meta.topicTag.trim() : null,
-      difficulty: normalizeQuestionBankDifficulty(meta?.difficulty),
+      topicTag: typeof questionMeta?.topicTag === "string" && questionMeta.topicTag.trim() ? questionMeta.topicTag.trim() : null,
+      difficulty: normalizeQuestionBankDifficulty(questionMeta?.difficulty),
       points: Math.max(1, Number(question.points) || 1),
       order: duplicateMap.size,
       imageData: question.imageData ?? null,
@@ -1006,55 +1046,24 @@ async function cleanupUnpublishedTestQuestionsFromQuestionBank(
     ]);
 
     if (testQuestions.length > 0 && subjects.length > 0) {
-      const sectionById = new Map(sections.map((section) => [section.id, section]));
-      const subjectsByKey = new Map(
-        subjects
-          .map((subject) => {
-            const key = normalizeTitleKey(subject.title);
-            return key ? [key, subject] as const : null;
-          })
-          .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
-      );
+      const sectionById = buildQuestionBankSectionLookup(sections);
+      const subjectsByKey = buildQuestionBankSubjectsByKey(subjects);
       const chapters = await db
         .select()
         .from(chaptersTable)
         .where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id)))
         .orderBy(asc(chaptersTable.order), asc(chaptersTable.id));
-      const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
-      chapters.forEach((chapter) => {
-        const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
-        current.push(chapter);
-        chaptersBySubjectId.set(chapter.subjectId, current);
-      });
+      const chaptersBySubjectId = buildQuestionBankChaptersBySubjectId(chapters);
 
       for (const question of testQuestions) {
-        const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
-        const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
-        const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
-        const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
-        const subjectLabel =
-          firstTrimmedString(
-            resolvedTaxonomy.subjectName,
-            typeof question.subjectLabel === "string" ? question.subjectLabel : null,
-            typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
-          );
-        const subjectKey = normalizeTitleKey(subjectLabel ?? "");
-        if (!subjectKey) continue;
+        const resolvedTaxonomy = resolveQuestionBankTaxonomyForTestQuestion(question, sectionById);
+        if (!resolvedTaxonomy) continue;
 
-        const targetSubject = subjectsByKey.get(subjectKey) ?? null;
+        const targetSubject = subjectsByKey.get(resolvedTaxonomy.subjectKey) ?? null;
         if (!targetSubject) continue;
         candidateSubjectIds.add(targetSubject.id);
 
-        const chapterTitle =
-          firstTrimmedString(
-            resolvedTaxonomy.chapterName,
-            meta?.chapterTitle,
-            meta?.topicTag,
-            meta?.topic,
-          ) ??
-          "Imported from Tests";
-        const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
-        const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+        const targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId);
         if (targetChapter) candidateChapterIds.add(targetChapter.id);
       }
 
@@ -1097,32 +1106,13 @@ async function cleanupUnpublishedTestQuestionsFromQuestionBank(
 
         const removableLegacyIds = new Set<number>();
         for (const question of testQuestions) {
-          const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
-          const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
-          const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
-          const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
-          const subjectLabel =
-            firstTrimmedString(
-              resolvedTaxonomy.subjectName,
-              typeof question.subjectLabel === "string" ? question.subjectLabel : null,
-              typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
-            );
-          const subjectKey = normalizeTitleKey(subjectLabel ?? "");
-          if (!subjectKey) continue;
+          const resolvedTaxonomy = resolveQuestionBankTaxonomyForTestQuestion(question, sectionById);
+          if (!resolvedTaxonomy) continue;
 
-          const targetSubject = subjectsByKey.get(subjectKey) ?? null;
+          const targetSubject = subjectsByKey.get(resolvedTaxonomy.subjectKey) ?? null;
           if (!targetSubject) continue;
 
-          const chapterTitle =
-            firstTrimmedString(
-              resolvedTaxonomy.chapterName,
-              meta?.chapterTitle,
-              meta?.topicTag,
-              meta?.topic,
-            ) ??
-            "Imported from Tests";
-          const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
-          const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+          const targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId);
           if (!targetChapter) continue;
 
           const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
