@@ -310,7 +310,7 @@ export default function StudentOnboardingGate() {
     } catch {
       window.localStorage.removeItem(draftStorageKey);
     }
-  }, [authUser, draftStorageKey]);
+  }, [authUser?.id, authUser?.role, authUser?.onboardingComplete, draftStorageKey]);
 
   useEffect(() => {
     if (!draftStorageKey || !authUser || authUser.role !== "student" || authUser.onboardingComplete || !details) return;
