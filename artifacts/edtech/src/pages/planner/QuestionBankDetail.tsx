@@ -988,9 +988,11 @@ export default function PlannerQuestionBankDetail() {
                       onChange={(event) => setSearchQuery(event.target.value)}
                     />
                   </div>
-                  <Button variant="outline" size="sm" className="gap-2" onClick={() => openEditSubjectDialog(activeSubject)} disabled={isLocked}>
-                    <Pencil className="h-4 w-4" /> Edit Subject
-                  </Button>
+                  {!isLocked ? (
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => openEditSubjectDialog(activeSubject)}>
+                      <Pencil className="h-4 w-4" /> Edit Subject
+                    </Button>
+                  ) : null}
                   <Button
                     variant="outline"
                     size="sm"
@@ -1051,15 +1053,16 @@ export default function PlannerQuestionBankDetail() {
                               <Progress value={progress} className="h-2" />
                             </div>
                             <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="shrink-0"
-                                onClick={() => openEditChapterDialog(chapter)}
-                                disabled={isLocked}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
+                              {!isLocked ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="shrink-0"
+                                  onClick={() => openEditChapterDialog(chapter)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              ) : null}
                               <Button
                                 variant="ghost"
                                 size="icon"

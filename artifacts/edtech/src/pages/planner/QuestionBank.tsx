@@ -851,8 +851,9 @@ export default function PlannerQuestionBank() {
                         onClick={() => toggleQuestionBankLock.mutate({ cardId: card.id, isLocked: !card.isLocked })}
                         disabled={toggleQuestionBankLock.isPending}
                         aria-label={card.isLocked ? `Unlock ${card.title}` : `Lock ${card.title}`}
+                        title={card.isLocked ? "Locked question bank" : "Unlocked question bank"}
                       >
-                        {card.isLocked ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                        {card.isLocked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
                       </Button>
                       <Button
                         type="button"
