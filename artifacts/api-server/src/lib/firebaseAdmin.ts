@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 
@@ -47,8 +48,25 @@ function hasServiceAccountConfig() {
   );
 }
 
+function hasReadableGoogleCredentialsFile() {
+  const filePath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (typeof filePath !== "string" || !filePath.trim()) return false;
+
+  try {
+    return existsSync(filePath) && statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function clearInvalidGoogleCredentialsPath() {
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && !hasReadableGoogleCredentialsFile()) {
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  }
+}
+
 export function isFirebaseAdminConfigured() {
-  return hasServiceAccountConfig() || Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+  return hasServiceAccountConfig() || hasReadableGoogleCredentialsFile();
 }
 
 function getFirebaseAdminApp() {
@@ -78,6 +96,8 @@ function getFirebaseAdminApp() {
       projectId: process.env.FIREBASE_PROJECT_ID,
     });
   }
+
+  clearInvalidGoogleCredentialsPath();
 
   return initializeApp({
     credential: applicationDefault(),

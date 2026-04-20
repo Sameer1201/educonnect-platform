@@ -27,6 +27,7 @@ import {
 } from "../lib/firebaseAdmin";
 
 const router: IRouter = Router();
+const STUDENT_ONBOARDING_TOTAL_STEPS = 5;
 
 function readTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -293,15 +294,67 @@ function parseStudentProfileData(raw: string | null) {
   }
 }
 
+function getStudentOnboardingDraftStep(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const stepRaw = Number((raw as Record<string, unknown>).__draftStep);
+  if (!Number.isFinite(stepRaw)) return null;
+  return Math.min(Math.max(0, Math.trunc(stepRaw)), STUDENT_ONBOARDING_TOTAL_STEPS - 1);
+}
+
+function stripStudentOnboardingDraftMeta(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const next = { ...(raw as Record<string, unknown>) };
+  delete next.__draftStep;
+  delete next.__draftSavedAt;
+  return next;
+}
+
+function validateStudentOnboardingDraftBody(body: unknown) {
+  const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const fullName = readTrimmedString(payload.fullName);
+  const phone = readTrimmedString(payload.phone);
+  const avatarUrlValue = payload.avatarUrl;
+  const avatarUrl = typeof avatarUrlValue === "string" ? readTrimmedString(avatarUrlValue) : null;
+  const profileDetails = payload.profileDetails;
+  const step = Number(payload.step);
+
+  if (!fullName) return { error: "Full name is required" } as const;
+  if (fullName.length > 120) return { error: "Full name is too long" } as const;
+  if (!phone) return { error: "Phone number is required" } as const;
+  if (phone.length > 20) return { error: "Phone number is too long" } as const;
+  if (avatarUrl !== null && avatarUrl.length > 0 && avatarUrl.length > 8_000_000) {
+    return { error: "Profile image is too large" } as const;
+  }
+  if (!Number.isFinite(step)) return { error: "Onboarding step is invalid" } as const;
+  if (step < 0 || step >= STUDENT_ONBOARDING_TOTAL_STEPS) {
+    return { error: "Onboarding step is invalid" } as const;
+  }
+  if (!profileDetails || typeof profileDetails !== "object") {
+    return { error: "Profile details are required" } as const;
+  }
+
+  return {
+    data: {
+      fullName,
+      phone,
+      avatarUrl,
+      step: Math.trunc(step),
+      profileDetails,
+    },
+  } as const;
+}
+
 function serializeUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash, ...rest } = user;
   void passwordHash;
   const onboardingComplete = user.onboardingComplete || (user.role === "student" && Boolean(user.subject?.trim()));
+  const parsedProfileDetails = parseStudentProfileData(user.studentProfileData ?? null);
   return {
     ...rest,
     additionalExams: user.additionalExams ?? [],
     onboardingComplete,
-    profileDetails: parseStudentProfileData(user.studentProfileData ?? null),
+    onboardingDraftStep: onboardingComplete ? null : getStudentOnboardingDraftStep(parsedProfileDetails),
+    profileDetails: stripStudentOnboardingDraftMeta(parsedProfileDetails),
   };
 }
 
@@ -717,6 +770,60 @@ router.patch("/auth/profile", async (req, res): Promise<void> => {
   }
 
   const [updated] = await db.update(usersTable).set(updates).where(eq(usersTable.id, userId)).returning();
+  res.json(serializeUser(updated));
+});
+
+router.post("/auth/student-onboarding/draft", async (req, res): Promise<void> => {
+  const userIdCookie = req.cookies?.userId;
+  if (!userIdCookie) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const userId = parseInt(userIdCookie, 10);
+  if (isNaN(userId)) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const parsed = validateStudentOnboardingDraftBody(req.body);
+  if ("error" in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+
+  const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!existingUser) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (existingUser.role !== "student") {
+    res.status(403).json({ error: "Only students can save onboarding progress" });
+    return;
+  }
+
+  const { fullName, phone, avatarUrl, step, profileDetails } = parsed.data;
+  const existingProfileData = parseStudentProfileData(existingUser.studentProfileData ?? null);
+  const nextProfileData = {
+    ...(existingProfileData && typeof existingProfileData === "object" ? stripStudentOnboardingDraftMeta(existingProfileData) ?? {} : {}),
+    ...(profileDetails as Record<string, unknown>),
+    __draftStep: step,
+    __draftSavedAt: new Date().toISOString(),
+  };
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({
+      fullName,
+      phone,
+      avatarUrl,
+      studentProfileData: JSON.stringify(nextProfileData),
+      onboardingComplete: false,
+    })
+    .where(eq(usersTable.id, userId))
+    .returning();
+
   res.json(serializeUser(updated));
 });
 

@@ -33,6 +33,7 @@ export interface StudentProfileDetails {
 
 export interface AuthUser extends ApiUser {
   onboardingComplete?: boolean;
+  onboardingDraftStep?: number | null;
   profileDetails?: StudentProfileDetails | null;
   rejectionReason?: string | null;
 }

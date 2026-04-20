@@ -20,6 +20,7 @@ import {
   Tag, ChevronDown, Mail, RefreshCw, PlusCircle,
   KeyRound, ShieldCheck, Clock3, Server, AtSign,
 } from "lucide-react";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -145,6 +146,37 @@ function prettifyMessageType(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function getEmailTypeLabel(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const labels: Record<string, string> = {
+    "password-reset": "Forgot Password",
+    "password-changed": "Password Changed",
+    "student-approved": "Student Verification Success",
+    "student-rejected": "Student Verification Rejected",
+    "teacher-welcome": "Teacher Welcome",
+    "student-test-result": "Test Result",
+    "student-question-report-acknowledged": "Question Report Ack",
+    "teacher-question-report-alert": "Teacher Report Alert",
+    "student-question-report-rejected": "Report Rejected",
+    "student-question-updated": "Question Updated",
+    "pending-review-escalation": "Pending Review Escalation",
+    "student-review-request": "Student Review Request",
+    transactional: "Transactional",
+  };
+  return labels[normalized] ?? prettifyMessageType(normalized);
+}
+
+const EMAIL_TYPE_COLORS = [
+  "#F59E0B",
+  "#D97706",
+  "#F97316",
+  "#FB7185",
+  "#8B5CF6",
+  "#6366F1",
+  "#14B8A6",
+  "#22C55E",
+];
+
 export default function SendNotification() {
   const { toast } = useToast();
   const [target, setTarget] = useState<Target>("all");
@@ -187,6 +219,42 @@ export default function SendNotification() {
     })),
     [totalProviderUsage, usageCards],
   );
+  const emailTypeChart = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const log of emailLogs) {
+      const key = log.messageType?.trim() || "transactional";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    const rows = Array.from(counts.entries())
+      .map(([type, count], index) => ({
+        type,
+        label: getEmailTypeLabel(type),
+        count,
+        color: EMAIL_TYPE_COLORS[index % EMAIL_TYPE_COLORS.length],
+      }))
+      .sort((left, right) => right.count - left.count);
+
+    if (rows.length <= 6) {
+      return rows;
+    }
+
+    const primaryRows = rows.slice(0, 5);
+    const otherCount = rows.slice(5).reduce((sum, row) => sum + row.count, 0);
+    return [
+      ...primaryRows,
+      {
+        type: "other",
+        label: "Other",
+        count: otherCount,
+        color: "#94A3B8",
+      },
+    ];
+  }, [emailLogs]);
+  const totalTypedEmails = useMemo(
+    () => emailTypeChart.reduce((sum, row) => sum + row.count, 0),
+    [emailTypeChart],
+  );
 
   const fetchEmailOps = async () => {
     setLoadingEmailOps(true);
@@ -196,7 +264,7 @@ export default function SendNotification() {
         fetch(`${BASE}/api/notifications/email-providers/usage`, {
           credentials: "include",
         }),
-        fetch(`${BASE}/api/notifications/email-log?limit=40`, {
+        fetch(`${BASE}/api/notifications/email-log?limit=120`, {
           credentials: "include",
         }),
       ]);
@@ -559,21 +627,6 @@ export default function SendNotification() {
               </Alert>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-[#FDE7BE] bg-[#FFF7E8] p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#B45309]">Configured</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{providerUsage?.totals.configuredProviders ?? 0}</p>
-              </div>
-              <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#B45309]">Used Today</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{providerUsage?.totals.totalUsedToday ?? 0}</p>
-              </div>
-              <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#B45309]">Remaining Today</p>
-                <p className="mt-2 text-2xl font-black text-slate-900">{providerUsage?.totals.totalRemainingDaily ?? 0}</p>
-              </div>
-            </div>
-
             <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -681,9 +734,12 @@ export default function SendNotification() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className="rounded-2xl bg-[#FFF7E8] px-4 py-3 text-right">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#B45309]">Usage today</p>
-                            <p className="mt-1 text-xl font-black text-slate-900">{provider.usedToday}<span className="ml-1 text-sm font-semibold text-muted-foreground">/ {provider.dailyLimit}</span></p>
+                          <div className="flex h-11 min-w-[112px] flex-col justify-center rounded-lg bg-[#FFF7E8] px-3 text-center">
+                            <p className="text-[8px] font-semibold uppercase tracking-[0.2em] leading-none text-[#B45309]">Usage Today</p>
+                            <p className="mt-1 text-sm font-black leading-none text-slate-900">
+                              {provider.usedToday}
+                              <span className="ml-1 text-[10px] font-semibold text-muted-foreground">/ {provider.dailyLimit}</span>
+                            </p>
                           </div>
                           <Button
                             type="button"
@@ -755,6 +811,98 @@ export default function SendNotification() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3 pt-0">
+          <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Email Type Split</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Recent email log ko type ke hisaab se yahan dekh sakte ho, jaise forgot password, verification, result ya report alerts.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-[#FDE7BE] bg-[#FFF7E8] text-[#B45309]">
+                  {totalTypedEmails} tracked emails
+                </Badge>
+                <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
+                  {emailTypeChart.length} types
+                </Badge>
+              </div>
+            </div>
+
+            {loadingEmailOps ? (
+              <div className="mt-4 h-72 animate-pulse rounded-2xl bg-muted" />
+            ) : emailTypeChart.length === 0 ? (
+              <div className="mt-4 rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
+                <p className="text-sm font-semibold">No email-type data yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Jaise hi forgot, verification, result ya kisi bhi type ka email jayega, yahan split dikhne lagega.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)] lg:items-center">
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={emailTypeChart}
+                        dataKey="count"
+                        nameKey="label"
+                        innerRadius={58}
+                        outerRadius={92}
+                        paddingAngle={3}
+                        stroke="#FFF7E8"
+                        strokeWidth={3}
+                      >
+                        {emailTypeChart.map((entry) => (
+                          <Cell key={entry.type} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number, _name, payload) => {
+                          const row = payload?.payload as { label: string } | undefined;
+                          return [`${value} emails`, row?.label ?? "Email type"];
+                        }}
+                        contentStyle={{
+                          borderRadius: 16,
+                          border: "1px solid #FDE7BE",
+                          boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="space-y-2.5">
+                  {emailTypeChart.map((entry) => {
+                    const share = totalTypedEmails > 0 ? Math.round((entry.count / totalTypedEmails) * 100) : 0;
+                    return (
+                      <div
+                        key={entry.type}
+                        className="rounded-2xl border border-border bg-[#FFFBF3] px-4 py-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: entry.color }}
+                              />
+                              <p className="truncate text-sm font-semibold text-slate-900">{entry.label}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-black text-slate-900">{entry.count}</p>
+                            <p className="text-[11px] text-muted-foreground">{share}% share</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           {loadingEmailOps ? (
             <div className="grid gap-3">
               {[...Array(4)].map((_, index) => (

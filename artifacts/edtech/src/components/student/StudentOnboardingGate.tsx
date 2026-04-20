@@ -220,6 +220,30 @@ function buildInitialDetails(user: AuthUser): StudentProfileDetails {
   };
 }
 
+function mergeStudentProfileDetails(base: StudentProfileDetails, incoming: Partial<StudentProfileDetails> | null | undefined) {
+  if (!incoming) return base;
+  return {
+    ...base,
+    ...incoming,
+    address: {
+      ...base.address,
+      ...(incoming.address ?? {}),
+    },
+    preparation: {
+      ...base.preparation,
+      ...(incoming.preparation ?? {}),
+    },
+    learningMode: {
+      ...base.learningMode,
+      ...(incoming.learningMode ?? {}),
+    },
+    dashboard: {
+      ...(base.dashboard ?? {}),
+      ...(incoming.dashboard ?? {}),
+    },
+  };
+}
+
 export default function StudentOnboardingGate() {
   const { user, login } = useAuth();
   const queryClient = useQueryClient();
@@ -255,9 +279,9 @@ export default function StudentOnboardingGate() {
     setPhone(authUser.phone ?? "");
     setAvatarPreview((authUser as any)?.avatarUrl ?? null);
     setDetails(buildInitialDetails(authUser));
-    setStep(0);
+    setStep(Math.min(Math.max(0, authUser.onboardingDraftStep ?? 0), steps.length - 1));
     setError("");
-  }, [authUser?.id, authUser?.fullName, authUser?.phone, authUser?.role, authUser?.onboardingComplete, authUser?.status, (authUser as any)?.avatarUrl]);
+  }, [authUser?.id, authUser?.fullName, authUser?.phone, authUser?.role, authUser?.onboardingComplete, authUser?.onboardingDraftStep, authUser?.status, (authUser as any)?.avatarUrl]);
 
   useEffect(() => {
     if (!draftStorageKey || !authUser || authUser.role !== "student" || authUser.onboardingComplete) return;
@@ -278,22 +302,7 @@ export default function StudentOnboardingGate() {
       }
       if (draft.details && typeof draft.details === "object") {
         const draftDetails = draft.details;
-        setDetails((prev) => ({
-          ...(prev ?? buildInitialDetails(authUser)),
-          ...draftDetails,
-          address: {
-            ...(prev?.address ?? buildInitialDetails(authUser).address),
-            ...(draftDetails.address ?? {}),
-          },
-          preparation: {
-            ...(prev?.preparation ?? buildInitialDetails(authUser).preparation),
-            ...(draftDetails.preparation ?? {}),
-          },
-          learningMode: {
-            ...(prev?.learningMode ?? buildInitialDetails(authUser).learningMode),
-            ...(draftDetails.learningMode ?? {}),
-          },
-        }));
+        setDetails((prev) => mergeStudentProfileDetails(prev ?? buildInitialDetails(authUser), draftDetails));
       }
       if (typeof draft.step === "number" && Number.isFinite(draft.step)) {
         setStep(Math.min(Math.max(0, draft.step), steps.length - 1));
@@ -427,6 +436,28 @@ export default function StudentOnboardingGate() {
     }
   };
 
+  const saveDraftProgress = async (nextStep: number) => {
+    const response = await fetch(`${BASE}/api/auth/student-onboarding/draft`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        avatarUrl: avatarPreview,
+        step: nextStep,
+        profileDetails: details,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Failed to save setup progress");
+    }
+
+    login(payload as AuthUser);
+  };
+
   const validateStep = () => {
     if (step === 0) {
       if (!avatarPreview?.trim()) return "Add a clear face photo before continuing. Applications without a face photo may be rejected.";
@@ -476,7 +507,16 @@ export default function StudentOnboardingGate() {
     setError("");
 
     if (step < steps.length - 1) {
-      setStep((current) => current + 1);
+      setSaving(true);
+      try {
+        const nextStep = step + 1;
+        await saveDraftProgress(nextStep);
+        setStep(nextStep);
+      } catch (err: any) {
+        setError(err.message ?? "Failed to save setup progress");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
 
@@ -624,9 +664,9 @@ export default function StudentOnboardingGate() {
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm font-semibold text-[#111827]">Add your face photo</p>
+                      <p className="text-sm font-semibold text-[#111827]">Add profile photo</p>
                       <p className="max-w-md text-sm leading-6 text-[#6B7280]">
-                        Upload a clear front-facing profile picture. Applications without a face photo may be rejected during review.
+                        Upload a clear profile picture for verification.
                       </p>
                     </div>
                   </div>
