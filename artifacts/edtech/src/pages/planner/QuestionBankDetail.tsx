@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   FileText,
+  Lock,
   Pencil,
   Plus,
   Search,
@@ -90,7 +91,7 @@ interface SubjectItem {
 }
 
 interface QuestionBankDetailResponse {
-  class: { id: number; title: string; subject: string };
+  class: { id: number; title: string; subject: string; isLocked?: boolean };
   subjects: SubjectItem[];
   savedBucket: QuestionItem[];
 }
@@ -220,7 +221,6 @@ export default function PlannerQuestionBankDetail() {
   const basePath = "/super-admin";
   const portalLabel = "Super Admin View";
   const portalName = user?.fullName ?? "Super Admin Portal";
-
   const [headerSearch, setHeaderSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
@@ -466,18 +466,26 @@ export default function PlannerQuestionBankDetail() {
     return examSubjects[0];
   }, [examSubjects, selectedSubjectId]);
 
+  const isLocked = Boolean(detail?.class.isLocked);
+
   const bulkImportMutation = useMutation({
     mutationFn: async () => {
+      if (isLocked) {
+        throw new Error("This question bank is locked. Unlock it from the active question bank card first.");
+      }
       const parsedSubjects = parseBulkOutline(bulkOutline);
       if (parsedSubjects.length === 0) {
         throw new Error("Paste at least one subject with chapters.");
       }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 20000);
       const response = await fetch(`${BASE}/api/question-bank/classes/${classId}/structure-sync`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subjects: parsedSubjects }),
-      });
+        signal: controller.signal,
+      }).finally(() => window.clearTimeout(timeout));
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -498,17 +506,37 @@ export default function PlannerQuestionBankDetail() {
       });
     },
     onError: (error: Error) => {
+      if (error.name === "AbortError") {
+        setBulkError("Sync took too long. Please try again in a moment.");
+        return;
+      }
       setBulkError(error.message);
     },
   });
 
   const openCreateSubjectDialog = () => {
+    if (isLocked) {
+      toast({
+        title: "Question bank locked",
+        description: "Unlock this question bank from the active card before editing subjects or chapters.",
+        variant: "destructive",
+      });
+      return;
+    }
     resetSubjectDialog();
     setSubjectDialogMode("create");
     setSubjectDialogOpen(true);
   };
 
   const openEditSubjectDialog = (subject: DecoratedSubject) => {
+    if (isLocked) {
+      toast({
+        title: "Question bank locked",
+        description: "Unlock this question bank from the active card before editing subjects or chapters.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSubjectDialogMode("edit");
     setEditingSubjectId(subject.id);
     setSubjectTitle(subject.title);
@@ -518,12 +546,28 @@ export default function PlannerQuestionBankDetail() {
   };
 
   const openCreateChapterDialog = () => {
+    if (isLocked) {
+      toast({
+        title: "Question bank locked",
+        description: "Unlock this question bank from the active card before editing subjects or chapters.",
+        variant: "destructive",
+      });
+      return;
+    }
     resetChapterDialog();
     setChapterDialogMode("create");
     setChapterDialogOpen(true);
   };
 
   const openEditChapterDialog = (chapter: DecoratedChapter) => {
+    if (isLocked) {
+      toast({
+        title: "Question bank locked",
+        description: "Unlock this question bank from the active card before editing subjects or chapters.",
+        variant: "destructive",
+      });
+      return;
+    }
     setChapterDialogMode("edit");
     setEditingChapterId(chapter.id);
     setChapterTitle(chapter.title);
@@ -629,6 +673,10 @@ export default function PlannerQuestionBankDetail() {
 
   const handleBulkImport = () => {
     setBulkError("");
+    if (isLocked) {
+      setBulkError("This question bank is locked. Unlock it from the active question bank card first.");
+      return;
+    }
     if (!bulkOutline.trim()) {
       setBulkError("Paste the subject and chapter outline first.");
       return;
@@ -713,21 +761,23 @@ export default function PlannerQuestionBankDetail() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-2" onClick={() => setBulkDialogOpen(true)}>
+            <Button variant="outline" className="gap-2" onClick={() => setBulkDialogOpen(true)} disabled={isLocked}>
               <FileText className="h-4 w-4" /> Paste Syllabus
             </Button>
-            <Button variant="outline" className="gap-2" onClick={openCreateSubjectDialog}>
+            <Button variant="outline" className="gap-2" onClick={openCreateSubjectDialog} disabled={isLocked}>
               <Plus className="h-4 w-4" /> Add Subject
             </Button>
             <Button
               variant="outline"
               className="gap-2 text-destructive hover:text-destructive"
               onClick={() => setQuestionBankDeleteOpen(true)}
+              disabled={isLocked}
             >
               <Trash2 className="h-4 w-4" /> Delete Question Bank
             </Button>
             <Button
               className="gap-2"
+              disabled={isLocked}
               onClick={() =>
                 toast({
                   title: "Assign Teacher",
@@ -740,6 +790,15 @@ export default function PlannerQuestionBankDetail() {
           </div>
         </div>
       </div>
+
+      {isLocked ? (
+        <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+          <Lock className="h-4 w-4" />
+          <AlertDescription>
+            This question bank is locked. Subject, chapter, and syllabus sync edits are disabled until it is unlocked from the active question bank card.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 space-y-6">
@@ -929,7 +988,7 @@ export default function PlannerQuestionBankDetail() {
                       onChange={(event) => setSearchQuery(event.target.value)}
                     />
                   </div>
-                  <Button variant="outline" size="sm" className="gap-2" onClick={() => openEditSubjectDialog(activeSubject)}>
+                  <Button variant="outline" size="sm" className="gap-2" onClick={() => openEditSubjectDialog(activeSubject)} disabled={isLocked}>
                     <Pencil className="h-4 w-4" /> Edit Subject
                   </Button>
                   <Button
@@ -937,10 +996,11 @@ export default function PlannerQuestionBankDetail() {
                     size="sm"
                     className="gap-2 text-destructive hover:text-destructive"
                     onClick={() => setSubjectToDelete(activeSubject)}
+                    disabled={isLocked}
                   >
                     <Trash2 className="h-4 w-4" /> Delete Subject
                   </Button>
-                  <Button variant="secondary" size="sm" className="gap-2" onClick={openCreateChapterDialog}>
+                  <Button variant="secondary" size="sm" className="gap-2" onClick={openCreateChapterDialog} disabled={isLocked}>
                     <Plus className="h-4 w-4" /> Add Chapter
                   </Button>
                 </div>
@@ -996,6 +1056,7 @@ export default function PlannerQuestionBankDetail() {
                                 size="icon"
                                 className="shrink-0"
                                 onClick={() => openEditChapterDialog(chapter)}
+                                disabled={isLocked}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -1004,6 +1065,7 @@ export default function PlannerQuestionBankDetail() {
                                 size="icon"
                                 className="shrink-0 text-destructive hover:text-destructive"
                                 onClick={() => setChapterToDelete(chapter)}
+                                disabled={isLocked}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1114,17 +1176,27 @@ export default function PlannerQuestionBankDetail() {
               </Alert>
             ) : null}
 
+            {isLocked ? (
+              <Alert>
+                <Lock className="h-4 w-4" />
+                <AlertDescription>
+                  This question bank is currently locked. Unlock it from the active question bank card to sync subjects and chapters.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             <Textarea
               value={bulkOutline}
               onChange={(event) => setBulkOutline(event.target.value)}
               rows={16}
               placeholder={"1. Engineering Mathematics\nLinear Algebra\nCalculus\n2. Networks\nCircuit laws\nNetwork theorems"}
               className="font-mono text-sm"
+              disabled={isLocked || bulkImportMutation.isPending}
             />
 
             <DialogFooter>
               <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleBulkImport} disabled={bulkImportMutation.isPending}>
+              <Button onClick={handleBulkImport} disabled={isLocked || bulkImportMutation.isPending}>
                 {bulkImportMutation.isPending ? "Syncing..." : "Sync Structure"}
               </Button>
             </DialogFooter>
@@ -1151,6 +1223,7 @@ export default function PlannerQuestionBankDetail() {
                 value={subjectTitle}
                 onChange={(event) => setSubjectTitle(event.target.value)}
                 placeholder="e.g. Mathematics, Organic Chemistry"
+                disabled={isLocked || saveSubjectMutation.isPending}
               />
             </div>
 
@@ -1161,12 +1234,13 @@ export default function PlannerQuestionBankDetail() {
                 onChange={(event) => setSubjectDescription(event.target.value)}
                 placeholder="Scope or notes for this subject…"
                 rows={4}
+                disabled={isLocked || saveSubjectMutation.isPending}
               />
             </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={resetSubjectDialog}>Cancel</Button>
-              <Button className="min-w-[140px]" onClick={handleAddSubject} disabled={saveSubjectMutation.isPending}>
+              <Button className="min-w-[140px]" onClick={handleAddSubject} disabled={isLocked || saveSubjectMutation.isPending}>
                 {saveSubjectMutation.isPending ? "Saving..." : subjectDialogMode === "edit" ? "Save Subject" : "Add Subject"}
               </Button>
             </DialogFooter>
@@ -1200,6 +1274,7 @@ export default function PlannerQuestionBankDetail() {
                 value={chapterTitle}
                 onChange={(event) => setChapterTitle(event.target.value)}
                 placeholder="e.g. Network Theorems"
+                disabled={isLocked || saveChapterMutation.isPending}
               />
             </div>
 
@@ -1210,6 +1285,7 @@ export default function PlannerQuestionBankDetail() {
                 onChange={(event) => setChapterDescription(event.target.value)}
                 placeholder="Add a short chapter brief…"
                 rows={3}
+                disabled={isLocked || saveChapterMutation.isPending}
               />
             </div>
 
@@ -1221,12 +1297,13 @@ export default function PlannerQuestionBankDetail() {
                 value={chapterTargetQuestions}
                 onChange={(event) => setChapterTargetQuestions(event.target.value)}
                 placeholder="50"
+                disabled={isLocked || saveChapterMutation.isPending}
               />
             </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={resetChapterDialog}>Cancel</Button>
-              <Button className="min-w-[140px]" onClick={handleAddChapter} disabled={saveChapterMutation.isPending}>
+              <Button className="min-w-[140px]" onClick={handleAddChapter} disabled={isLocked || saveChapterMutation.isPending}>
                 {saveChapterMutation.isPending ? "Saving..." : chapterDialogMode === "edit" ? "Save Chapter" : "Add Chapter"}
               </Button>
             </DialogFooter>
@@ -1249,6 +1326,7 @@ export default function PlannerQuestionBankDetail() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => subjectToDelete && deleteSubjectMutation.mutate(subjectToDelete.id)}
+              disabled={isLocked || deleteSubjectMutation.isPending}
             >
               {deleteSubjectMutation.isPending ? "Deleting..." : "Delete Subject"}
             </AlertDialogAction>
@@ -1271,6 +1349,7 @@ export default function PlannerQuestionBankDetail() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => chapterToDelete && deleteChapterMutation.mutate(chapterToDelete.id)}
+              disabled={isLocked || deleteChapterMutation.isPending}
             >
               {deleteChapterMutation.isPending ? "Deleting..." : "Delete Chapter"}
             </AlertDialogAction>
@@ -1291,6 +1370,7 @@ export default function PlannerQuestionBankDetail() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteQuestionBankMutation.mutate()}
+              disabled={isLocked || deleteQuestionBankMutation.isPending}
             >
               {deleteQuestionBankMutation.isPending ? "Deleting..." : "Delete Question Bank"}
             </AlertDialogAction>
