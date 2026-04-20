@@ -4,7 +4,6 @@ import { useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useQuestionBankTargetAlerts } from "@/hooks/useQuestionBankTargetAlerts";
 import StudentOnboardingGate from "@/components/student/StudentOnboardingGate";
-import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { isStudentPendingVerification } from "@/lib/student-access";
 import {
@@ -154,7 +153,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [shellWidgetsReady, setShellWidgetsReady] = useState(false);
-  const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
@@ -269,17 +267,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const isActive = location === item.href || location.startsWith(item.href + "/");
-                const isBlocked = isPendingStudent && item.href !== "/student/dashboard";
                 return (
                   <NavLink
                     key={item.href}
                     item={item}
                     isActive={isActive}
                     collapsed={collapsed}
-                    blocked={isBlocked}
                     onClick={() => {
                       setMobileOpen(false);
-                      if (isBlocked) setPendingDialogOpen(true);
                     }}
                   />
                 );
@@ -445,13 +440,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           />
         ) : null}
       </Suspense>
-
-      <PendingVerificationDialog
-        open={pendingDialogOpen}
-        onOpenChange={setPendingDialogOpen}
-        onCheckStatus={() => setLocation("/student/pending-approval")}
-      />
-
       <StudentOnboardingGate />
     </div>
   );

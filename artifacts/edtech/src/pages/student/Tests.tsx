@@ -6,8 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { TcsCalculator } from "@/components/student/TcsCalculator";
+import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { isStudentPendingVerification } from "@/lib/student-access";
 import { filterReviewBucketEntries, getReviewBucketRemovedQuestionIds } from "@/lib/reviewBucket";
 import {
   ClipboardList, Clock, CheckCircle2, AlertCircle, BookOpen,
@@ -251,6 +253,51 @@ function getAnswerSnapshot(answer: AnswerValue | null | undefined): AnswerValue 
   if (answer === undefined || answer === null) return null;
   return cloneAnswerValue(answer) ?? null;
 }
+
+const PENDING_PREVIEW_TESTS: TestItem[] = [
+  {
+    id: -101,
+    title: "GATE 2026 Grand Preview Test",
+    description: "Sample preview values visible until verification is approved.",
+    durationMinutes: 180,
+    passingScore: 60,
+    scheduledAt: null,
+    className: "Preview mode",
+    subjectName: "General Aptitude",
+    chapterName: null,
+    alreadySubmitted: false,
+  },
+  {
+    id: -102,
+    title: "Communication Systems Chapter Test",
+    description: "Preview-only test card for verification pending students.",
+    durationMinutes: 60,
+    passingScore: 40,
+    scheduledAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+    className: "Preview mode",
+    subjectName: "Communication Systems",
+    chapterName: "Digital Modulation",
+    alreadySubmitted: false,
+  },
+  {
+    id: -103,
+    title: "Signals & Systems Practice Result",
+    description: "Sample completed attempt shown in preview mode.",
+    durationMinutes: 45,
+    passingScore: 35,
+    scheduledAt: null,
+    className: "Preview mode",
+    subjectName: "Signals & Systems",
+    chapterName: "Fourier Transform",
+    alreadySubmitted: true,
+  },
+];
+
+const PENDING_PREVIEW_TEST_QUESTION_COUNTS: Record<number, number> = {
+  [-101]: 65,
+  [-102]: 20,
+  [-103]: 15,
+};
 
 function cloneAnswerRecord(answerRecord?: Record<number, AnswerValue> | null): Record<number, AnswerValue> {
   if (!answerRecord) return {};
@@ -729,7 +776,153 @@ function TruncatedPentagonBadge({
   );
 }
 
-export default function StudentTests() {
+function StudentTestsPreview() {
+  const [, setLocation] = useLocation();
+  const [activeTab, setActiveTab] = useState<"all" | "upcoming" | "active" | "completed">("all");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
+
+  const subjectOptions = useMemo(
+    () =>
+      Array.from(new Set(PENDING_PREVIEW_TESTS.map((test) => getStudentTestSubject(test)).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [],
+  );
+
+  const filteredTests = useMemo(() => {
+    const filteredByTab = PENDING_PREVIEW_TESTS.filter((test) => activeTab === "all" || getStudentTestStatus(test) === activeTab);
+    if (subjectFilter === "all") return filteredByTab;
+    return filteredByTab.filter((test) => getStudentTestSubject(test) === subjectFilter);
+  }, [activeTab, subjectFilter]);
+
+  const testStats = useMemo(
+    () => ({
+      total: PENDING_PREVIEW_TESTS.length,
+      upcoming: PENDING_PREVIEW_TESTS.filter((test) => getStudentTestStatus(test) === "upcoming").length,
+      active: PENDING_PREVIEW_TESTS.filter((test) => getStudentTestStatus(test) === "active").length,
+      completed: PENDING_PREVIEW_TESTS.filter((test) => getStudentTestStatus(test) === "completed").length,
+    }),
+    [],
+  );
+
+  return (
+    <>
+      <div className="space-y-7">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-[#0F172A]">My Tests</h1>
+              <p className="mt-1 text-sm font-medium text-[#64748B]">
+                Preview mode active. Sample test cards are visible until verification is approved.
+              </p>
+            </div>
+
+            <Button
+              variant="outline"
+              className="w-full self-start rounded-full border-[#D9D6FE] bg-white px-5 py-3 text-sm font-semibold text-[#5B4DFF] shadow-[0_8px_30px_rgba(15,23,42,0.04)] hover:bg-[#EEF2FF] sm:w-auto md:self-auto"
+              onClick={() => setLocation("/student/pending-approval")}
+            >
+              Check verification
+            </Button>
+          </div>
+
+          <div className="rounded-[28px] border border-[#D9D6FE] bg-[linear-gradient(135deg,#F5F3FF_0%,#F8FAFC_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(91,77,255,0.08)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Verification pending</p>
+                <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Sample tests unlocked in preview mode</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
+                  Tests tab active rahega, lekin abhi sample values dikhengi. Real tests, attempts, review bucket, and result actions verification approval ke baad live honge.
+                </p>
+              </div>
+              <Button
+                type="button"
+                className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
+                onClick={() => setPendingDialogOpen(true)}
+              >
+                Open locked features
+              </Button>
+            </div>
+          </div>
+
+          <StudentTestsStatsBar
+            total={testStats.total}
+            upcoming={testStats.upcoming}
+            active={testStats.active}
+            completed={testStats.completed}
+            averageScore={68}
+          />
+
+          <div className="flex flex-col gap-3 rounded-[24px] border border-[#E5E7EB] bg-white px-3 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:px-4 md:flex-row md:items-center md:justify-between">
+            <div className="-mx-1 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
+              {[
+                { id: "all", label: "All" },
+                { id: "upcoming", label: "Upcoming" },
+                { id: "active", label: "Active" },
+                { id: "completed", label: "Completed" },
+              ].map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                    className={`rounded-full px-6 py-2.5 text-base font-semibold transition-colors ${
+                      isActive ? "chip-orange-solid" : "text-[#64748B] hover:text-[#0F172A]"
+                    } snap-start whitespace-nowrap`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex w-full items-center gap-3 md:w-auto">
+              <div className="relative w-full md:min-w-[220px]">
+                <select
+                  value={subjectFilter}
+                  onChange={(event) => setSubjectFilter(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-full border-0 bg-white py-2 pl-4 pr-11 text-base font-semibold text-[#0F172A] outline-none"
+                >
+                  <option value="all">All Subjects</option>
+                  {subjectOptions.map((subject) => (
+                    <option key={subject} value={subject}>
+                      {subject}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#64748B]" />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredTests.map((test) => (
+              <StudentTestSeriesCard
+                key={test.id}
+                test={test}
+                status={getStudentTestStatus(test)}
+                questionCount={PENDING_PREVIEW_TEST_QUESTION_COUNTS[test.id] ?? null}
+                detail={null}
+                hasSavedDraft={false}
+                onPrimaryAction={() => setPendingDialogOpen(true)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <PendingVerificationDialog
+        open={pendingDialogOpen}
+        onOpenChange={setPendingDialogOpen}
+        onCheckStatus={() => setLocation("/student/pending-approval")}
+      />
+    </>
+  );
+}
+
+function ApprovedStudentTests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -2527,4 +2720,14 @@ export default function StudentTests() {
 
     </div>
   );
+}
+
+export default function StudentTests() {
+  const { user } = useAuth();
+
+  if (isStudentPendingVerification(user)) {
+    return <StudentTestsPreview />;
+  }
+
+  return <ApprovedStudentTests />;
 }

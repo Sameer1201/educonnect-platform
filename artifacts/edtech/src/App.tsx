@@ -173,7 +173,16 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
       return null;
     }
 
-    if (isStudentPendingVerification(user) && !["/student/dashboard", "/student/pending-approval", "/student/profile"].includes(location)) {
+    if (
+      isStudentPendingVerification(user) &&
+      ![
+        "/student/dashboard",
+        "/student/pending-approval",
+        "/student/profile",
+        "/student/tests",
+        "/student/question-bank",
+      ].includes(location)
+    ) {
       setLocation("/student/dashboard");
       return null;
     }
