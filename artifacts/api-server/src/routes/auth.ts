@@ -33,6 +33,10 @@ function readTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function requiresCollegeAndUniversityFields(classLevel: string | null | undefined, board: string | null | undefined) {
+  return readTrimmedString(classLevel) === "Graduate" || readTrimmedString(board) === "UG University";
+}
+
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
@@ -244,12 +248,15 @@ function validateStudentOnboardingBody(body: unknown) {
     },
     hearAboutUs: readTrimmedString(details.hearAboutUs),
   };
-  const isUgUniversityBoard = normalized.preparation.board === "UG University";
+  const requiresUniversityFields = requiresCollegeAndUniversityFields(
+    normalized.preparation.classLevel,
+    normalized.preparation.board,
+  );
   const institutionName = readTrimmedString(preparation.institutionName);
   const collegeName = readTrimmedString(preparation.collegeName);
-  normalized.preparation.institutionName = isUgUniversityBoard ? "" : (institutionName || collegeName);
-  normalized.preparation.collegeName = isUgUniversityBoard ? (collegeName || institutionName) : "";
-  normalized.preparation.universityName = isUgUniversityBoard ? readTrimmedString(preparation.universityName) : "";
+  normalized.preparation.institutionName = requiresUniversityFields ? "" : (institutionName || collegeName);
+  normalized.preparation.collegeName = requiresUniversityFields ? (collegeName || institutionName) : "";
+  normalized.preparation.universityName = requiresUniversityFields ? readTrimmedString(preparation.universityName) : "";
 
   if (!normalized.dateOfBirth) return { error: "Date of birth is required" } as const;
   if (!normalized.whatsappOnSameNumber && !normalized.whatsappNumber) {
@@ -263,7 +270,7 @@ function validateStudentOnboardingBody(body: unknown) {
   if (!normalized.address.pincode) return { error: "Pincode is required" } as const;
   if (!normalized.preparation.classLevel) return { error: "Current stage is required" } as const;
   if (!normalized.preparation.board) return { error: "Board is required" } as const;
-  if (isUgUniversityBoard) {
+  if (requiresUniversityFields) {
     if (!normalized.preparation.collegeName) return { error: "College name is required" } as const;
     if (!normalized.preparation.universityName) return { error: "University name is required" } as const;
   } else if (!normalized.preparation.institutionName) {

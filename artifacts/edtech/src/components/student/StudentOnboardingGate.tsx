@@ -177,6 +177,10 @@ function isUgUniversityBoard(board: string | null | undefined) {
   return (board ?? "").trim() === "UG University";
 }
 
+function requiresCollegeAndUniversityFields(classLevel: string | null | undefined, board: string | null | undefined) {
+  return (classLevel ?? "").trim() === "Graduate" || isUgUniversityBoard(board);
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -362,7 +366,11 @@ export default function StudentOnboardingGate() {
         return currentDistrict && !options.includes(currentDistrict) ? [...options, currentDistrict] : options;
       })();
   const selectedBoard = details?.preparation.board ?? "";
-  const requiresUniversityFields = isUgUniversityBoard(selectedBoard);
+  const selectedClassLevel = details?.preparation.classLevel ?? "";
+  const requiresUniversityFields = requiresCollegeAndUniversityFields(selectedClassLevel, selectedBoard);
+  const usesCustomHearAboutSource = !!details?.hearAboutUs?.trim() && !hearAboutOptions.includes(details.hearAboutUs as typeof hearAboutOptions[number]);
+  const selectedHearAboutSource = usesCustomHearAboutSource ? "Other" : details?.hearAboutUs ?? "";
+  const hearAboutOtherValue = usesCustomHearAboutSource ? (details?.hearAboutUs ?? "") : "";
 
   const handleStateChange = (state: string) => {
     const nextDistrictOptions = districtOptionsByState[state] ?? [];
@@ -839,7 +847,30 @@ export default function StudentOnboardingGate() {
                   <Label className="mb-2 block text-sm font-medium text-[#374151]">Current stage</Label>
                   <select
                     value={details.preparation.classLevel}
-                    onChange={(event) => updateNestedDetails("preparation", "classLevel", event.target.value)}
+                    onChange={(event) => {
+                      const nextClassLevel = event.target.value;
+                      setDetails((prev) => {
+                        if (!prev) return prev;
+                        const previousPreparation = prev.preparation;
+                        const nextRequiresUniversityFields = requiresCollegeAndUniversityFields(nextClassLevel, previousPreparation.board);
+                        const fallbackInstitutionName =
+                          previousPreparation.institutionName.trim() || previousPreparation.collegeName.trim();
+                        return {
+                          ...prev,
+                          preparation: {
+                            ...previousPreparation,
+                            classLevel: nextClassLevel,
+                            institutionName: nextRequiresUniversityFields
+                              ? previousPreparation.institutionName
+                              : fallbackInstitutionName,
+                            collegeName: nextRequiresUniversityFields
+                              ? (previousPreparation.collegeName.trim() || fallbackInstitutionName)
+                              : "",
+                            universityName: nextRequiresUniversityFields ? previousPreparation.universityName : "",
+                          },
+                        };
+                      });
+                    }}
                     className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
                   >
                     <option value="">Select current stage</option>
@@ -857,7 +888,7 @@ export default function StudentOnboardingGate() {
                       setDetails((prev) => {
                         if (!prev) return prev;
                         const previousPreparation = prev.preparation;
-                        const nextRequiresUniversityFields = isUgUniversityBoard(nextBoard);
+                        const nextRequiresUniversityFields = requiresCollegeAndUniversityFields(previousPreparation.classLevel, nextBoard);
                         const fallbackInstitutionName =
                           previousPreparation.institutionName.trim() || previousPreparation.collegeName.trim();
                         return {
@@ -992,8 +1023,11 @@ export default function StudentOnboardingGate() {
               <div>
                 <Label className="mb-2 block text-sm font-medium text-[#374151]">Source</Label>
                 <select
-                  value={details.hearAboutUs}
-                  onChange={(event) => updateDetails("hearAboutUs", event.target.value)}
+                  value={selectedHearAboutSource}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    updateDetails("hearAboutUs", nextValue === "Other" ? "" : nextValue);
+                  }}
                   className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
                 >
                   <option value="">Select source</option>
@@ -1002,6 +1036,17 @@ export default function StudentOnboardingGate() {
                   ))}
                 </select>
               </div>
+              {selectedHearAboutSource === "Other" ? (
+                <div>
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">Please tell us more</Label>
+                  <Input
+                    value={hearAboutOtherValue}
+                    onChange={(event) => updateDetails("hearAboutUs", event.target.value)}
+                    placeholder="Type where you heard about us"
+                    className="h-12 rounded-2xl border-[#DCE3F1]"
+                  />
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
