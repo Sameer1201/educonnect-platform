@@ -6,6 +6,8 @@ import {
   Bell,
   BookOpen,
   CheckCircle2,
+  Lock,
+  LockOpen,
   Layers,
   Plus,
   Search,
@@ -30,6 +32,7 @@ import {
   YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -76,6 +79,7 @@ interface PlannerQuestionBankCard {
   assignedTeachers?: AssignedTeacher[];
   weeklyTargetQuestions?: number | null;
   weeklyTargetDeadline?: string | null;
+  isLocked: boolean;
   subjectCount: number;
   chapterCount: number;
   questionCount: number;
@@ -409,6 +413,41 @@ export default function PlannerQuestionBank() {
     onError: (error: Error) => {
       toast({
         title: "Could not delete question bank",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const toggleQuestionBankLock = useMutation({
+    mutationFn: async ({ cardId, isLocked }: { cardId: number; isLocked: boolean }) => {
+      const response = await fetch(`${BASE}/api/question-bank/cards/${cardId}/lock`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isLocked }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? `Failed to ${isLocked ? "lock" : "unlock"} question bank`);
+      }
+
+      return response.json();
+    },
+    onSuccess: (_payload, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["planner-question-bank-cards"] });
+      queryClient.invalidateQueries({ queryKey: ["planner-question-bank-detail", variables.cardId] });
+      toast({
+        title: variables.isLocked ? "Question bank locked" : "Question bank unlocked",
+        description: variables.isLocked
+          ? "Editing is now disabled for this question bank."
+          : "Editing is enabled again for this question bank.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Could not update lock state",
         description: error.message,
         variant: "destructive",
       });
@@ -750,7 +789,14 @@ export default function PlannerQuestionBank() {
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
-                        <CardTitle className="text-lg">{card.title}</CardTitle>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <CardTitle className="text-lg">{card.title}</CardTitle>
+                          {card.isLocked ? (
+                            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                              <Lock className="mr-1 h-3 w-3" /> Locked
+                            </Badge>
+                          ) : null}
+                        </div>
                         <CardDescription className="mt-1 line-clamp-1">
                           {card.description || card.exam}
                         </CardDescription>
@@ -801,8 +847,20 @@ export default function PlannerQuestionBank() {
                         type="button"
                         variant="outline"
                         size="icon"
+                        className="shrink-0"
+                        onClick={() => toggleQuestionBankLock.mutate({ cardId: card.id, isLocked: !card.isLocked })}
+                        disabled={toggleQuestionBankLock.isPending}
+                        aria-label={card.isLocked ? `Unlock ${card.title}` : `Lock ${card.title}`}
+                      >
+                        {card.isLocked ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
                         className="shrink-0 text-destructive hover:text-destructive"
                         onClick={() => setCardToDelete(card)}
+                        disabled={card.isLocked}
                         aria-label={`Delete ${card.title}`}
                       >
                         <Trash2 className="h-4 w-4" />

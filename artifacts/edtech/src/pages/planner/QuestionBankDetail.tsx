@@ -161,10 +161,6 @@ function getChapterTag(chapter: ChapterItem): DecoratedChapter["tag"] {
   return "Optional";
 }
 
-function normalizeStructureKey(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
 function parseBulkOutline(value: string): BulkOutlineSubject[] {
   const lines = value
     .split("\n")
@@ -476,72 +472,19 @@ export default function PlannerQuestionBankDetail() {
       if (parsedSubjects.length === 0) {
         throw new Error("Paste at least one subject with chapters.");
       }
+      const response = await fetch(`${BASE}/api/question-bank/classes/${classId}/structure-sync`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subjects: parsedSubjects }),
+      });
 
-      const subjectMap = new Map(
-        examSubjects.map((subject) => [
-          normalizeStructureKey(subject.title),
-          {
-            id: subject.id,
-            chapterKeys: new Set(subject.chapters.map((chapter) => normalizeStructureKey(chapter.title))),
-          },
-        ]),
-      );
-
-      let createdSubjects = 0;
-      let createdChapters = 0;
-      let firstSubjectId: number | null = null;
-
-      for (const entry of parsedSubjects) {
-        const subjectKey = normalizeStructureKey(entry.title);
-        if (!subjectKey) continue;
-
-        let subjectEntry = subjectMap.get(subjectKey);
-
-        if (!subjectEntry) {
-          const subjectResponse = await fetch(`${BASE}/api/question-bank/classes/${classId}/subjects`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title: entry.title }),
-          });
-
-          if (!subjectResponse.ok) {
-            const payload = await subjectResponse.json().catch(() => ({}));
-            throw new Error(payload.error ?? `Failed to create subject "${entry.title}"`);
-          }
-
-          const createdSubject = await subjectResponse.json();
-          subjectEntry = { id: createdSubject.id, chapterKeys: new Set<string>() };
-          subjectMap.set(subjectKey, subjectEntry);
-          createdSubjects += 1;
-        }
-
-        if (!firstSubjectId && typeof subjectEntry.id === "number") {
-          firstSubjectId = subjectEntry.id;
-        }
-
-        for (const chapterTitle of entry.chapters) {
-          const chapterKey = normalizeStructureKey(chapterTitle);
-          if (!chapterKey || subjectEntry.chapterKeys.has(chapterKey)) continue;
-
-          const chapterResponse = await fetch(`${BASE}/api/question-bank/subjects/${subjectEntry.id}/chapters`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title: chapterTitle, targetQuestions: 0 }),
-          });
-
-          if (!chapterResponse.ok) {
-            const payload = await chapterResponse.json().catch(() => ({}));
-            throw new Error(payload.error ?? `Failed to create chapter "${chapterTitle}"`);
-          }
-
-          subjectEntry.chapterKeys.add(chapterKey);
-          createdChapters += 1;
-        }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to sync structure.");
       }
 
-      return { createdSubjects, createdChapters, firstSubjectId };
+      return response.json();
     },
     onSuccess: ({ createdSubjects, createdChapters, firstSubjectId }) => {
       invalidateDetail();

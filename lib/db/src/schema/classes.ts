@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -18,6 +18,7 @@ export const classesTable = pgTable("classes", {
   endedAt: timestamp("ended_at", { withTimezone: true }),
   weeklyTargetQuestions: integer("weekly_target_questions"),
   weeklyTargetDeadline: timestamp("weekly_target_deadline", { withTimezone: true }),
+  isLocked: boolean("is_locked").notNull().default(false),
   maxStudents: integer("max_students"),
   meetingLink: text("meeting_link"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
