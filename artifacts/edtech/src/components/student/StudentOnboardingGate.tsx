@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2 } from "lucide-react";
+import { Camera, Check, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import indiaStateDistrictSource from "@/data/india-state-districts.json";
+import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 import { invalidateStudentContentQueries } from "@/lib/student-content-cache";
 import type { AuthUser, StudentProfileDetails } from "@/types/auth";
 
@@ -176,6 +177,15 @@ function isUgUniversityBoard(board: string | null | undefined) {
   return (board ?? "").trim() === "UG University";
 }
 
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 function buildInitialDetails(user: AuthUser): StudentProfileDetails {
   const existing = user.profileDetails;
   const existingBoard = existing?.preparation?.board ?? "";
@@ -220,10 +230,12 @@ export default function StudentOnboardingGate() {
   const [step, setStep] = useState(0);
   const [fullName, setFullName] = useState(authUser?.fullName ?? "");
   const [phone, setPhone] = useState(authUser?.phone ?? "");
+  const [avatarPreview, setAvatarPreview] = useState<string | null>((authUser as any)?.avatarUrl ?? null);
   const [details, setDetails] = useState<StudentProfileDetails | null>(authUser ? buildInitialDetails(authUser) : null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const draftStorageKey = authUser ? `${ONBOARDING_DRAFT_STORAGE_KEY}:${authUser.id}` : null;
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const { data: examOptions = [] } = useQuery<RegistrationExamOption[]>({
     queryKey: ["registration-exams"],
@@ -241,10 +253,11 @@ export default function StudentOnboardingGate() {
     if (!authUser || authUser.role !== "student") return;
     setFullName(authUser.fullName ?? "");
     setPhone(authUser.phone ?? "");
+    setAvatarPreview((authUser as any)?.avatarUrl ?? null);
     setDetails(buildInitialDetails(authUser));
     setStep(0);
     setError("");
-  }, [authUser?.id, authUser?.fullName, authUser?.phone, authUser?.role, authUser?.onboardingComplete, authUser?.status]);
+  }, [authUser?.id, authUser?.fullName, authUser?.phone, authUser?.role, authUser?.onboardingComplete, authUser?.status, (authUser as any)?.avatarUrl]);
 
   useEffect(() => {
     if (!draftStorageKey || !authUser || authUser.role !== "student" || authUser.onboardingComplete) return;
@@ -255,10 +268,14 @@ export default function StudentOnboardingGate() {
         step?: number;
         fullName?: string;
         phone?: string;
+        avatarPreview?: string | null;
         details?: StudentProfileDetails;
       };
       if (typeof draft.fullName === "string") setFullName(draft.fullName);
       if (typeof draft.phone === "string") setPhone(draft.phone);
+      if (typeof draft.avatarPreview === "string" || draft.avatarPreview === null) {
+        setAvatarPreview(draft.avatarPreview ?? null);
+      }
       if (draft.details && typeof draft.details === "object") {
         const draftDetails = draft.details;
         setDetails((prev) => ({
@@ -292,10 +309,11 @@ export default function StudentOnboardingGate() {
       step,
       fullName,
       phone,
+      avatarPreview,
       details,
     };
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
-  }, [authUser, details, draftStorageKey, fullName, phone, step]);
+  }, [authUser, avatarPreview, details, draftStorageKey, fullName, phone, step]);
 
   useEffect(() => {
     const shouldLockBody = gateEnabled && (!rejectedResubmission || location === "/student/profile");
@@ -386,8 +404,32 @@ export default function StudentOnboardingGate() {
     );
   };
 
+  const handleAvatarSelect = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setError("Please select an image file.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Image must be under 10MB.");
+      return;
+    }
+    try {
+      const resized = await optimizeImageToDataUrl(file, {
+        maxWidth: 256,
+        maxHeight: 256,
+        quality: 0.85,
+        outputType: "image/jpeg",
+      });
+      setAvatarPreview(resized);
+      setError("");
+    } catch {
+      setError("Failed to process the selected image.");
+    }
+  };
+
   const validateStep = () => {
     if (step === 0) {
+      if (!avatarPreview?.trim()) return "Add a clear face photo before continuing. Applications without a face photo may be rejected.";
       if (!fullName.trim()) return "Full name is required.";
       if (!details.dateOfBirth.trim()) return "Date of birth is required.";
       if (!phone.trim()) return "Phone number is required.";
@@ -447,6 +489,7 @@ export default function StudentOnboardingGate() {
         body: JSON.stringify({
           fullName: fullName.trim(),
           phone: phone.trim(),
+          avatarUrl: avatarPreview,
           subject: details.preparation.targetExam.trim(),
           profileDetails: details,
         }),
@@ -495,6 +538,8 @@ export default function StudentOnboardingGate() {
       className="h-12 rounded-2xl border-[#DCE3F1]"
     />
   );
+
+  const avatarInitials = getInitials(fullName.trim() || authUser.fullName || authUser.username || "S");
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-[#111827]/20 px-3 py-3 backdrop-blur-[3px] sm:items-center sm:px-4 sm:py-6">
@@ -557,6 +602,56 @@ export default function StudentOnboardingGate() {
               <div>
                 <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">Personal details</p>
                 <p className="mt-2 text-sm text-[#6B7280]">We need a few details before we personalize your student experience.</p>
+              </div>
+              <div className="rounded-[24px] border border-[#E5EAF4] bg-[#F8FAFF] p-4 sm:p-5">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-[28px] border border-[#DCE3F1] bg-white shadow-[0_16px_32px_rgba(17,24,39,0.08)]">
+                      {avatarPreview ? (
+                        <img
+                          src={avatarPreview}
+                          alt="Student face photo"
+                          className="h-full w-full object-cover"
+                          decoding="async"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FF9B3D] to-[#FF7A18] text-3xl font-semibold text-white">
+                          {avatarInitials || "S"}
+                        </div>
+                      )}
+                      <div className="absolute bottom-2 right-2 rounded-full bg-[#111827] p-2 text-white shadow-lg">
+                        <Camera size={14} />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-[#111827]">Add your face photo</p>
+                      <p className="max-w-md text-sm leading-6 text-[#6B7280]">
+                        Upload a clear front-facing profile picture. Applications without a face photo may be rejected during review.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="rounded-2xl border-[#D6DEF0] bg-white px-5"
+                  >
+                    {avatarPreview ? "Change Photo" : "Upload Photo"}
+                  </Button>
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) {
+                      void handleAvatarSelect(file);
+                    }
+                  }}
+                />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">

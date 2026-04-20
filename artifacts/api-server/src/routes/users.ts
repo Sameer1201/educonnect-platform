@@ -395,7 +395,8 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
       key: "personal",
       label: "Personal details",
       complete: Boolean(
-        user.fullName?.trim()
+        user.avatarUrl?.trim()
+        && user.fullName?.trim()
         && user.phone?.trim()
         && profileDetails?.dateOfBirth
         && (profileDetails?.whatsappOnSameNumber === true || (typeof profileDetails?.whatsappNumber === "string" && profileDetails.whatsappNumber.trim())),

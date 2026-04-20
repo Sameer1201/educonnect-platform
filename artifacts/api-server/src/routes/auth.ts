@@ -193,6 +193,7 @@ function validateStudentOnboardingBody(body: unknown) {
   const payload = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const fullName = readTrimmedString(payload.fullName);
   const phone = readTrimmedString(payload.phone);
+  const avatarUrl = readTrimmedString(payload.avatarUrl);
   const subject = readTrimmedString(payload.subject);
   const profileDetails = payload.profileDetails;
 
@@ -200,6 +201,7 @@ function validateStudentOnboardingBody(body: unknown) {
   if (fullName.length > 120) return { error: "Full name is too long" } as const;
   if (phone.length < 10) return { error: "Phone number is required" } as const;
   if (phone.length > 20) return { error: "Phone number is too long" } as const;
+  if (!avatarUrl) return { error: "A face photo is required before you can submit your profile" } as const;
   if (!subject) return { error: "Target exam is required" } as const;
 
   if (!profileDetails || typeof profileDetails !== "object") {
@@ -275,6 +277,7 @@ function validateStudentOnboardingBody(body: unknown) {
     data: {
       fullName,
       phone,
+      avatarUrl,
       subject,
       profileDetails: normalized,
     },
@@ -747,7 +750,7 @@ router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
     return;
   }
 
-  const { fullName, phone, subject, profileDetails } = parsed.data;
+  const { fullName, phone, avatarUrl, subject, profileDetails } = parsed.data;
   const normalizedSubject = profileDetails.preparation.targetExam.trim() || subject.trim();
 
   const [updated] = await db
@@ -755,6 +758,7 @@ router.post("/auth/student-onboarding", async (req, res): Promise<void> => {
     .set({
       fullName,
       phone,
+      avatarUrl,
       subject: normalizedSubject,
       status: "pending",
       reviewedById: null,
