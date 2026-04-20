@@ -35,7 +35,6 @@ type ProviderUsage = {
   providerSource: string;
   senderEmail: string;
   senderName: string;
-  replyToEmail: string | null;
   dailyLimit: number;
   dailySoftLimit: number;
   usedToday: number;
@@ -174,8 +173,6 @@ export default function SendNotification() {
     apiKey: "",
     senderEmail: "sameermajhi339@gmail.com",
     senderName: "Rank Pulse",
-    replyToEmail: "sameermajhi339@gmail.com",
-    replyToName: "Sameer Majhi",
     dailyLimit: "300",
     dailySoftLimit: "250",
   });
@@ -291,8 +288,6 @@ export default function SendNotification() {
           apiKey: providerForm.apiKey.trim(),
           senderEmail: providerForm.senderEmail.trim(),
           senderName: providerForm.senderName.trim() || "Rank Pulse",
-          replyToEmail: providerForm.replyToEmail.trim() || providerForm.senderEmail.trim(),
-          replyToName: providerForm.replyToName.trim() || providerForm.senderName.trim() || "Rank Pulse",
           dailyLimit: Number(providerForm.dailyLimit),
           dailySoftLimit: Number(providerForm.dailySoftLimit),
         }),
@@ -313,8 +308,6 @@ export default function SendNotification() {
         apiKey: "",
         senderEmail: "sameermajhi339@gmail.com",
         senderName: "Rank Pulse",
-        replyToEmail: "sameermajhi339@gmail.com",
-        replyToName: "Sameer Majhi",
         dailyLimit: "300",
         dailySoftLimit: "250",
       });
@@ -811,20 +804,6 @@ export default function SendNotification() {
               <Input
                 value={providerForm.senderName}
                 onChange={(e) => setProviderForm((prev) => ({ ...prev, senderName: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Reply-To Email</Label>
-              <Input
-                value={providerForm.replyToEmail}
-                onChange={(e) => setProviderForm((prev) => ({ ...prev, replyToEmail: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Reply-To Name</Label>
-              <Input
-                value={providerForm.replyToName}
-                onChange={(e) => setProviderForm((prev) => ({ ...prev, replyToName: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">

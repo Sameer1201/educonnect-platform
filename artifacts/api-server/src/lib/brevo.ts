@@ -26,8 +26,6 @@ type BrevoAccountConfig = {
   apiKey: string;
   senderEmail: string;
   senderName: string;
-  replyToEmail: string;
-  replyToName: string;
   dailyLimit: number;
   dailySoftLimit: number;
   source: "environment" | "database";
@@ -128,10 +126,6 @@ function parseBrevoAccountsJson(): BrevoAccountConfig[] {
         const senderName = typeof record.senderName === "string" && record.senderName.trim()
           ? record.senderName.trim()
           : "Rank Pulse";
-        const replyToEmail = typeof record.replyToEmail === "string" ? record.replyToEmail.trim() : "";
-        const replyToName = typeof record.replyToName === "string" && record.replyToName.trim()
-          ? record.replyToName.trim()
-          : senderName;
         const dailyLimit = readPositiveInteger(record.dailyLimit, 300);
         const preferredSoftLimit = readPositiveInteger(record.dailySoftLimit, Math.min(250, dailyLimit));
         const dailySoftLimit = Math.min(preferredSoftLimit, dailyLimit);
@@ -149,8 +143,6 @@ function parseBrevoAccountsJson(): BrevoAccountConfig[] {
           apiKey,
           senderEmail,
           senderName,
-          replyToEmail,
-          replyToName,
           dailyLimit,
           dailySoftLimit,
           source: "environment" as const,
@@ -173,8 +165,6 @@ function getEnvBrevoAccounts(): BrevoAccountConfig[] {
   const apiKey = readTrimmedEnv("BREVO_API_KEY");
   const senderEmail = readTrimmedEnv("BREVO_SENDER_EMAIL");
   const senderName = readTrimmedEnv("BREVO_SENDER_NAME") || "Rank Pulse";
-  const replyToEmail = readTrimmedEnv("BREVO_REPLY_TO_EMAIL");
-  const replyToName = readTrimmedEnv("BREVO_REPLY_TO_NAME") || senderName;
 
   if (!apiKey || !senderEmail) {
     return [];
@@ -190,8 +180,6 @@ function getEnvBrevoAccounts(): BrevoAccountConfig[] {
     apiKey,
     senderEmail,
     senderName,
-    replyToEmail,
-    replyToName,
     dailyLimit,
     dailySoftLimit: Math.min(preferredSoftLimit, dailyLimit),
     source: "environment" as const,
@@ -217,8 +205,6 @@ async function getDatabaseBrevoAccounts(options?: { includeInactive?: boolean })
     apiKey: row.apiKey,
     senderEmail: row.senderEmail,
     senderName: row.senderName,
-    replyToEmail: row.replyToEmail?.trim() || row.senderEmail,
-    replyToName: row.replyToName?.trim() || row.senderName,
     dailyLimit: row.dailyLimit,
     dailySoftLimit: Math.min(row.dailySoftLimit, row.dailyLimit),
     source: "database",
@@ -300,12 +286,6 @@ async function sendBrevoEmailViaAccount(account: BrevoAccountConfig, payload: Br
         name: account.senderName,
       },
       to: [{ email: payload.to }],
-      replyTo: account.replyToEmail
-        ? {
-            email: account.replyToEmail,
-            name: account.replyToName,
-          }
-        : undefined,
       subject: payload.subject,
       htmlContent: payload.htmlContent,
       textContent: payload.textContent,
@@ -483,7 +463,6 @@ export async function getBrevoProviderUsageSummary() {
       providerSource: account.source,
       senderEmail: account.senderEmail,
       senderName: account.senderName,
-      replyToEmail: account.replyToEmail || null,
       dailyLimit: account.dailyLimit,
       dailySoftLimit: account.dailySoftLimit,
       usedToday: usage.sentCount,
@@ -540,8 +519,6 @@ export async function createBrevoProviderConfig({
   apiKey,
   senderEmail,
   senderName,
-  replyToEmail,
-  replyToName,
   dailyLimit,
   dailySoftLimit,
   createdById,
@@ -550,8 +527,6 @@ export async function createBrevoProviderConfig({
   apiKey: string;
   senderEmail: string;
   senderName?: string;
-  replyToEmail?: string;
-  replyToName?: string;
   dailyLimit?: number;
   dailySoftLimit?: number;
   createdById?: number | null;
@@ -560,8 +535,6 @@ export async function createBrevoProviderConfig({
   const trimmedApiKey = apiKey.trim();
   const trimmedSenderEmail = senderEmail.trim();
   const trimmedSenderName = senderName?.trim() || "Rank Pulse";
-  const trimmedReplyToEmail = replyToEmail?.trim() || trimmedSenderEmail;
-  const trimmedReplyToName = replyToName?.trim() || trimmedSenderName;
 
   if (!trimmedApiKey) {
     throw new Error("API key is required.");
@@ -603,8 +576,8 @@ export async function createBrevoProviderConfig({
       apiKey: trimmedApiKey,
       senderEmail: trimmedSenderEmail,
       senderName: trimmedSenderName,
-      replyToEmail: trimmedReplyToEmail,
-      replyToName: trimmedReplyToName,
+      replyToEmail: null,
+      replyToName: null,
       dailyLimit: normalizedDailyLimit,
       dailySoftLimit: Math.min(preferredSoftLimit, normalizedDailyLimit),
       isActive: true,
@@ -659,12 +632,16 @@ function readPortalUrl() {
   return readTrimmedEnv("PUBLIC_APP_URL") || "http://localhost:5173";
 }
 
-function buildStudentTestAnalysisUrl(testId: number) {
+function buildPortalUrl(path: string) {
   try {
-    return new URL(`/student/tests/${testId}/analysis`, readPortalUrl()).toString();
+    return new URL(path, readPortalUrl()).toString();
   } catch {
     return readPortalUrl();
   }
+}
+
+function buildStudentTestAnalysisUrl(testId: number) {
+  return buildPortalUrl(`/student/tests/${testId}/analysis`);
 }
 
 export async function sendStudentApprovedEmail({
@@ -1191,6 +1168,312 @@ export async function sendStudentTestResultEmail({
   });
 }
 
+type StudentQuestionReportAcknowledgementEmailArgs = {
+  studentName: string;
+  email: string;
+  questionLabel: string;
+  contextTitle: string;
+  reason: string;
+  actionUrl: string;
+};
+
+type TeacherQuestionReportAlertEmailArgs = {
+  teacherName: string;
+  email: string;
+  studentName: string;
+  questionLabel: string;
+  contextTitle: string;
+  reason: string;
+  actionUrl: string;
+};
+
+type StudentQuestionReportRejectedEmailArgs = {
+  studentName: string;
+  email: string;
+  questionLabel: string;
+  contextTitle: string;
+  actionUrl: string;
+};
+
+type StudentQuestionUpdatedEmailArgs = {
+  studentName: string;
+  email: string;
+  questionLabel: string;
+  contextTitle: string;
+  actionUrl: string;
+};
+
+export async function sendStudentQuestionReportAcknowledgementEmail({
+  studentName,
+  email,
+  questionLabel,
+  contextTitle,
+  reason,
+  actionUrl,
+}: StudentQuestionReportAcknowledgementEmailArgs) {
+  const safeStudentName = escapeHtml(studentName.trim() || "Student");
+  const safeQuestionLabel = escapeHtml(questionLabel.trim() || "the reported question");
+  const safeContextTitle = escapeHtml(contextTitle.trim() || "your assessment");
+  const safeReason = escapeHtml(reason.trim());
+  const safeActionUrl = escapeHtml(actionUrl);
+
+  const subject = `We received your report for ${contextTitle}`;
+  const textContent = [
+    `Hi ${studentName || "Student"},`,
+    "",
+    `We received your report for ${questionLabel} in ${contextTitle}.`,
+    "Your teacher will review the issue and take the appropriate action.",
+    "",
+    "Reported reason:",
+    reason,
+    "",
+    `Open page: ${actionUrl}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#d97706;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            Report Received
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">Your question report is in review</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeStudentName}, we have received your report for <strong>${safeQuestionLabel}</strong> in <strong>${safeContextTitle}</strong>.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #fed7aa;border-radius:18px;background:#fffaf0;padding:18px 20px;">
+            <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#92400e;">
+              Reported issue
+            </p>
+            <p style="margin:0;font-size:14px;line-height:1.7;color:#374151;">
+              ${safeReason}
+            </p>
+          </div>
+          <p style="margin:20px 0 0;font-size:14px;line-height:1.7;color:#374151;">
+            The teacher who owns this question has been notified. Once the report is rejected or the question is updated, we will email you again.
+          </p>
+          <div style="margin-top:24px;">
+            <a href="${safeActionUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Open Question
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "student-question-report-acknowledged",
+    metadata: { questionLabel, contextTitle },
+  });
+}
+
+export async function sendTeacherQuestionReportAlertEmail({
+  teacherName,
+  email,
+  studentName,
+  questionLabel,
+  contextTitle,
+  reason,
+  actionUrl,
+}: TeacherQuestionReportAlertEmailArgs) {
+  const safeTeacherName = escapeHtml(teacherName.trim() || "Teacher");
+  const safeStudentName = escapeHtml(studentName.trim() || "A student");
+  const safeQuestionLabel = escapeHtml(questionLabel.trim() || "the reported question");
+  const safeContextTitle = escapeHtml(contextTitle.trim() || "your assessment");
+  const safeReason = escapeHtml(reason.trim());
+  const safeActionUrl = escapeHtml(actionUrl);
+
+  const subject = `Question reported in ${contextTitle}`;
+  const textContent = [
+    `Hi ${teacherName || "Teacher"},`,
+    "",
+    `${studentName || "A student"} reported ${questionLabel} in ${contextTitle}.`,
+    "",
+    "Reported reason:",
+    reason,
+    "",
+    `Open review page: ${actionUrl}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#b91c1c;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            Question Report
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">A student reported one of your questions</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeTeacherName}, <strong>${safeStudentName}</strong> reported <strong>${safeQuestionLabel}</strong> in <strong>${safeContextTitle}</strong>.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #fecaca;border-radius:18px;background:#fff5f5;padding:18px 20px;">
+            <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b91c1c;">
+              Student note
+            </p>
+            <p style="margin:0;font-size:14px;line-height:1.7;color:#7f1d1d;">
+              ${safeReason}
+            </p>
+          </div>
+          <p style="margin:20px 0 0;font-size:14px;line-height:1.7;color:#374151;">
+            Please open the builder, review the question, and either update it or reject the report after review.
+          </p>
+          <div style="margin-top:24px;">
+            <a href="${safeActionUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Open Builder
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "teacher-question-report-alert",
+    metadata: { studentName, questionLabel, contextTitle },
+  });
+}
+
+export async function sendStudentQuestionReportRejectedEmail({
+  studentName,
+  email,
+  questionLabel,
+  contextTitle,
+  actionUrl,
+}: StudentQuestionReportRejectedEmailArgs) {
+  const safeStudentName = escapeHtml(studentName.trim() || "Student");
+  const safeQuestionLabel = escapeHtml(questionLabel.trim() || "the reported question");
+  const safeContextTitle = escapeHtml(contextTitle.trim() || "your assessment");
+  const safeActionUrl = escapeHtml(actionUrl);
+
+  const subject = `Your question report was reviewed for ${contextTitle}`;
+  const textContent = [
+    `Hi ${studentName || "Student"},`,
+    "",
+    `Your report for ${questionLabel} in ${contextTitle} was reviewed and rejected by the teacher.`,
+    "No change was applied to the question at this time.",
+    "",
+    `Open page: ${actionUrl}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#9f1239;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            Report Closed
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">Your report was rejected after review</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeStudentName}, the teacher reviewed your report for <strong>${safeQuestionLabel}</strong> in <strong>${safeContextTitle}</strong> and rejected it.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #fbcfe8;border-radius:18px;background:#fff1f2;padding:18px 20px;">
+            <p style="margin:0;font-size:14px;line-height:1.7;color:#7f1d1d;">
+              No update was made to the question based on this report.
+            </p>
+          </div>
+          <div style="margin-top:24px;">
+            <a href="${safeActionUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Open Question
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "student-question-report-rejected",
+    metadata: { questionLabel, contextTitle },
+  });
+}
+
+export async function sendStudentQuestionUpdatedEmail({
+  studentName,
+  email,
+  questionLabel,
+  contextTitle,
+  actionUrl,
+}: StudentQuestionUpdatedEmailArgs) {
+  const safeStudentName = escapeHtml(studentName.trim() || "Student");
+  const safeQuestionLabel = escapeHtml(questionLabel.trim() || "a reported question");
+  const safeContextTitle = escapeHtml(contextTitle.trim() || "your exam");
+  const safeActionUrl = escapeHtml(actionUrl);
+
+  const subject = `Updated question available for ${contextTitle}`;
+  const textContent = [
+    `Hi ${studentName || "Student"},`,
+    "",
+    `${questionLabel} in ${contextTitle} has been updated by the teacher.`,
+    "If you are preparing for this exam, please review the latest version in the portal.",
+    "",
+    `Open portal: ${actionUrl}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#16a34a;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            Question Updated
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">A question was updated for your exam</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeStudentName}, <strong>${safeQuestionLabel}</strong> in <strong>${safeContextTitle}</strong> was updated after teacher review.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #bbf7d0;border-radius:18px;background:#f0fdf4;padding:18px 20px;">
+            <p style="margin:0;font-size:14px;line-height:1.7;color:#166534;">
+              Please check the latest version before your next attempt or review session.
+            </p>
+          </div>
+          <div style="margin-top:24px;">
+            <a href="${safeActionUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Open Portal
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "student-question-updated",
+    metadata: { questionLabel, contextTitle },
+  });
+}
+
 export async function sendPendingStudentReviewEscalationEmail({
   studentName,
   studentEmail,
@@ -1451,6 +1734,30 @@ export function queueTeacherWelcomeEmail(args: {
 export function queueStudentTestResultEmail(args: StudentTestResultEmailArgs) {
   void sendStudentTestResultEmail(args).catch((error) => {
     logger.warn({ error, email: args.email, testId: args.testId }, "Failed to send student test result email via Brevo");
+  });
+}
+
+export function queueStudentQuestionReportAcknowledgementEmail(args: StudentQuestionReportAcknowledgementEmailArgs) {
+  void sendStudentQuestionReportAcknowledgementEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, questionLabel: args.questionLabel }, "Failed to send question report acknowledgement email via Brevo");
+  });
+}
+
+export function queueTeacherQuestionReportAlertEmail(args: TeacherQuestionReportAlertEmailArgs) {
+  void sendTeacherQuestionReportAlertEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, questionLabel: args.questionLabel }, "Failed to send teacher question report alert email via Brevo");
+  });
+}
+
+export function queueStudentQuestionReportRejectedEmail(args: StudentQuestionReportRejectedEmailArgs) {
+  void sendStudentQuestionReportRejectedEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, questionLabel: args.questionLabel }, "Failed to send question report rejected email via Brevo");
+  });
+}
+
+export function queueStudentQuestionUpdatedEmail(args: StudentQuestionUpdatedEmailArgs) {
+  void sendStudentQuestionUpdatedEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, questionLabel: args.questionLabel }, "Failed to send question updated email via Brevo");
   });
 }
 

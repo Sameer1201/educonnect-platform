@@ -16,7 +16,14 @@ import {
   subjectsTable,
   questionBankQuestionsTable,
 } from "@workspace/db";
-import { hasBrevoAccounts, queueStudentTestResultEmail } from "../lib/brevo";
+import {
+  hasBrevoAccounts,
+  queueStudentQuestionReportAcknowledgementEmail,
+  queueStudentQuestionReportRejectedEmail,
+  queueStudentQuestionUpdatedEmail,
+  queueStudentTestResultEmail,
+  queueTeacherQuestionReportAlertEmail,
+} from "../lib/brevo";
 import { logger } from "../lib/logger";
 import { pushNotificationToMany } from "../lib/pushNotification";
 import { eq, and, inArray, isNull, or, asc, desc, sql } from "drizzle-orm";
@@ -141,6 +148,67 @@ function canStudentAccessTest(
   if (test.classId != null && access.enrolledClassIds.has(test.classId)) return true;
   const examKey = normalizeExamKey(test.examType);
   return examKey ? access.examKeys.has(examKey) : false;
+}
+
+function getPortalUrl() {
+  return typeof process.env.PUBLIC_APP_URL === "string" && process.env.PUBLIC_APP_URL.trim()
+    ? process.env.PUBLIC_APP_URL.trim()
+    : "http://localhost:5173";
+}
+
+function buildPortalUrl(path: string) {
+  try {
+    return new URL(path, getPortalUrl()).toString();
+  } catch {
+    return getPortalUrl();
+  }
+}
+
+function getDisplayName(user: { fullName?: string | null; username?: string | null } | null | undefined, fallback: string) {
+  if (typeof user?.fullName === "string" && user.fullName.trim()) return user.fullName.trim();
+  if (typeof user?.username === "string" && user.username.trim()) return user.username.trim();
+  return fallback;
+}
+
+type StudentRecipient = {
+  id: number;
+  email: string | null;
+  fullName: string | null;
+  username: string | null;
+  subject: string | null;
+  additionalExams: string[] | null;
+};
+
+async function getEligibleStudentRecipientsForTest(test: { classId?: number | null; examType?: unknown }) {
+  const students = await db
+    .select({
+      id: usersTable.id,
+      email: usersTable.email,
+      fullName: usersTable.fullName,
+      username: usersTable.username,
+      subject: usersTable.subject,
+      additionalExams: usersTable.additionalExams,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.role, "student"));
+
+  const enrolledStudentIds = test.classId != null
+    ? new Set(
+        (await db
+          .select({ studentId: enrollmentsTable.studentId })
+          .from(enrollmentsTable)
+          .where(eq(enrollmentsTable.classId, test.classId)))
+          .map((row) => row.studentId),
+      )
+    : new Set<number>();
+
+  return students.filter((student) =>
+    enrolledStudentIds.has(student.id) ||
+    canStudentAccessTest(test, {
+      enrolledClassIds: new Set<number>(),
+      examKeys: getStudentExamKeys(student),
+    }),
+  ) as StudentRecipient[];
 }
 
 function safeParseJson<T>(value: unknown, fallback: T): T {
@@ -1399,7 +1467,7 @@ async function ensureBuilderSectionsForTest(params: {
       );
     }
 
-    const createdSections = [];
+    const createdSections: Array<(typeof parsedSections)[number]> = [];
     let order = 0;
     for (const [key, sectionQuestions] of groupedQuestions.entries()) {
       const firstQuestion = sectionQuestions[0] ?? null;
@@ -1882,6 +1950,7 @@ router.post("/tests/questions/:questionId/report", requireAuth, async (req, res)
     if (!questionRow.teacherId) {
       return res.status(400).json({ error: "No teacher is assigned for this test yet" });
     }
+    const teacherId = questionRow.teacherId;
 
     const [existingOpenReport] = await db
       .select({ id: testQuestionReportsTable.id })
@@ -1907,7 +1976,7 @@ router.post("/tests/questions/:questionId/report", requireAuth, async (req, res)
         testId: questionRow.testId,
         questionId,
         reportedBy: userId,
-        teacherId: questionRow.teacherId,
+        teacherId,
         reason,
         status: "open",
         createdAt: now,
@@ -1920,11 +1989,54 @@ router.post("/tests/questions/:questionId/report", requireAuth, async (req, res)
       (typeof user.username === "string" && user.username.trim() ? user.username.trim() : null) ??
       "A student";
     const questionLabel = questionRow.questionCode?.trim() || `Question ${questionId}`;
-    await pushNotificationToMany([questionRow.teacherId], {
+    await pushNotificationToMany([teacherId], {
       type: "test",
       title: "Question reported",
       message: `${reporterLabel} reported ${questionLabel} in ${questionRow.testTitle}.`,
       link: `/admin/tests/${questionRow.testId}/builder?questionId=${questionId}`,
+    });
+
+    void (async () => {
+      if (!(await hasBrevoAccounts())) return;
+
+      const [teacher] = await db
+        .select({
+          email: usersTable.email,
+          fullName: usersTable.fullName,
+          username: usersTable.username,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, teacherId))
+        .limit(1);
+
+      const studentName = getDisplayName(user, "Student");
+      const studentActionUrl = buildPortalUrl(`/student/tests/${questionRow.testId}/solutions`);
+      const teacherActionUrl = buildPortalUrl(`/admin/tests/${questionRow.testId}/builder?questionId=${questionId}`);
+
+      if (typeof user.email === "string" && user.email.trim()) {
+        queueStudentQuestionReportAcknowledgementEmail({
+          studentName,
+          email: user.email.trim(),
+          questionLabel,
+          contextTitle: questionRow.testTitle,
+          reason,
+          actionUrl: studentActionUrl,
+        });
+      }
+
+      if (typeof teacher?.email === "string" && teacher.email.trim()) {
+        queueTeacherQuestionReportAlertEmail({
+          teacherName: getDisplayName(teacher, "Teacher"),
+          email: teacher.email.trim(),
+          studentName,
+          questionLabel,
+          contextTitle: questionRow.testTitle,
+          reason,
+          actionUrl: teacherActionUrl,
+        });
+      }
+    })().catch((error) => {
+      logger.warn({ error, questionId, testId: questionRow.testId }, "Failed to queue question report emails");
     });
 
     return res.status(201).json(serializeTestQuestionReport(report, user));
@@ -1959,9 +2071,11 @@ router.patch("/tests/question-reports/:reportId", requireAuth, async (req, res) 
         createdAt: testQuestionReportsTable.createdAt,
         updatedAt: testQuestionReportsTable.updatedAt,
         testTitle: testsTable.title,
+        questionCode: testQuestionsTable.questionCode,
       })
       .from(testQuestionReportsTable)
       .innerJoin(testsTable, eq(testQuestionReportsTable.testId, testsTable.id))
+      .innerJoin(testQuestionsTable, eq(testQuestionReportsTable.questionId, testQuestionsTable.id))
       .where(eq(testQuestionReportsTable.id, reportId))
       .limit(1);
     if (!report) return res.status(404).json({ error: "Report not found" });
@@ -1997,6 +2111,33 @@ router.patch("/tests/question-reports/:reportId", requireAuth, async (req, res) 
       message: teacherNote ? `${message} ${teacherNote}` : message,
       link: `/student/tests/${report.testId}/solutions`,
     });
+
+    if (nextStatus === "rejected") {
+      void (async () => {
+        if (!(await hasBrevoAccounts())) return;
+        const [reporter] = await db
+          .select({
+            email: usersTable.email,
+            fullName: usersTable.fullName,
+            username: usersTable.username,
+          })
+          .from(usersTable)
+          .where(eq(usersTable.id, report.reportedBy))
+          .limit(1);
+
+        if (typeof reporter?.email !== "string" || !reporter.email.trim()) return;
+
+        queueStudentQuestionReportRejectedEmail({
+          studentName: getDisplayName(reporter, "Student"),
+          email: reporter.email.trim(),
+          questionLabel: report.questionCode?.trim() || `Question ${report.questionId}`,
+          contextTitle: report.testTitle,
+          actionUrl: buildPortalUrl(`/student/tests/${report.testId}/solutions`),
+        });
+      })().catch((error) => {
+        logger.warn({ error, reportId, testId: report.testId }, "Failed to queue question report rejected email");
+      });
+    }
 
     return res.json(serializeTestQuestionReport(updatedReport));
   } catch (error) {
@@ -3251,7 +3392,11 @@ router.patch("/tests/:id/questions/:qid", requireAuth, async (req, res) => {
         ));
 
       const [testMeta] = await db
-        .select({ title: testsTable.title })
+        .select({
+          title: testsTable.title,
+          classId: testsTable.classId,
+          examType: testsTable.examType,
+        })
         .from(testsTable)
         .where(eq(testsTable.id, testId))
         .limit(1);
@@ -3263,6 +3408,30 @@ router.patch("/tests/:id/questions/:qid", requireAuth, async (req, res) => {
           title: "Reported question fixed",
           message: `${questionLabel} in ${testMeta?.title ?? "your test"} has been updated by the teacher.`,
           link: `/student/tests/${testId}/solutions`,
+        });
+
+        void (async () => {
+          if (!(await hasBrevoAccounts()) || !testMeta) return;
+          const recipients = await getEligibleStudentRecipientsForTest({
+            classId: testMeta.classId,
+            examType: testMeta.examType,
+          });
+
+          const sentStudentIds = new Set<number>();
+          for (const recipient of recipients) {
+            if (sentStudentIds.has(recipient.id)) continue;
+            if (typeof recipient.email !== "string" || !recipient.email.trim()) continue;
+            sentStudentIds.add(recipient.id);
+            queueStudentQuestionUpdatedEmail({
+              studentName: getDisplayName(recipient, "Student"),
+              email: recipient.email.trim(),
+              questionLabel,
+              contextTitle: testMeta.title,
+              actionUrl: buildPortalUrl("/student/tests"),
+            });
+          }
+        })().catch((error) => {
+          logger.warn({ error, questionId, testId }, "Failed to queue updated question emails");
         });
       }
     }

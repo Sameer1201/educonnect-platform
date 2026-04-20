@@ -253,8 +253,6 @@ router.post("/notifications/email-providers", async (req, res): Promise<void> =>
   const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
   const senderEmail = typeof req.body?.senderEmail === "string" ? req.body.senderEmail.trim() : "";
   const senderName = typeof req.body?.senderName === "string" ? req.body.senderName.trim() : "";
-  const replyToEmail = typeof req.body?.replyToEmail === "string" ? req.body.replyToEmail.trim() : "";
-  const replyToName = typeof req.body?.replyToName === "string" ? req.body.replyToName.trim() : "";
   const dailyLimit = Number(req.body?.dailyLimit);
   const dailySoftLimit = Number(req.body?.dailySoftLimit);
 
@@ -277,8 +275,6 @@ router.post("/notifications/email-providers", async (req, res): Promise<void> =>
       apiKey,
       senderEmail,
       senderName,
-      replyToEmail,
-      replyToName,
       dailyLimit: Number.isFinite(dailyLimit) ? dailyLimit : undefined,
       dailySoftLimit: Number.isFinite(dailySoftLimit) ? dailySoftLimit : undefined,
       createdById: callerId,

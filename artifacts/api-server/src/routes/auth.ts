@@ -345,7 +345,6 @@ async function upsertFirebaseUser({
       user = updatedUser;
     }
   }
-
   return user;
 }
 
