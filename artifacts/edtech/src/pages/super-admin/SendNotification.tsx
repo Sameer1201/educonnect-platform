@@ -528,9 +528,6 @@ export default function SendNotification() {
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Server size={14} className="text-[#D97706]" /> Brevo Accounts
                 </CardTitle>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Added Brevo accounts send first at full daily quota. The primary environment key stays reserved until all added accounts are exhausted.
-                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -566,17 +563,14 @@ export default function SendNotification() {
               <div className="rounded-2xl border border-[#FDE7BE] bg-[#FFF7E8] p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#B45309]">Configured</p>
                 <p className="mt-2 text-2xl font-black text-slate-900">{providerUsage?.totals.configuredProviders ?? 0}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Brevo accounts ready for rotation</p>
               </div>
               <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#B45309]">Used Today</p>
                 <p className="mt-2 text-2xl font-black text-slate-900">{providerUsage?.totals.totalUsedToday ?? 0}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Emails sent across all active Brevo accounts</p>
               </div>
               <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#B45309]">Remaining Today</p>
                 <p className="mt-2 text-2xl font-black text-slate-900">{providerUsage?.totals.totalRemainingDaily ?? 0}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Remaining daily quota across configured accounts</p>
               </div>
             </div>
 
