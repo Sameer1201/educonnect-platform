@@ -849,6 +849,93 @@ export async function sendPasswordResetEmail({
   });
 }
 
+export async function sendPasswordChangedEmail({
+  accountName,
+  email,
+  username,
+  roleLabel,
+}: {
+  accountName: string;
+  email: string;
+  username: string;
+  roleLabel?: string | null;
+}) {
+  const safeName = escapeHtml(accountName.trim() || "User");
+  const safeEmail = escapeHtml(email.trim());
+  const safeUsername = escapeHtml(username.trim());
+  const safeRoleLabel = escapeHtml(roleLabel?.trim() || "account");
+  const loginUrl = buildPortalUrl("/login");
+  const safeLoginUrl = escapeHtml(loginUrl);
+
+  const subject = "Your Rank Pulse password has been updated";
+  const textContent = [
+    `Hi ${accountName || "User"},`,
+    "",
+    `Your Rank Pulse ${roleLabel?.trim() || "account"} password was changed successfully.`,
+    "",
+    `Username: ${username}`,
+    `Registered email: ${email}`,
+    "",
+    "You can now sign in with your new password.",
+    `Login: ${loginUrl}`,
+    "",
+    "If you did not make this change, reset your password again immediately and contact support.",
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#16a34a;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">
+            Password Updated
+          </div>
+          <h1 style="margin:16px 0 8px;font-size:28px;line-height:1.1;color:#111827;">Your password has been changed</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">
+            Hi ${safeName}, your Rank Pulse ${safeRoleLabel} password was updated successfully.
+          </p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #bbf7d0;border-radius:18px;background:#f0fdf4;padding:18px 20px;">
+            <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#166534;">
+              Account details
+            </p>
+            <p style="margin:0;font-size:14px;line-height:1.8;color:#166534;">
+              <strong>Username:</strong> ${safeUsername}<br />
+              <strong>Registered email:</strong> ${safeEmail}
+            </p>
+          </div>
+          <p style="margin:20px 0 0;font-size:14px;line-height:1.7;color:#374151;">
+            You can now sign in with your new password using the details above.
+          </p>
+          <div style="margin-top:24px;">
+            <a href="${safeLoginUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">
+              Open Login
+            </a>
+          </div>
+          <p style="margin:18px 0 0;font-size:13px;line-height:1.7;color:#6b7280;">
+            If you did not make this change, reset your password again immediately and contact your administrator or support team.
+          </p>
+          <p style="margin:14px 0 0;font-size:12px;line-height:1.7;color:#6b7280;">
+            If the button does not open, copy and paste this link into your browser:<br />
+            <span style="word-break:break-all;">${safeLoginUrl}</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "password-changed",
+    metadata: { accountName, username, roleLabel: roleLabel?.trim() || "account" },
+  });
+}
+
 export async function sendTeacherWelcomeEmail({
   teacherName,
   email,
@@ -1734,6 +1821,17 @@ export function queueTeacherWelcomeEmail(args: {
 export function queueStudentTestResultEmail(args: StudentTestResultEmailArgs) {
   void sendStudentTestResultEmail(args).catch((error) => {
     logger.warn({ error, email: args.email, testId: args.testId }, "Failed to send student test result email via Brevo");
+  });
+}
+
+export function queuePasswordChangedEmail(args: {
+  accountName: string;
+  email: string;
+  username: string;
+  roleLabel?: string | null;
+}) {
+  void sendPasswordChangedEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, username: args.username }, "Failed to send password changed email via Brevo");
   });
 }
 

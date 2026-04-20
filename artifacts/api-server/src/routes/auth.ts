@@ -4,7 +4,7 @@ import { eq, or, ilike } from "drizzle-orm";
 import { LoginBody } from "@workspace/api-zod";
 import { randomBytes } from "node:crypto";
 import { hashPassword, verifyPassword } from "../lib/auth";
-import { hasBrevoAccounts, sendPasswordResetEmail } from "../lib/brevo";
+import { hasBrevoAccounts, queuePasswordChangedEmail, sendPasswordResetEmail } from "../lib/brevo";
 import { getStudentReviewAutomationSettings } from "../lib/platformSettings";
 import {
   buildCustomPasswordResetUrl,
@@ -34,6 +34,13 @@ function readTrimmedString(value: unknown) {
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function getPasswordResetRoleLabel(role: string) {
+  if (role === "student") return "student account";
+  if (role === "admin") return "teacher account";
+  if (role === "super_admin") return "super admin account";
+  return "account";
 }
 
 router.post("/auth/password-reset-link/validate", async (req, res): Promise<void> => {
@@ -113,6 +120,15 @@ router.post("/auth/password-reset/finalize", async (req, res): Promise<void> => 
       mustChangePassword: false,
     })
     .where(eq(usersTable.id, user.id));
+
+  if (user.email && await hasBrevoAccounts()) {
+    queuePasswordChangedEmail({
+      accountName: user.fullName?.trim() || user.username,
+      email: user.email,
+      username: user.username,
+      roleLabel: getPasswordResetRoleLabel(user.role),
+    });
+  }
 
   res.json({ message: "Password reset completed." });
 });
