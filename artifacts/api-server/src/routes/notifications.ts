@@ -254,7 +254,6 @@ router.post("/notifications/email-providers", async (req, res): Promise<void> =>
   const senderEmail = typeof req.body?.senderEmail === "string" ? req.body.senderEmail.trim() : "";
   const senderName = typeof req.body?.senderName === "string" ? req.body.senderName.trim() : "";
   const dailyLimit = Number(req.body?.dailyLimit);
-  const dailySoftLimit = Number(req.body?.dailySoftLimit);
 
   if (!providerName) {
     res.status(400).json({ error: "Account label is required." });
@@ -276,7 +275,6 @@ router.post("/notifications/email-providers", async (req, res): Promise<void> =>
       senderEmail,
       senderName,
       dailyLimit: Number.isFinite(dailyLimit) ? dailyLimit : undefined,
-      dailySoftLimit: Number.isFinite(dailySoftLimit) ? dailySoftLimit : undefined,
       createdById: callerId,
     });
 

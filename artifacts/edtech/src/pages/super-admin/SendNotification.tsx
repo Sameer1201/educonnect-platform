@@ -26,7 +26,8 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 type Target = "all" | "admins" | "students";
 type NotifType = "system" | "grade" | "test";
 
-type ProviderStatus = "active" | "soft-limit-reached" | "limit-reached" | "inactive";
+type ProviderStatus = "active" | "limit-reached" | "inactive";
+type ProviderRoutingRole = "live" | "reserve" | "primary";
 
 type ProviderUsage = {
   id: number | null;
@@ -36,12 +37,11 @@ type ProviderUsage = {
   senderEmail: string;
   senderName: string;
   dailyLimit: number;
-  dailySoftLimit: number;
   usedToday: number;
   remainingDaily: number;
-  remainingBeforeSoftLimit: number;
   lastSentAt: string | null;
   status: ProviderStatus;
+  routingRole: ProviderRoutingRole;
   maskedApiKey: string;
   isActive: boolean;
 };
@@ -116,10 +116,6 @@ const PROVIDER_STATUS_COPY: Record<ProviderStatus, { label: string; className: s
     label: "Active",
     className: "bg-emerald-50 text-emerald-700 border border-emerald-200",
   },
-  "soft-limit-reached": {
-    label: "Soft limit reached",
-    className: "bg-amber-50 text-amber-700 border border-amber-200",
-  },
   "limit-reached": {
     label: "Limit reached",
     className: "bg-red-50 text-red-700 border border-red-200",
@@ -174,13 +170,23 @@ export default function SendNotification() {
     senderEmail: "sameermajhi339@gmail.com",
     senderName: "Rank Pulse",
     dailyLimit: "300",
-    dailySoftLimit: "250",
   });
 
   const selectedTarget = TARGETS.find((t) => t.value === target)!;
   const selectedType = TYPES.find((t) => t.value === notifType)!;
 
   const usageCards = useMemo(() => providerUsage?.providers ?? [], [providerUsage]);
+  const totalProviderUsage = useMemo(
+    () => Math.max(1, usageCards.reduce((sum, provider) => sum + provider.usedToday, 0)),
+    [usageCards],
+  );
+  const providerGraph = useMemo(
+    () => usageCards.map((provider) => ({
+      ...provider,
+      usagePercent: Math.max(0, Math.round((provider.usedToday / totalProviderUsage) * 100)),
+    })),
+    [totalProviderUsage, usageCards],
+  );
 
   const fetchEmailOps = async () => {
     setLoadingEmailOps(true);
@@ -289,7 +295,6 @@ export default function SendNotification() {
           senderEmail: providerForm.senderEmail.trim(),
           senderName: providerForm.senderName.trim() || "Rank Pulse",
           dailyLimit: Number(providerForm.dailyLimit),
-          dailySoftLimit: Number(providerForm.dailySoftLimit),
         }),
       });
 
@@ -309,7 +314,6 @@ export default function SendNotification() {
         senderEmail: "sameermajhi339@gmail.com",
         senderName: "Rank Pulse",
         dailyLimit: "300",
-        dailySoftLimit: "250",
       });
       await fetchEmailOps();
     } catch (err: any) {
@@ -525,7 +529,7 @@ export default function SendNotification() {
                   <Server size={14} className="text-[#D97706]" /> Brevo Accounts
                 </CardTitle>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Track which Brevo account is being used today and add new API keys without leaving this page.
+                  Added Brevo accounts send first at full daily quota. The primary environment key stays reserved until all added accounts are exhausted.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -576,6 +580,64 @@ export default function SendNotification() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-[#FDE7BE] bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Provider Usage Split</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    See which Brevo account sent how many emails today and whether it is a live sender or the reserve fallback.
+                  </p>
+                </div>
+                <Badge variant="outline" className="border-[#FDE7BE] bg-[#FFF7E8] text-[#B45309]">
+                  {providerUsage?.totals.totalUsedToday ?? 0} emails today
+                </Badge>
+              </div>
+
+              {loadingEmailOps ? (
+                <div className="mt-4 h-36 animate-pulse rounded-2xl bg-muted" />
+              ) : providerGraph.length === 0 ? (
+                <div className="mt-4 rounded-2xl border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
+                  <p className="text-sm font-semibold">No provider activity yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Once an email is sent, today&apos;s provider split will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {providerGraph.map((provider) => (
+                    <div key={`${provider.key}-graph`} className="space-y-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-900">{provider.providerName}</p>
+                          <p className="text-muted-foreground">
+                            {provider.routingRole === "live"
+                              ? "Added account"
+                              : provider.routingRole === "reserve"
+                                ? "Primary reserve"
+                                : "Primary active"}
+                            {" · "}
+                            {provider.maskedApiKey}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-slate-900">{provider.usedToday} sent</p>
+                          <p className="text-muted-foreground">{provider.usagePercent}% of today&apos;s volume</p>
+                        </div>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-[#FFF7E8]">
+                        <div
+                          className={provider.routingRole === "reserve"
+                            ? "h-full rounded-full bg-gradient-to-r from-slate-500 to-slate-700"
+                            : "h-full rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706]"}
+                          style={{ width: `${Math.max(provider.usagePercent, provider.usedToday > 0 ? 8 : 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-3">
               {loadingEmailOps ? (
                 <div className="grid gap-3">
@@ -604,6 +666,18 @@ export default function SendNotification() {
                             <Badge variant="outline" className={statusCopy.className}>{statusCopy.label}</Badge>
                             <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
                               {provider.providerSource}
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className={provider.routingRole === "reserve"
+                                ? "border-slate-200 bg-slate-50 text-slate-600"
+                                : "border-[#FDE7BE] bg-[#FFF7E8] text-[#B45309]"}
+                            >
+                              {provider.routingRole === "live"
+                                ? "Live sender"
+                                : provider.routingRole === "reserve"
+                                  ? "Reserve sender"
+                                  : "Primary sender"}
                             </Badge>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -641,18 +715,20 @@ export default function SendNotification() {
                       </div>
                       <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#FFF7E8]">
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706]"
+                          className={provider.routingRole === "reserve"
+                            ? "h-full rounded-full bg-gradient-to-r from-slate-500 to-slate-700"
+                            : "h-full rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706]"}
                           style={{ width: `${progress}%` }}
                         />
                       </div>
                       <div className="mt-3 grid gap-3 text-xs sm:grid-cols-3">
                         <div className="rounded-xl bg-slate-50 px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Soft limit</p>
-                          <p className="mt-1 font-semibold text-slate-900">{provider.dailySoftLimit}</p>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Daily limit</p>
+                          <p className="mt-1 font-semibold text-slate-900">{provider.dailyLimit}</p>
                         </div>
                         <div className="rounded-xl bg-slate-50 px-3 py-2">
-                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Before fallback</p>
-                          <p className="mt-1 font-semibold text-slate-900">{provider.remainingBeforeSoftLimit}</p>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Used today</p>
+                          <p className="mt-1 font-semibold text-slate-900">{provider.usedToday}</p>
                         </div>
                         <div className="rounded-xl bg-slate-50 px-3 py-2">
                           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining today</p>
@@ -770,7 +846,7 @@ export default function SendNotification() {
           <DialogHeader>
             <DialogTitle>Add Brevo Account</DialogTitle>
             <DialogDescription>
-              Add a new Brevo API key here so it becomes part of the live daily rotation without restarting the app.
+              Add a new Brevo API key here so it becomes part of the live sending pool. Added accounts are exhausted first, and the primary environment account stays reserved as fallback.
             </DialogDescription>
           </DialogHeader>
 
@@ -814,13 +890,8 @@ export default function SendNotification() {
                 onChange={(e) => setProviderForm((prev) => ({ ...prev, dailyLimit: e.target.value }))}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label>Daily Soft Limit</Label>
-              <Input
-                type="number"
-                value={providerForm.dailySoftLimit}
-                onChange={(e) => setProviderForm((prev) => ({ ...prev, dailySoftLimit: e.target.value }))}
-              />
+            <div className="rounded-xl border border-[#FDE7BE] bg-[#FFF7E8] px-4 py-3 text-xs text-[#92400E] md:col-span-2">
+              This account will be used at full daily capacity before the reserved primary key is touched.
             </div>
           </div>
 

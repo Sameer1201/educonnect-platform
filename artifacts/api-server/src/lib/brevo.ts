@@ -27,7 +27,6 @@ type BrevoAccountConfig = {
   senderEmail: string;
   senderName: string;
   dailyLimit: number;
-  dailySoftLimit: number;
   source: "environment" | "database";
   isActive: boolean;
 };
@@ -127,8 +126,6 @@ function parseBrevoAccountsJson(): BrevoAccountConfig[] {
           ? record.senderName.trim()
           : "Rank Pulse";
         const dailyLimit = readPositiveInteger(record.dailyLimit, 300);
-        const preferredSoftLimit = readPositiveInteger(record.dailySoftLimit, Math.min(250, dailyLimit));
-        const dailySoftLimit = Math.min(preferredSoftLimit, dailyLimit);
         const key = typeof record.key === "string" && record.key.trim()
           ? record.key.trim()
           : `brevo-${index + 1}`;
@@ -144,7 +141,6 @@ function parseBrevoAccountsJson(): BrevoAccountConfig[] {
           senderEmail,
           senderName,
           dailyLimit,
-          dailySoftLimit,
           source: "environment" as const,
           isActive: true,
         };
@@ -171,7 +167,6 @@ function getEnvBrevoAccounts(): BrevoAccountConfig[] {
   }
 
   const dailyLimit = readPositiveInteger(readTrimmedEnv("BREVO_DAILY_LIMIT"), 300);
-  const preferredSoftLimit = readPositiveInteger(readTrimmedEnv("BREVO_DAILY_SOFT_LIMIT"), Math.min(250, dailyLimit));
 
   return [{
     id: null,
@@ -181,7 +176,6 @@ function getEnvBrevoAccounts(): BrevoAccountConfig[] {
     senderEmail,
     senderName,
     dailyLimit,
-    dailySoftLimit: Math.min(preferredSoftLimit, dailyLimit),
     source: "environment" as const,
     isActive: true,
   }];
@@ -206,7 +200,6 @@ async function getDatabaseBrevoAccounts(options?: { includeInactive?: boolean })
     senderEmail: row.senderEmail,
     senderName: row.senderName,
     dailyLimit: row.dailyLimit,
-    dailySoftLimit: Math.min(row.dailySoftLimit, row.dailyLimit),
     source: "database",
     isActive: row.isActive,
   }));
@@ -215,10 +208,10 @@ async function getDatabaseBrevoAccounts(options?: { includeInactive?: boolean })
 async function getConfiguredBrevoAccounts() {
   const envAccounts = getEnvBrevoAccounts();
   const dbAccounts = await getDatabaseBrevoAccounts();
-  const seen = new Set(envAccounts.map((account) => account.key));
+  const seen = new Set(dbAccounts.map((account) => account.key));
   return [
-    ...envAccounts,
-    ...dbAccounts.filter((account) => {
+    ...dbAccounts,
+    ...envAccounts.filter((account) => {
       if (seen.has(account.key)) return false;
       seen.add(account.key);
       return true;
@@ -384,13 +377,13 @@ async function sendBrevoEmail(payload: BrevoEmailPayload) {
   const usageDate = buildUsageDateKey();
   const usageMap = await getDailyUsageMap(accounts, usageDate);
   const sentCountFor = (account: BrevoAccountConfig) => usageMap.get(account.key)?.sentCount ?? 0;
-
-  const accountsBelowSoftLimit = accounts.filter((account) => sentCountFor(account) < account.dailySoftLimit);
-  const accountsBelowHardLimit = accounts.filter((account) => sentCountFor(account) < account.dailyLimit);
-  const attemptOrder = [
-    ...accountsBelowSoftLimit,
-    ...accountsBelowHardLimit.filter((account) => !accountsBelowSoftLimit.some((softAccount) => softAccount.key === account.key)),
-  ];
+  const databaseAccounts = accounts.filter((account) => account.source === "database");
+  const reserveAccounts = accounts.filter((account) => account.source === "environment");
+  const availableDatabaseAccounts = databaseAccounts.filter((account) => account.isActive && sentCountFor(account) < account.dailyLimit);
+  const availableReserveAccounts = reserveAccounts.filter((account) => account.isActive && sentCountFor(account) < account.dailyLimit);
+  const attemptOrder = availableDatabaseAccounts.length > 0
+    ? [...availableDatabaseAccounts, ...availableReserveAccounts]
+    : availableReserveAccounts;
 
   if (attemptOrder.length === 0) {
     throw new Error("All configured Brevo accounts have reached their daily sending limit");
@@ -409,7 +402,6 @@ async function sendBrevoEmail(payload: BrevoEmailPayload) {
           providerName: account.providerName,
           usageDate,
           sentCountBefore: sentCountFor(account),
-          dailySoftLimit: account.dailySoftLimit,
           dailyLimit: account.dailyLimit,
           recipient: payload.to,
         },
@@ -432,10 +424,10 @@ async function sendBrevoEmail(payload: BrevoEmailPayload) {
 export async function getBrevoProviderUsageSummary() {
   const envAccounts = getEnvBrevoAccounts();
   const dbAccounts = await getDatabaseBrevoAccounts({ includeInactive: true });
-  const seen = new Set(envAccounts.map((account) => account.key));
+  const seen = new Set(dbAccounts.map((account) => account.key));
   const accounts = [
-    ...envAccounts,
-    ...dbAccounts.filter((account) => {
+    ...dbAccounts,
+    ...envAccounts.filter((account) => {
       if (seen.has(account.key)) return false;
       seen.add(account.key);
       return true;
@@ -443,18 +435,21 @@ export async function getBrevoProviderUsageSummary() {
   ];
   const usageDate = buildUsageDateKey();
   const usageMap = await getDailyUsageMap(accounts, usageDate);
+  const hasDatabaseProviders = dbAccounts.length > 0;
 
   const providers = accounts.map((account) => {
     const usage = usageMap.get(account.key) ?? { sentCount: 0, lastSentAt: null };
     const remainingDaily = Math.max(0, account.dailyLimit - usage.sentCount);
-    const remainingBeforeSoftLimit = Math.max(0, account.dailySoftLimit - usage.sentCount);
     const status = !account.isActive
       ? "inactive"
       : usage.sentCount >= account.dailyLimit
         ? "limit-reached"
-        : usage.sentCount >= account.dailySoftLimit
-          ? "soft-limit-reached"
-          : "active";
+        : "active";
+    const routingRole = account.source === "database"
+      ? "live"
+      : hasDatabaseProviders
+        ? "reserve"
+        : "primary";
 
     return {
       id: account.id,
@@ -464,12 +459,11 @@ export async function getBrevoProviderUsageSummary() {
       senderEmail: account.senderEmail,
       senderName: account.senderName,
       dailyLimit: account.dailyLimit,
-      dailySoftLimit: account.dailySoftLimit,
       usedToday: usage.sentCount,
       remainingDaily,
-      remainingBeforeSoftLimit,
       lastSentAt: usage.lastSentAt?.toISOString() ?? null,
       status,
+      routingRole,
       maskedApiKey: maskApiKey(account.apiKey),
       isActive: account.isActive,
     };
@@ -520,7 +514,6 @@ export async function createBrevoProviderConfig({
   senderEmail,
   senderName,
   dailyLimit,
-  dailySoftLimit,
   createdById,
 }: {
   providerName: string;
@@ -528,7 +521,6 @@ export async function createBrevoProviderConfig({
   senderEmail: string;
   senderName?: string;
   dailyLimit?: number;
-  dailySoftLimit?: number;
   createdById?: number | null;
 }) {
   const trimmedProviderName = providerName.trim() || "Brevo Account";
@@ -565,7 +557,6 @@ export async function createBrevoProviderConfig({
   }
 
   const normalizedDailyLimit = readPositiveInteger(dailyLimit, 300);
-  const preferredSoftLimit = readPositiveInteger(dailySoftLimit, Math.min(250, normalizedDailyLimit));
 
   const [created] = await db
     .insert(emailProviderConfigsTable)
@@ -579,7 +570,7 @@ export async function createBrevoProviderConfig({
       replyToEmail: null,
       replyToName: null,
       dailyLimit: normalizedDailyLimit,
-      dailySoftLimit: Math.min(preferredSoftLimit, normalizedDailyLimit),
+      dailySoftLimit: normalizedDailyLimit,
       isActive: true,
       createdById: createdById ?? null,
       createdAt: new Date(),
@@ -594,7 +585,6 @@ export async function createBrevoProviderConfig({
     senderEmail: created.senderEmail,
     senderName: created.senderName,
     dailyLimit: created.dailyLimit,
-    dailySoftLimit: created.dailySoftLimit,
     maskedApiKey: maskApiKey(created.apiKey),
     isActive: created.isActive,
   };
