@@ -94,6 +94,8 @@ interface PublishResultDialogState {
 interface UnpublishCleanupSummary {
   detachedCount: number;
   removedQuestionCount: number;
+  removedChapterCount?: number;
+  removedSubjectCount?: number;
   reviewBucketCleared: boolean;
   warnings?: string[];
 }
@@ -1307,10 +1309,21 @@ export default function AdminTests() {
       if (!variables.isPublished) {
         const cleanup = data?.questionBankCleanup as UnpublishCleanupSummary | null | undefined;
         if (cleanup) {
+          const cleanupParts = [
+            cleanup.removedQuestionCount > 0
+              ? `${cleanup.removedQuestionCount} question${cleanup.removedQuestionCount === 1 ? "" : "s"} removed from Question Bank`
+              : null,
+            cleanup.removedChapterCount && cleanup.removedChapterCount > 0
+              ? `${cleanup.removedChapterCount} chapter${cleanup.removedChapterCount === 1 ? "" : "s"} removed`
+              : null,
+            cleanup.removedSubjectCount && cleanup.removedSubjectCount > 0
+              ? `${cleanup.removedSubjectCount} subject${cleanup.removedSubjectCount === 1 ? "" : "s"} removed`
+              : null,
+          ].filter(Boolean);
           toast({
             title: "Test unpublished",
-            description: cleanup.removedQuestionCount > 0
-              ? `${cleanup.removedQuestionCount} question${cleanup.removedQuestionCount === 1 ? "" : "s"} removed from Question Bank. Review Bucket hidden for this test.`
+            description: cleanupParts.length > 0
+              ? `${cleanupParts.join(", ")}. Review Bucket hidden for this test.`
               : "Question Bank sync removed and Review Bucket hidden for this test.",
           });
           return;

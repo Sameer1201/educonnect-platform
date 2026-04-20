@@ -605,6 +605,8 @@ type QuestionBankPublishSyncSummary = {
 type QuestionBankUnpublishCleanupSummary = {
   detachedCount: number;
   removedQuestionCount: number;
+  removedChapterCount: number;
+  removedSubjectCount: number;
   reviewBucketCleared: boolean;
   warnings: string[];
 };
@@ -943,9 +945,13 @@ async function cleanupUnpublishedTestQuestionsFromQuestionBank(
   const summary: QuestionBankUnpublishCleanupSummary = {
     detachedCount: 0,
     removedQuestionCount: 0,
+    removedChapterCount: 0,
+    removedSubjectCount: 0,
     reviewBucketCleared: true,
     warnings: [],
   };
+  const candidateChapterIds = new Set<number>();
+  const candidateSubjectIds = new Set<number>();
 
   const directLinks = await db
     .select()
@@ -966,6 +972,8 @@ async function cleanupUnpublishedTestQuestionsFromQuestionBank(
         db
           .select({
             id: questionBankQuestionsTable.id,
+            subjectId: questionBankQuestionsTable.subjectId,
+            chapterId: questionBankQuestionsTable.chapterId,
             sourceTestId: questionBankQuestionsTable.sourceTestId,
             sourceTestQuestionId: questionBankQuestionsTable.sourceTestQuestionId,
           })
@@ -974,6 +982,10 @@ async function cleanupUnpublishedTestQuestionsFromQuestionBank(
       ]);
 
       const stillLinkedIds = new Set(remainingLinks.map((link) => link.questionBankQuestionId));
+      linkedQuestions.forEach((question) => {
+        candidateSubjectIds.add(question.subjectId);
+        candidateChapterIds.add(question.chapterId);
+      });
       const removableQuestionIds = linkedQuestions
         .filter((question) => !stillLinkedIds.has(question.id) && (question.sourceTestId !== null || question.sourceTestQuestionId !== null))
         .map((question) => question.id);
@@ -983,164 +995,196 @@ async function cleanupUnpublishedTestQuestionsFromQuestionBank(
         summary.removedQuestionCount += removableQuestionIds.length;
       }
     }
-
-    return summary;
   }
 
   const { targetClass } = await resolveQuestionBankClassForExam(teacherId, examType);
-  if (!targetClass) {
-    summary.warnings.push("No matching question bank class was found for cleanup.");
-    return summary;
-  }
+  if (targetClass) {
+    const [subjects, testQuestions, sections] = await Promise.all([
+      db.select().from(subjectsTable).where(eq(subjectsTable.classId, targetClass.id)).orderBy(asc(subjectsTable.order), asc(subjectsTable.createdAt)),
+      db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId)).orderBy(asc(testQuestionsTable.order), asc(testQuestionsTable.id)),
+      db.select().from(testSectionsTable).where(eq(testSectionsTable.testId, testId)).orderBy(asc(testSectionsTable.order), asc(testSectionsTable.id)),
+    ]);
 
-  const [subjects, testQuestions, sections] = await Promise.all([
-    db.select().from(subjectsTable).where(eq(subjectsTable.classId, targetClass.id)).orderBy(asc(subjectsTable.order), asc(subjectsTable.createdAt)),
-    db.select().from(testQuestionsTable).where(eq(testQuestionsTable.testId, testId)).orderBy(asc(testQuestionsTable.order), asc(testQuestionsTable.id)),
-    db.select().from(testSectionsTable).where(eq(testSectionsTable.testId, testId)).orderBy(asc(testSectionsTable.order), asc(testSectionsTable.id)),
-  ]);
-
-  if (testQuestions.length === 0 || subjects.length === 0) {
-    return summary;
-  }
-
-  const sectionById = new Map(sections.map((section) => [section.id, section]));
-  const subjectsByKey = new Map(
-    subjects
-      .map((subject) => {
-        const key = normalizeTitleKey(subject.title);
-        return key ? [key, subject] as const : null;
-      })
-      .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
-  );
-  const chapters = await db
-    .select()
-    .from(chaptersTable)
-    .where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id)))
-    .orderBy(asc(chaptersTable.order), asc(chaptersTable.id));
-  const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
-  chapters.forEach((chapter) => {
-    const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
-    current.push(chapter);
-    chaptersBySubjectId.set(chapter.subjectId, current);
-  });
-
-  const candidateChapterIds = new Set<number>();
-  for (const question of testQuestions) {
-    const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
-    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
-    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
-    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
-    const subjectLabel =
-      firstTrimmedString(
-        resolvedTaxonomy.subjectName,
-        typeof question.subjectLabel === "string" ? question.subjectLabel : null,
-        typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+    if (testQuestions.length > 0 && subjects.length > 0) {
+      const sectionById = new Map(sections.map((section) => [section.id, section]));
+      const subjectsByKey = new Map(
+        subjects
+          .map((subject) => {
+            const key = normalizeTitleKey(subject.title);
+            return key ? [key, subject] as const : null;
+          })
+          .filter((item): item is readonly [string, typeof subjectsTable.$inferSelect] => Boolean(item)),
       );
-    const subjectKey = normalizeTitleKey(subjectLabel ?? "");
-    if (!subjectKey) continue;
+      const chapters = await db
+        .select()
+        .from(chaptersTable)
+        .where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id)))
+        .orderBy(asc(chaptersTable.order), asc(chaptersTable.id));
+      const chaptersBySubjectId = new Map<number, Array<typeof chaptersTable.$inferSelect>>();
+      chapters.forEach((chapter) => {
+        const current = chaptersBySubjectId.get(chapter.subjectId) ?? [];
+        current.push(chapter);
+        chaptersBySubjectId.set(chapter.subjectId, current);
+      });
 
-    const targetSubject = subjectsByKey.get(subjectKey) ?? null;
-    if (!targetSubject) continue;
+      for (const question of testQuestions) {
+        const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+        const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+        const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
+        const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+        const subjectLabel =
+          firstTrimmedString(
+            resolvedTaxonomy.subjectName,
+            typeof question.subjectLabel === "string" ? question.subjectLabel : null,
+            typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+          );
+        const subjectKey = normalizeTitleKey(subjectLabel ?? "");
+        if (!subjectKey) continue;
 
-    const chapterTitle =
-      firstTrimmedString(
-        resolvedTaxonomy.chapterName,
-        meta?.chapterTitle,
-        meta?.topicTag,
-        meta?.topic,
-      ) ??
-      "Imported from Tests";
-    const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
-    const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
-    if (targetChapter) candidateChapterIds.add(targetChapter.id);
-  }
+        const targetSubject = subjectsByKey.get(subjectKey) ?? null;
+        if (!targetSubject) continue;
+        candidateSubjectIds.add(targetSubject.id);
 
-  if (candidateChapterIds.size === 0) {
-    return summary;
-  }
+        const chapterTitle =
+          firstTrimmedString(
+            resolvedTaxonomy.chapterName,
+            meta?.chapterTitle,
+            meta?.topicTag,
+            meta?.topic,
+          ) ??
+          "Imported from Tests";
+        const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
+        const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+        if (targetChapter) candidateChapterIds.add(targetChapter.id);
+      }
 
-  const existingQuestionBankQuestions = await db
-    .select({
-      id: questionBankQuestionsTable.id,
-      chapterId: questionBankQuestionsTable.chapterId,
-      question: questionBankQuestionsTable.question,
-      questionType: questionBankQuestionsTable.questionType,
-      createdBy: questionBankQuestionsTable.createdBy,
-      sourceTestId: questionBankQuestionsTable.sourceTestId,
-      sourceTestQuestionId: questionBankQuestionsTable.sourceTestQuestionId,
-    })
-    .from(questionBankQuestionsTable)
-    .where(inArray(questionBankQuestionsTable.chapterId, [...candidateChapterIds]));
+      if (candidateChapterIds.size > 0) {
+        const existingQuestionBankQuestions = await db
+          .select({
+            id: questionBankQuestionsTable.id,
+            subjectId: questionBankQuestionsTable.subjectId,
+            chapterId: questionBankQuestionsTable.chapterId,
+            question: questionBankQuestionsTable.question,
+            questionType: questionBankQuestionsTable.questionType,
+            createdBy: questionBankQuestionsTable.createdBy,
+            sourceTestId: questionBankQuestionsTable.sourceTestId,
+            sourceTestQuestionId: questionBankQuestionsTable.sourceTestQuestionId,
+          })
+          .from(questionBankQuestionsTable)
+          .where(inArray(questionBankQuestionsTable.chapterId, [...candidateChapterIds]));
 
-  const linksByQuestionBankId = new Set(
-    existingQuestionBankQuestions.length > 0
-      ? (
-          await db
-            .select({ questionBankQuestionId: testQuestionBankLinksTable.questionBankQuestionId })
-            .from(testQuestionBankLinksTable)
-            .where(inArray(testQuestionBankLinksTable.questionBankQuestionId, existingQuestionBankQuestions.map((question) => question.id)))
-        ).map((item) => item.questionBankQuestionId)
-      : [],
-  );
+        const linksByQuestionBankId = new Set(
+          existingQuestionBankQuestions.length > 0
+            ? (
+                await db
+                  .select({ questionBankQuestionId: testQuestionBankLinksTable.questionBankQuestionId })
+                  .from(testQuestionBankLinksTable)
+                  .where(inArray(testQuestionBankLinksTable.questionBankQuestionId, existingQuestionBankQuestions.map((question) => question.id)))
+              ).map((item) => item.questionBankQuestionId)
+            : [],
+        );
 
-  const questionBankByChapterAndKey = new Map<string, typeof existingQuestionBankQuestions[number]>();
-  existingQuestionBankQuestions.forEach((question) => {
-    const storedQuestionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
-    const key = normalizeQuestionDuplicateKey(question.question, storedQuestionType);
-    if (!key) return;
-    const compositeKey = `${question.chapterId}:${key}`;
-    if (!questionBankByChapterAndKey.has(compositeKey)) {
-      questionBankByChapterAndKey.set(compositeKey, question);
+        const questionBankByChapterAndKey = new Map<string, typeof existingQuestionBankQuestions[number]>();
+        existingQuestionBankQuestions.forEach((question) => {
+          const storedQuestionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+          const key = normalizeQuestionDuplicateKey(question.question, storedQuestionType);
+          if (!key) return;
+          const compositeKey = `${question.chapterId}:${key}`;
+          if (!questionBankByChapterAndKey.has(compositeKey)) {
+            questionBankByChapterAndKey.set(compositeKey, question);
+          }
+        });
+
+        const removableLegacyIds = new Set<number>();
+        for (const question of testQuestions) {
+          const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
+          const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
+          const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
+          const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
+          const subjectLabel =
+            firstTrimmedString(
+              resolvedTaxonomy.subjectName,
+              typeof question.subjectLabel === "string" ? question.subjectLabel : null,
+              typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
+            );
+          const subjectKey = normalizeTitleKey(subjectLabel ?? "");
+          if (!subjectKey) continue;
+
+          const targetSubject = subjectsByKey.get(subjectKey) ?? null;
+          if (!targetSubject) continue;
+
+          const chapterTitle =
+            firstTrimmedString(
+              resolvedTaxonomy.chapterName,
+              meta?.chapterTitle,
+              meta?.topicTag,
+              meta?.topic,
+            ) ??
+            "Imported from Tests";
+          const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
+          const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+          if (!targetChapter) continue;
+
+          const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
+          const normalizedQuestionText = question.question.trim() || question.questionCode?.trim() || `Imported test question ${question.id}`;
+          const duplicateKey = normalizeQuestionDuplicateKey(normalizedQuestionText, questionType);
+          if (!duplicateKey) continue;
+
+          const matchedQuestion = questionBankByChapterAndKey.get(`${targetChapter.id}:${duplicateKey}`) ?? null;
+          if (!matchedQuestion) continue;
+          if (matchedQuestion.createdBy !== teacherId) continue;
+          if (linksByQuestionBankId.has(matchedQuestion.id)) continue;
+
+          removableLegacyIds.add(matchedQuestion.id);
+          candidateSubjectIds.add(matchedQuestion.subjectId);
+          candidateChapterIds.add(matchedQuestion.chapterId);
+        }
+
+        if (removableLegacyIds.size > 0) {
+          await db.delete(questionBankQuestionsTable).where(inArray(questionBankQuestionsTable.id, [...removableLegacyIds]));
+          summary.removedQuestionCount += removableLegacyIds.size;
+          summary.warnings.push("Legacy synced questions were cleaned using question-text matching.");
+        }
+      }
     }
-  });
-
-  const removableLegacyIds = new Set<number>();
-  for (const question of testQuestions) {
-    const section = question.sectionId ? sectionById.get(question.sectionId) ?? null : null;
-    const meta = safeParseJson<Record<string, unknown> | null>(question.meta, null);
-    const sectionLabel = firstTrimmedString(question.subjectLabel, section?.subjectLabel, section?.title);
-    const resolvedTaxonomy = resolveStoredQuestionTaxonomy(meta, sectionLabel);
-    const subjectLabel =
-      firstTrimmedString(
-        resolvedTaxonomy.subjectName,
-        typeof question.subjectLabel === "string" ? question.subjectLabel : null,
-        typeof section?.subjectLabel === "string" ? section.subjectLabel : null,
-      );
-    const subjectKey = normalizeTitleKey(subjectLabel ?? "");
-    if (!subjectKey) continue;
-
-    const targetSubject = subjectsByKey.get(subjectKey) ?? null;
-    if (!targetSubject) continue;
-
-    const chapterTitle =
-      firstTrimmedString(
-        resolvedTaxonomy.chapterName,
-        meta?.chapterTitle,
-        meta?.topicTag,
-        meta?.topic,
-      ) ??
-      "Imported from Tests";
-    const chapterKey = normalizeTitleKey(chapterTitle) ?? "imported from tests";
-    const targetChapter = (chaptersBySubjectId.get(targetSubject.id) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
-    if (!targetChapter) continue;
-
-    const questionType = question.questionType === "multi" || question.questionType === "integer" ? question.questionType : "mcq";
-    const normalizedQuestionText = question.question.trim() || question.questionCode?.trim() || `Imported test question ${question.id}`;
-    const duplicateKey = normalizeQuestionDuplicateKey(normalizedQuestionText, questionType);
-    if (!duplicateKey) continue;
-
-    const matchedQuestion = questionBankByChapterAndKey.get(`${targetChapter.id}:${duplicateKey}`) ?? null;
-    if (!matchedQuestion) continue;
-    if (matchedQuestion.createdBy !== teacherId) continue;
-    if (linksByQuestionBankId.has(matchedQuestion.id)) continue;
-
-    removableLegacyIds.add(matchedQuestion.id);
+  } else if (candidateChapterIds.size === 0 && candidateSubjectIds.size === 0) {
+    summary.warnings.push("No matching question bank class was found for cleanup.");
   }
 
-  if (removableLegacyIds.size > 0) {
-    await db.delete(questionBankQuestionsTable).where(inArray(questionBankQuestionsTable.id, [...removableLegacyIds]));
-    summary.removedQuestionCount += removableLegacyIds.size;
-    summary.warnings.push("Legacy synced questions were cleaned using question-text matching.");
+  if (candidateChapterIds.size > 0) {
+    const remainingQuestionRows = await db
+      .select({ chapterId: questionBankQuestionsTable.chapterId })
+      .from(questionBankQuestionsTable)
+      .where(inArray(questionBankQuestionsTable.chapterId, [...candidateChapterIds]));
+    const occupiedChapterIds = new Set(remainingQuestionRows.map((row) => row.chapterId));
+    const emptyChapterIds = [...candidateChapterIds].filter((chapterId) => !occupiedChapterIds.has(chapterId));
+
+    if (emptyChapterIds.length > 0) {
+      const emptyChapters = await db
+        .select({ id: chaptersTable.id, subjectId: chaptersTable.subjectId })
+        .from(chaptersTable)
+        .where(inArray(chaptersTable.id, emptyChapterIds));
+
+      if (emptyChapters.length > 0) {
+        emptyChapters.forEach((chapter) => candidateSubjectIds.add(chapter.subjectId));
+        await db.delete(chaptersTable).where(inArray(chaptersTable.id, emptyChapters.map((chapter) => chapter.id)));
+        summary.removedChapterCount += emptyChapters.length;
+      }
+    }
+  }
+
+  if (candidateSubjectIds.size > 0) {
+    const remainingChapterRows = await db
+      .select({ subjectId: chaptersTable.subjectId })
+      .from(chaptersTable)
+      .where(inArray(chaptersTable.subjectId, [...candidateSubjectIds]));
+    const occupiedSubjectIds = new Set(remainingChapterRows.map((row) => row.subjectId));
+    const emptySubjectIds = [...candidateSubjectIds].filter((subjectId) => !occupiedSubjectIds.has(subjectId));
+
+    if (emptySubjectIds.length > 0) {
+      await db.delete(subjectsTable).where(inArray(subjectsTable.id, emptySubjectIds));
+      summary.removedSubjectCount += emptySubjectIds.length;
+    }
   }
 
   return summary;
