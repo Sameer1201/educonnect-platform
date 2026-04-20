@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bell,
   CheckCircle2,
   ChevronRight,
   FileText,
@@ -55,7 +54,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -215,13 +213,9 @@ export default function PlannerQuestionBankDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const classId = Number(id);
-  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const basePath = "/super-admin";
-  const portalLabel = "Super Admin View";
-  const portalName = user?.fullName ?? "Super Admin Portal";
-  const [headerSearch, setHeaderSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
   const [subjectDialogOpen, setSubjectDialogOpen] = useState(false);
@@ -687,7 +681,6 @@ export default function PlannerQuestionBankDetail() {
   if (detailLoading) {
     return (
       <div className="space-y-6">
-        <div className="h-16 w-full rounded-2xl bg-muted animate-pulse" />
         <div className="h-28 w-full rounded-2xl bg-muted animate-pulse" />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
           <div className="space-y-6 lg:col-span-3">
@@ -714,36 +707,6 @@ export default function PlannerQuestionBankDetail() {
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="flex h-16 shrink-0 items-center justify-between rounded-2xl border border-border/40 bg-card px-6">
-        <div className="flex flex-1 items-center gap-4">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search exams, subjects, chapters..."
-              className="w-full border-none bg-muted/50 pl-9 focus-visible:ring-1"
-              value={headerSearch}
-              onChange={(event) => setHeaderSearch(event.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button className="relative rounded-full p-2 text-muted-foreground hover:bg-muted transition-colors" type="button">
-            <Bell className="h-5 w-5" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-primary" />
-          </button>
-          <div className="flex items-center gap-2 pl-2 border-l border-border/40">
-            <div className="h-8 w-8 rounded-full bg-secondary/20 flex items-center justify-center text-secondary font-semibold">
-              {getInitials(user?.fullName ?? user?.username)}
-            </div>
-            <div className="hidden md:block text-sm">
-              <p className="font-medium leading-none">{portalName}</p>
-              <p className="text-xs text-muted-foreground">{portalLabel}</p>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <div>
         <div className="flex items-center text-sm text-muted-foreground mb-2 space-x-1">
           <Link href={`${basePath}/question-bank`}>

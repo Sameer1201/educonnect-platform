@@ -3,14 +3,12 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
-  Bell,
   BookOpen,
   CheckCircle2,
   Lock,
   LockOpen,
   Layers,
   Plus,
-  Search,
   Target,
   TrendingUp,
   Trash2,
@@ -56,7 +54,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -162,16 +159,6 @@ function formatTeacherName(teacher: AssignedTeacher) {
   return teacher.fullName ?? (teacher.username ? `@${teacher.username}` : "Teacher");
 }
 
-function getInitials(name?: string | null) {
-  if (!name) return "PL";
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 function CustomTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
 
@@ -220,7 +207,6 @@ function EmptyAnalyticsState({
 
 export default function PlannerQuestionBank() {
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -229,8 +215,6 @@ export default function PlannerQuestionBank() {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [cardToDelete, setCardToDelete] = useState<PlannerQuestionBankCard | null>(null);
   const basePath = "/super-admin";
-  const portalLabel = "Super Admin View";
-  const portalName = user?.fullName ?? "Super Admin Portal";
 
   const { data: cards = [], isLoading } = useQuery<PlannerQuestionBankCard[]>({
     queryKey: ["planner-question-bank-cards"],
@@ -477,8 +461,6 @@ export default function PlannerQuestionBank() {
   if (isLoading) {
     return (
       <div className="space-y-8">
-        <div className="h-16 w-full rounded-2xl bg-muted animate-pulse" />
-
         <div className="flex items-center justify-between">
           <div className="space-y-2">
             <div className="h-9 w-40 rounded-lg bg-muted animate-pulse" />
@@ -509,36 +491,6 @@ export default function PlannerQuestionBank() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="flex h-16 shrink-0 items-center justify-between rounded-2xl border border-border/40 bg-card px-6">
-        <div className="flex flex-1 items-center gap-4">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search exams, subjects, chapters..."
-              className="w-full border-none bg-muted/50 pl-9 focus-visible:ring-1"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button className="relative rounded-full p-2 text-muted-foreground transition-colors hover:bg-muted" type="button">
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary" />
-          </button>
-          <div className="flex items-center gap-2 border-l border-border/40 pl-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary/20 font-semibold text-secondary">
-              {getInitials(user?.fullName ?? user?.username)}
-            </div>
-            <div className="hidden text-sm md:block">
-              <p className="font-medium leading-none">{portalName}</p>
-              <p className="text-xs text-muted-foreground">{portalLabel}</p>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Question Bank</h1>
