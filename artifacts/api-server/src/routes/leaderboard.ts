@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, testSubmissionsTable, usersTable } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 
 const router: IRouter = Router();
 
@@ -22,7 +22,13 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
       avatarUrl: usersTable.avatarUrl,
     })
     .from(usersTable)
-    .where(eq(usersTable.role, "student"));
+    .where(
+      and(
+        eq(usersTable.role, "student"),
+        eq(usersTable.onboardingComplete, true),
+        or(eq(usersTable.status, "approved"), eq(usersTable.status, "active")),
+      ),
+    );
 
   const studentIds = students.map((student) => student.id);
 
@@ -53,7 +59,7 @@ router.get("/leaderboard", async (req, res): Promise<void> => {
       testsCompleted: testsCount,
       assignmentsSubmitted: 0,
     };
-  });
+  }).filter((student) => student.testsCompleted > 0);
 
   leaderboard.sort((a, b) => b.points - a.points);
   const ranked = leaderboard.map((s, i) => ({ ...s, rank: i + 1 }));
