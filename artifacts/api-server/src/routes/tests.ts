@@ -3202,10 +3202,19 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
 // DELETE /api/tests/:id
 router.delete("/tests/:id", requireAuth, async (req, res) => {
   try {
+    const testId = parseInt(req.params.id, 10);
     const userId = parseInt(req.cookies.userId, 10);
     const user = await getUser(userId);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
-    await db.delete(testsTable).where(eq(testsTable.id, parseInt(req.params.id, 10)));
+    const [existingTest] = await db.select().from(testsTable).where(eq(testsTable.id, testId));
+    if (!existingTest) return res.status(404).json({ error: "Test not found" });
+
+    await cleanupUnpublishedTestQuestionsFromQuestionBank(
+      testId,
+      existingTest.createdBy ?? userId,
+      existingTest.examType,
+    );
+    await db.delete(testsTable).where(eq(testsTable.id, testId));
     return res.status(204).send();
   } catch { return res.status(500).json({ error: "Internal server error" }); }
 });
