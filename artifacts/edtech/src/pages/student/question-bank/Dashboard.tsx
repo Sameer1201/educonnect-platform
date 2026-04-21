@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, CheckCircle, ChevronRight, Clock, Lock, Target } from "lucide-react";
+import { BookOpen, CheckCircle, ChevronRight, Clock, Target } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { api } from "@/lib/api";
@@ -47,37 +47,6 @@ const PENDING_PREVIEW_EXAMS = [
   attemptedQuestionCount: number;
 }>;
 
-const PENDING_PREVIEW_SUBJECTS = [
-  {
-    title: "Communication Systems",
-    chapter: "Digital Modulation",
-    status: "preview" as const,
-    questions: [
-      "For the constellation shown in figure, identify the most suitable modulation family.",
-      "A binary ASK receiver uses coherent detection. Which parameter primarily improves noise performance?",
-      "Match the bandwidth requirement trend for ASK, FSK, and PSK under ideal signalling.",
-    ],
-  },
-  {
-    title: "Signals & Systems",
-    chapter: "Fourier Transform",
-    status: "locked" as const,
-    questions: [],
-  },
-  {
-    title: "Control Systems",
-    chapter: "Time Response",
-    status: "locked" as const,
-    questions: [],
-  },
-  {
-    title: "Network Theory",
-    chapter: "Transient Analysis",
-    status: "locked" as const,
-    questions: [],
-  },
-] as const;
-
 function PendingQuestionBankPreview() {
   const [, setLocation] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -85,8 +54,6 @@ function PendingQuestionBankPreview() {
   const totalQuestions = PENDING_PREVIEW_EXAMS.reduce((sum, exam) => sum + exam.questionCount, 0);
   const totalChapters = PENDING_PREVIEW_EXAMS.reduce((sum, exam) => sum + exam.chapterCount, 0);
   const attemptedQuestions = PENDING_PREVIEW_EXAMS.reduce((sum, exam) => sum + exam.attemptedQuestionCount, 0);
-  const featuredSubject = PENDING_PREVIEW_SUBJECTS.find((subject) => subject.status === "preview") ?? null;
-  const lockedSubjects = PENDING_PREVIEW_SUBJECTS.filter((subject) => subject.status === "locked");
 
   return (
     <>
@@ -189,71 +156,6 @@ function PendingQuestionBankPreview() {
           </div>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[1.25fr_0.95fr]">
-          {featuredSubject ? (
-            <div className="rounded-[28px] border border-[#D9D6FE] bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Preview subject</p>
-                  <h3 className="mt-2 text-2xl font-black tracking-tight text-[#111827]">{featuredSubject.title}</h3>
-                  <p className="mt-1 text-sm text-[#6B7280]">{featuredSubject.chapter} · Sample questions visible before approval</p>
-                </div>
-                <span className="inline-flex items-center rounded-full bg-[#EEF2FF] px-3 py-1 text-xs font-semibold text-[#4F46E5]">
-                  {featuredSubject.questions.length} fake questions
-                </span>
-              </div>
-
-              <div className="mt-5 space-y-3">
-                {featuredSubject.questions.map((question, index) => (
-                  <button
-                    key={question}
-                    type="button"
-                    onClick={() => setDialogOpen(true)}
-                    className="flex w-full items-start gap-3 rounded-[22px] border border-[#E5E7EB] bg-[#FAFBFF] px-4 py-4 text-left transition hover:border-[#C7D2FE] hover:bg-[#F8FAFF]"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#5B4DFF] text-sm font-bold text-white">
-                      {index + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold leading-6 text-[#111827]">{question}</p>
-                      <p className="mt-1 text-xs text-[#64748B]">Preview question only · Full explanation and attempts unlock after verification</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="rounded-[28px] border border-[#E5E7EB] bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#94A3B8]">Locked subjects</p>
-              <h3 className="mt-2 text-2xl font-black tracking-tight text-[#111827]">More subjects will unlock after approval</h3>
-              <p className="mt-2 text-sm leading-7 text-[#6B7280]">
-                Verification pending hone ki wajah se abhi sirf ek sample subject visible hai. Baaki subjects ke saath lock indicator dikh raha hai.
-              </p>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {lockedSubjects.map((subject) => (
-                <button
-                  key={subject.title}
-                  type="button"
-                  onClick={() => setDialogOpen(true)}
-                  className="flex w-full items-center justify-between rounded-[22px] border border-[#E5E7EB] bg-[#FCFCFD] px-4 py-4 text-left transition hover:border-[#FDE68A] hover:bg-[#FFFBEB]"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-[#111827]">{subject.title}</p>
-                    <p className="mt-1 text-xs text-[#64748B]">{subject.chapter}</p>
-                  </div>
-                  <span className="inline-flex items-center gap-2 rounded-full bg-[#FFF7ED] px-3 py-1 text-xs font-semibold text-[#C2410C]">
-                    <Lock className="h-3.5 w-3.5" />
-                    Locked
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
 
       <PendingVerificationDialog
