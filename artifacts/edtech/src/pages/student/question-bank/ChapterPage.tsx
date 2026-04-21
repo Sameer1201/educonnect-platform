@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { ArrowLeft, CheckCircle2, Circle, Tag } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
-import { useState } from "react";
 import { stripRichHtmlToText } from "@/lib/richContent";
+import { useAuth } from "@/contexts/AuthContext";
+import { isStudentPendingVerification } from "@/lib/student-access";
 import {
   formatDifficultyLabel,
   getChapterDifficultyLabel,
+  getPendingPreviewQuestionBankExam,
   getQuestionAttempted,
   getQuestionDifficultyTone,
   useStudentQuestionBankExam,
@@ -28,10 +31,14 @@ function hasEmbeddedQuestionImage(questionHtml?: string | null) {
 export default function StudentQuestionBankChapterPage() {
   const { examId, subjectId, chapterId } = useParams<{ examId: string; subjectId: string; chapterId: string }>();
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const isPreviewMode = isStudentPendingVerification(user);
+  const previewData = isPreviewMode ? getPendingPreviewQuestionBankExam(examId) : null;
   const [filterAttempted, setFilterAttempted] = useState<"all" | "attempted" | "unattempted">("all");
-  const { data, isLoading } = useStudentQuestionBankExam(examId);
+  const { data: liveData, isLoading } = useStudentQuestionBankExam(isPreviewMode ? "" : examId);
+  const data = previewData ?? liveData;
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading chapter questions...</div>;
   }
 
@@ -39,10 +46,13 @@ export default function StudentQuestionBankChapterPage() {
   const subject = data?.subjects.find((entry) => String(entry.id) === subjectId);
   const chapter = subject?.chapters.find((entry) => String(entry.id) === chapterId);
 
-  if (!exam || !subject || !chapter) {
+  if (!exam || !subject || !chapter || subject.isLocked) {
     return (
       <div className="py-20 text-center text-muted-foreground">
-        Not found. <Link to="/student/question-bank" className="text-primary underline">Go home</Link>
+        Not found.{" "}
+        <Link to="/student/question-bank" className="text-primary underline">
+          Go home
+        </Link>
       </div>
     );
   }
@@ -67,11 +77,17 @@ export default function StudentQuestionBankChapterPage() {
           </button>
         </Link>
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <Link to="/student/question-bank" className="hover:text-primary">Dashboard</Link>
+          <Link to="/student/question-bank" className="hover:text-primary">
+            Dashboard
+          </Link>
           <span>/</span>
-          <Link to={`/student/question-bank/exam/${examId}`} className="hover:text-primary">{exam.label}</Link>
+          <Link to={`/student/question-bank/exam/${examId}`} className="hover:text-primary">
+            {exam.label}
+          </Link>
           <span>/</span>
-          <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}`} className="hover:text-primary">{subject.title}</Link>
+          <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}`} className="hover:text-primary">
+            {subject.title}
+          </Link>
           <span>/</span>
           <span className="font-medium text-foreground">{chapter.title}</span>
         </div>
@@ -84,7 +100,9 @@ export default function StudentQuestionBankChapterPage() {
               <h1 className="text-xl font-bold text-foreground">{chapter.title}</h1>
               <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${difficultyColor[chapterDifficulty]}`}>{chapterDifficulty}</span>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">{exam.label} · {subject.title}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {exam.label} · {subject.title}
+            </p>
           </div>
           <div className="grid w-full grid-cols-3 gap-3 text-center sm:w-auto sm:flex sm:gap-4">
             <div>
@@ -154,7 +172,9 @@ export default function StudentQuestionBankChapterPage() {
                   <div className="min-w-0 flex-1">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <span className="text-xs font-medium text-muted-foreground">Q{index + 1}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getQuestionDifficultyTone(question.difficulty)}`}>{formatDifficultyLabel(question.difficulty)}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getQuestionDifficultyTone(question.difficulty)}`}>
+                        {formatDifficultyLabel(question.difficulty)}
+                      </span>
                       {question.topicTag ? (
                         <span className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
                           <Tag className="h-2.5 w-2.5" />

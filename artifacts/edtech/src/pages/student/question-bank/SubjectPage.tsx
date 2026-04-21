@@ -1,12 +1,16 @@
-import { ArrowLeft, ChevronRight, Filter } from "lucide-react";
-import { Link, useParams } from "wouter";
 import { useState } from "react";
+import { ArrowLeft, ChevronRight, Filter, Lock } from "lucide-react";
+import { Link, useLocation, useParams } from "wouter";
+import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { isStudentPendingVerification } from "@/lib/student-access";
+import { SubjectThemeIcon, getSubjectAccent, getSubjectTheme } from "@/lib/subject-theme";
 import {
   formatDifficultyLabel,
   getChapterDifficultyLabel,
+  getPendingPreviewQuestionBankExam,
   useStudentQuestionBankExam,
 } from "@/pages/student/question-bank/api";
-import { SubjectThemeIcon, getSubjectAccent, getSubjectTheme } from "@/lib/subject-theme";
 
 const difficultyColor: Record<string, string> = {
   Easy: "bg-emerald-100 text-emerald-700",
@@ -16,10 +20,16 @@ const difficultyColor: Record<string, string> = {
 
 export default function StudentQuestionBankSubjectPage() {
   const { examId, subjectId } = useParams<{ examId: string; subjectId: string }>();
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const isPreviewMode = isStudentPendingVerification(user);
+  const previewData = isPreviewMode ? getPendingPreviewQuestionBankExam(examId) : null;
   const [diffFilter, setDiffFilter] = useState<"All" | "Easy" | "Medium" | "Hard">("All");
-  const { data, isLoading } = useStudentQuestionBankExam(examId);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: liveData, isLoading } = useStudentQuestionBankExam(isPreviewMode ? "" : examId);
+  const data = previewData ?? liveData;
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading subject question bank...</div>;
   }
 
@@ -29,8 +39,56 @@ export default function StudentQuestionBankSubjectPage() {
   if (!exam || !subject) {
     return (
       <div className="py-20 text-center text-muted-foreground">
-        Not found. <Link to="/student/question-bank" className="text-primary underline">Go home</Link>
+        Not found.{" "}
+        <Link to="/student/question-bank" className="text-primary underline">
+          Go home
+        </Link>
       </div>
+    );
+  }
+
+  if (subject.isLocked) {
+    return (
+      <>
+        <div className="space-y-6">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+            <Link to={`/student/question-bank/exam/${examId}`}>
+              <button className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary">
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </button>
+            </Link>
+          </div>
+
+          <div className="rounded-2xl border border-[#F3D39A] bg-[linear-gradient(180deg,#FFF8ED_0%,#FFFFFF_100%)] p-6 shadow-sm">
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#F3D39A] bg-[#FFF2D8] px-3 py-1 text-xs font-semibold text-[#B45309]">
+                <Lock className="h-3.5 w-3.5" />
+                Locked subject
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">{subject.title}</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">
+                  This subject is locked in review mode. Only one sample GATE subject is open until your verification is approved.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDialogOpen(true)}
+                className="rounded-full bg-[#F59E0B] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#EA580C]"
+              >
+                Unlock after verification
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <PendingVerificationDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onCheckStatus={() => setLocation("/student/pending-approval")}
+        />
+      </>
     );
   }
 
@@ -53,9 +111,13 @@ export default function StudentQuestionBankSubjectPage() {
           </button>
         </Link>
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <Link to="/student/question-bank" className="hover:text-primary">Dashboard</Link>
+          <Link to="/student/question-bank" className="hover:text-primary">
+            Dashboard
+          </Link>
           <span>/</span>
-          <Link to={`/student/question-bank/exam/${examId}`} className="hover:text-primary">{exam.label}</Link>
+          <Link to={`/student/question-bank/exam/${examId}`} className="hover:text-primary">
+            {exam.label}
+          </Link>
           <span>/</span>
           <span className="font-medium text-foreground">{subject.title}</span>
         </div>
@@ -146,7 +208,9 @@ export default function StudentQuestionBankSubjectPage() {
                     </div>
                     <div className="mt-3">
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{chapterAttempted}/{totalQuestions} attempted</span>
+                        <span>
+                          {chapterAttempted}/{totalQuestions} attempted
+                        </span>
                         <span>{pct}%</span>
                       </div>
                       <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">

@@ -1,12 +1,15 @@
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Tag, XCircle } from "lucide-react";
-import { Link, useLocation, useParams } from "wouter";
 import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Tag, XCircle } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation, useParams } from "wouter";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { isStudentPendingVerification } from "@/lib/student-access";
 import {
   formatDifficultyLabel,
+  getPendingPreviewQuestionBankExam,
   getQuestionAttempted,
   getQuestionDifficultyTone,
   getQuestionSolved,
@@ -14,12 +17,39 @@ import {
   useStudentQuestionBankExam,
 } from "@/pages/student/question-bank/api";
 
+function isPreviewAnswerCorrect(
+  questionType: QuestionType,
+  answer: number | number[] | string,
+  question: NonNullable<ReturnType<typeof getPendingPreviewQuestionBankExam>>["subjects"][number]["chapters"][number]["questions"][number],
+) {
+  if (questionType === "integer") {
+    const normalized = String(answer).trim();
+    if (question.correctAnswerMin != null && question.correctAnswerMax != null) {
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) && parsed >= question.correctAnswerMin && parsed <= question.correctAnswerMax;
+    }
+    return normalized === String(question.correctAnswer ?? "");
+  }
+
+  if (questionType === "multi") {
+    const picked = [...(Array.isArray(answer) ? answer : [])].sort((left, right) => left - right);
+    const expected = [...(question.correctAnswerMulti ?? [])].sort((left, right) => left - right);
+    return picked.length === expected.length && picked.every((value, index) => value === expected[index]);
+  }
+
+  return Number(answer) === (question.correctAnswer ?? -1);
+}
+
 export default function StudentQuestionBankQuestionPage() {
   const { examId, subjectId, chapterId, questionId } = useParams<{ examId: string; subjectId: string; chapterId: string; questionId: string }>();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { data, isLoading } = useStudentQuestionBankExam(examId);
+  const { user } = useAuth();
+  const isPreviewMode = isStudentPendingVerification(user);
+  const previewData = isPreviewMode ? getPendingPreviewQuestionBankExam(examId) : null;
+  const { data: liveData, isLoading } = useStudentQuestionBankExam(isPreviewMode ? "" : examId);
+  const data = previewData ?? liveData;
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedMulti, setSelectedMulti] = useState<number[]>([]);
   const [integerAnswer, setIntegerAnswer] = useState("");
@@ -40,17 +70,24 @@ export default function StudentQuestionBankQuestionPage() {
   const attemptMutation = useMutation({
     mutationFn: async (answer: number | number[] | string) => {
       if (!question) throw new Error("Question not found");
+      if (isPreviewMode) {
+        return { isCorrect: isPreviewAnswerCorrect(questionType, answer, question) };
+      }
       return api.post<{ isCorrect: boolean }>(`/question-bank-questions/${question.id}/attempt`, { answer });
     },
     onSuccess: (payload) => {
       setResult(payload);
       setRevealed(true);
-      queryClient.invalidateQueries({ queryKey: ["student-question-bank-exam", examId] });
-      queryClient.invalidateQueries({ queryKey: ["student-question-bank-exams"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-question-bank-progress"] });
+
+      if (!isPreviewMode) {
+        queryClient.invalidateQueries({ queryKey: ["student-question-bank-exam", examId] });
+        queryClient.invalidateQueries({ queryKey: ["student-question-bank-exams"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboard-question-bank-progress"] });
+      }
+
       toast({
         title: payload.isCorrect ? "Correct answer" : "Attempt recorded",
-        description: payload.isCorrect ? "Nice work." : "Keep going, your progress has been saved.",
+        description: payload.isCorrect ? "Nice work." : isPreviewMode ? "Preview answer checked successfully." : "Keep going, your progress has been saved.",
       });
     },
     onError: (error: Error) => {
@@ -72,14 +109,17 @@ export default function StudentQuestionBankQuestionPage() {
 
   const submittedMulti = useMemo(() => [...selectedMulti].sort((left, right) => left - right), [selectedMulti]);
 
-  if (isLoading) {
+  if (!previewData && isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading question...</div>;
   }
 
-  if (!exam || !subject || !chapter || !question) {
+  if (!exam || !subject || !chapter || !question || subject.isLocked) {
     return (
       <div className="py-20 text-center text-muted-foreground">
-        Not found. <Link to="/student/question-bank" className="text-primary underline">Go home</Link>
+        Not found.{" "}
+        <Link to="/student/question-bank" className="text-primary underline">
+          Go home
+        </Link>
       </div>
     );
   }
@@ -103,20 +143,19 @@ export default function StudentQuestionBankQuestionPage() {
 
   const toggleMulti = (index: number) => {
     if (revealed) return;
-    setSelectedMulti((current) => (
-      current.includes(index)
-        ? current.filter((value) => value !== index)
-        : [...current, index].sort((left, right) => left - right)
-    ));
+    setSelectedMulti((current) =>
+      current.includes(index) ? current.filter((value) => value !== index) : [...current, index].sort((left, right) => left - right),
+    );
   };
 
   const mcqCorrectIndex = question.correctAnswer ?? 0;
   const multiCorrectIndexes = [...(question.correctAnswerMulti ?? [])].sort((left, right) => left - right);
-  const integerRangeText = question.correctAnswerMin != null && question.correctAnswerMax != null
-    ? `${question.correctAnswerMin} to ${question.correctAnswerMax}`
-    : question.correctAnswer != null
-      ? String(question.correctAnswer)
-      : null;
+  const integerRangeText =
+    question.correctAnswerMin != null && question.correctAnswerMax != null
+      ? `${question.correctAnswerMin} to ${question.correctAnswerMax}`
+      : question.correctAnswer != null
+        ? String(question.correctAnswer)
+        : null;
 
   const optionClass = (index: number) => {
     const base = "w-full cursor-pointer rounded-xl border p-3.5 text-left text-sm transition-all";
@@ -154,11 +193,17 @@ export default function StudentQuestionBankQuestionPage() {
           </button>
         </Link>
         <div className="flex w-full items-center gap-1.5 overflow-x-auto text-xs text-muted-foreground sm:w-auto sm:overflow-hidden">
-          <Link to={`/student/question-bank/exam/${examId}`} className="shrink-0 hover:text-primary">{exam.label}</Link>
+          <Link to={`/student/question-bank/exam/${examId}`} className="shrink-0 hover:text-primary">
+            {exam.label}
+          </Link>
           <span className="shrink-0">/</span>
-          <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}`} className="max-w-[80px] shrink-0 truncate hover:text-primary">{subject.title}</Link>
+          <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}`} className="max-w-[80px] shrink-0 truncate hover:text-primary">
+            {subject.title}
+          </Link>
           <span className="shrink-0">/</span>
-          <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}`} className="max-w-[80px] shrink-0 truncate hover:text-primary">{chapter.title}</Link>
+          <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}`} className="max-w-[80px] shrink-0 truncate hover:text-primary">
+            {chapter.title}
+          </Link>
         </div>
         <div className="shrink-0 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground sm:ml-auto">
           {currentIndex + 1} / {chapterQuestions.length}
@@ -187,7 +232,9 @@ export default function StudentQuestionBankQuestionPage() {
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <BookOpen className="h-4 w-4 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">{chapter.title}</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getQuestionDifficultyTone(question.difficulty)}`}>{formatDifficultyLabel(question.difficulty)}</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getQuestionDifficultyTone(question.difficulty)}`}>
+            {formatDifficultyLabel(question.difficulty)}
+          </span>
           {question.topicTag ? (
             <span className="flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
               <Tag className="h-2.5 w-2.5" />
@@ -245,10 +292,9 @@ export default function StudentQuestionBankQuestionPage() {
                   {revealed && ((questionType === "multi" && multiCorrectIndexes.includes(index)) || (questionType === "mcq" && index === mcqCorrectIndex)) ? (
                     <CheckCircle2 className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                   ) : null}
-                  {revealed && (
-                    (questionType === "multi" && selectedMulti.includes(index) && !multiCorrectIndexes.includes(index)) ||
-                    (questionType === "mcq" && index === selected && selected !== mcqCorrectIndex)
-                  ) ? (
+                  {revealed &&
+                  ((questionType === "multi" && selectedMulti.includes(index) && !multiCorrectIndexes.includes(index)) ||
+                    (questionType === "mcq" && index === selected && selected !== mcqCorrectIndex)) ? (
                     <XCircle className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-red-600" />
                   ) : null}
                 </div>
@@ -272,10 +318,7 @@ export default function StudentQuestionBankQuestionPage() {
                 </div>
                 {questionType === "multi" ? (
                   <span>
-                    Correct answer:{" "}
-                    <span className="font-semibold">
-                      {multiCorrectIndexes.map((index) => String.fromCharCode(65 + index)).join(", ")}
-                    </span>
+                    Correct answer: <span className="font-semibold">{multiCorrectIndexes.map((index) => String.fromCharCode(65 + index)).join(", ")}</span>
                   </span>
                 ) : questionType === "integer" ? (
                   <span>
@@ -317,11 +360,7 @@ export default function StudentQuestionBankQuestionPage() {
             onClick={handleReveal}
             disabled={
               attemptMutation.isPending ||
-              (questionType === "integer"
-                ? integerAnswer.trim() === ""
-                : questionType === "multi"
-                  ? selectedMulti.length === 0
-                  : selected === null)
+              (questionType === "integer" ? integerAnswer.trim() === "" : questionType === "multi" ? selectedMulti.length === 0 : selected === null)
             }
             className="col-span-2 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:col-auto"
           >
