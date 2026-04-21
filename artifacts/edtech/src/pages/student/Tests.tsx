@@ -299,6 +299,22 @@ const PENDING_PREVIEW_TEST_QUESTION_COUNTS: Record<number, number> = {
   [-103]: 15,
 };
 
+const PENDING_PREVIEW_TEST_RESULTS: Record<number, {
+  answeredCount: number;
+  percentage: number;
+  score: number;
+  totalPoints: number;
+  submittedAt: string;
+}> = {
+  [-103]: {
+    answeredCount: 14,
+    percentage: 72,
+    score: 21.5,
+    totalPoints: 30,
+    submittedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+};
+
 function cloneAnswerRecord(answerRecord?: Record<number, AnswerValue> | null): Record<number, AnswerValue> {
   if (!answerRecord) return {};
   return Object.entries(answerRecord).reduce<Record<number, AnswerValue>>((acc, [questionId, answer]) => {
@@ -781,6 +797,7 @@ function StudentTestsPreview() {
   const [activeTab, setActiveTab] = useState<"all" | "upcoming" | "active" | "completed">("all");
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
+  const [previewTestId, setPreviewTestId] = useState<number | null>(null);
 
   const subjectOptions = useMemo(
     () =>
@@ -805,6 +822,13 @@ function StudentTestsPreview() {
     }),
     [],
   );
+  const previewTest = useMemo(
+    () => PENDING_PREVIEW_TESTS.find((test) => test.id === previewTestId) ?? null,
+    [previewTestId],
+  );
+  const previewStatus = previewTest ? getStudentTestStatus(previewTest) : null;
+  const previewTestCategory = previewTest ? getResolvedTestCategory(previewTest, null) : null;
+  const previewResult = previewTest ? PENDING_PREVIEW_TEST_RESULTS[previewTest.id] ?? null : null;
 
   return (
     <>
@@ -906,12 +930,133 @@ function StudentTestsPreview() {
                 questionCount={PENDING_PREVIEW_TEST_QUESTION_COUNTS[test.id] ?? null}
                 detail={null}
                 hasSavedDraft={false}
-                onPrimaryAction={() => setPendingDialogOpen(true)}
+                onPrimaryAction={() => setPreviewTestId(test.id)}
               />
             ))}
           </div>
         </div>
       </div>
+
+      <Dialog open={previewTest !== null} onOpenChange={(open) => !open && setPreviewTestId(null)}>
+        <DialogContent
+          hideClose
+          className="max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[24px] border border-[#D8DEEF] bg-white p-0 shadow-[0_20px_56px_rgba(15,23,42,0.16)] sm:max-h-[44rem] sm:max-w-[820px] sm:rounded-[28px]"
+        >
+          {previewTest ? (
+            <div className="max-h-[calc(100dvh-1rem)] overflow-y-auto bg-white sm:max-h-[44rem]">
+              <div className="flex flex-col gap-4 border-b border-[#ECEEF8] px-4 pb-5 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-8 sm:pb-7 sm:pt-6">
+                <div>
+                  <div className="inline-flex rounded-full border border-[#1F2937] px-3.5 py-1 text-sm font-semibold text-[#1F2937]">
+                    {getStudentTestSubject(previewTest)}
+                  </div>
+                  {previewTestCategory ? (
+                    <div className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getTestCategoryTone(previewTestCategory).chip}`}>
+                      {getTestCategoryLabel(previewTestCategory)}
+                    </div>
+                  ) : null}
+                  <h2 className="mt-4 max-w-[540px] text-[20px] font-bold tracking-tight text-[#111827] sm:mt-5 sm:text-[24px]">{previewTest.title}</h2>
+                  <p className="mt-3 max-w-[560px] text-sm leading-7 text-[#64748B]">
+                    {getStudentVisibleTestDescription(previewTest.description) || `${getStudentTestSubject(previewTest)} preview test with sample metrics visible before verification approval.`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewTestId(null)}
+                  className="self-end rounded-full border border-[#E2E8F0] p-2 text-[#64748B] transition hover:bg-[#F8FAFC] hover:text-[#0F172A] sm:self-start"
+                  aria-label="Close test preview"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-6 px-4 py-5 sm:px-8 sm:py-7">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-[24px] border border-[#E5E7EB] bg-[#F8FAFC] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">Questions</p>
+                    <p className="mt-2 text-[22px] font-bold text-[#111827]">{PENDING_PREVIEW_TEST_QUESTION_COUNTS[previewTest.id] ?? "--"}</p>
+                  </div>
+                  <div className="rounded-[24px] border border-[#E5E7EB] bg-[#F8FAFC] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">Duration</p>
+                    <p className="mt-2 text-[22px] font-bold text-[#111827]">{previewTest.durationMinutes} min</p>
+                  </div>
+                  <div className="rounded-[24px] border border-[#E5E7EB] bg-[#F8FAFC] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">Status</p>
+                    <p className="mt-2 text-[22px] font-bold text-[#111827]">
+                      {previewStatus === "completed" ? "Completed" : previewStatus === "upcoming" ? "Upcoming" : "Ongoing"}
+                    </p>
+                  </div>
+                </div>
+
+                {previewStatus === "completed" && previewResult ? (
+                  <div className="rounded-[28px] border border-[#D8DEEF] bg-[linear-gradient(135deg,#EEF2FF_0%,#F8FAFC_100%)] p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#6366F1]">Sample result preview</p>
+                        <p className="mt-2 text-sm font-medium text-[#475569]">
+                          Submitted on {format(new Date(previewResult.submittedAt), "MMMM do, yyyy 'at' h:mm aa")}
+                        </p>
+                      </div>
+                      <div className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#6366F1] shadow-[0_8px_20px_rgba(99,102,241,0.12)]">
+                        {Math.round(previewResult.percentage)}% Accuracy
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-[22px] border border-white/60 bg-white/80 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">Score</p>
+                        <p className="mt-2 text-[24px] font-bold text-[#111827]">
+                          {previewResult.score}/{previewResult.totalPoints}
+                        </p>
+                      </div>
+                      <div className="rounded-[22px] border border-white/60 bg-white/80 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">Answered</p>
+                        <p className="mt-2 text-[24px] font-bold text-[#111827]">
+                          {previewResult.answeredCount}/{PENDING_PREVIEW_TEST_QUESTION_COUNTS[previewTest.id] ?? "--"}
+                        </p>
+                      </div>
+                      <div className="rounded-[22px] border border-white/60 bg-white/80 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#94A3B8]">Mode</p>
+                        <p className="mt-2 text-[24px] font-bold text-[#111827]">Preview</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-[28px] border border-[#D8DEEF] bg-[linear-gradient(135deg,#EEF2FF_0%,#F8FAFC_100%)] p-5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#6366F1]">Preview only</p>
+                    <p className="mt-3 text-sm leading-7 text-[#64748B]">
+                      Yeh sample {previewStatus === "upcoming" ? "upcoming" : "ongoing"} test card hai. Verification approval ke baad real instructions, resume flow, timer, result, and attempt actions unlock honge.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 border-t border-[#ECEEF8] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full border-[#D9D6FE] px-5 text-[#5B4DFF] hover:bg-[#EEF2FF]"
+                  onClick={() => {
+                    setPreviewTestId(null);
+                    setLocation("/student/pending-approval");
+                  }}
+                >
+                  Check verification
+                </Button>
+                <Button
+                  type="button"
+                  className="rounded-full bg-[#F59E0B] px-6 text-white hover:bg-[#EA580C]"
+                  onClick={() => {
+                    setPreviewTestId(null);
+                    setPendingDialogOpen(true);
+                  }}
+                >
+                  {previewStatus === "completed" ? "Open full analysis" : previewStatus === "upcoming" ? "Unlock test access" : "Resume after approval"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <PendingVerificationDialog
         open={pendingDialogOpen}
