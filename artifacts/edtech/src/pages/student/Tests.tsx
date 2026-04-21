@@ -857,7 +857,7 @@ function StudentTestsPreview() {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Verification pending</p>
                 <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Sample tests unlocked in preview mode</h2>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
-                  Tests tab active rahega, lekin abhi sample values dikhengi. Real tests, attempts, review bucket, and result actions verification approval ke baad live honge.
+                  The Tests tab stays active, but only sample values are visible for now. Real tests, attempts, review bucket entries, and result actions will unlock after verification is approved.
                 </p>
               </div>
               <Button
@@ -1024,7 +1024,7 @@ function StudentTestsPreview() {
                   <div className="rounded-[28px] border border-[#D8DEEF] bg-[linear-gradient(135deg,#EEF2FF_0%,#F8FAFC_100%)] p-5">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#6366F1]">Preview only</p>
                     <p className="mt-3 text-sm leading-7 text-[#64748B]">
-                      Yeh sample {previewStatus === "upcoming" ? "upcoming" : "ongoing"} test card hai. Verification approval ke baad real instructions, resume flow, timer, result, and attempt actions unlock honge.
+                      This is a sample {previewStatus === "upcoming" ? "upcoming" : "ongoing"} test card. Real instructions, resume flow, timer, results, and attempt actions will unlock after verification is approved.
                     </p>
                   </div>
                 )}

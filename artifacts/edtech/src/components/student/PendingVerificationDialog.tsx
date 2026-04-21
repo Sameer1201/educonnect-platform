@@ -56,7 +56,7 @@ export default function PendingVerificationDialog({
             </div>
 
             <p className="text-sm leading-6 text-[#6B7280]">
-              Approval milte hi tests, question bank, aur baaki student actions automatically active ho jayenge.
+              Once your verification is approved, tests, question bank access, and the remaining student actions will become active automatically.
             </p>
 
             <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">

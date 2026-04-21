@@ -969,7 +969,7 @@ export default function Dashboard() {
   const saveDailyGoal = async () => {
     const parsedGoal = Number(dailyGoalDraft);
     if (!Number.isInteger(parsedGoal) || parsedGoal <= 0 || parsedGoal > 5000) {
-      toast({ title: "Invalid goal", description: "Daily goal 1 se 5000 ke beech hona chahiye.", variant: "destructive" });
+      toast({ title: "Invalid goal", description: "Daily goal must be between 1 and 5000.", variant: "destructive" });
       return;
     }
 
