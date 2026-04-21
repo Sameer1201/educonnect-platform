@@ -206,7 +206,7 @@ function validateStudentOnboardingBody(body: unknown) {
   if (fullName.length > 120) return { error: "Full name is too long" } as const;
   if (phone.length < 10) return { error: "Phone number is required" } as const;
   if (phone.length > 20) return { error: "Phone number is too long" } as const;
-  if (!avatarUrl) return { error: "A face photo is required before you can submit your profile" } as const;
+  if (!avatarUrl) return { error: "A profile photo is required before you can submit your profile" } as const;
   if (!subject) return { error: "Target exam is required" } as const;
 
   if (!profileDetails || typeof profileDetails !== "object") {

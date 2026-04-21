@@ -259,6 +259,7 @@ export default function StudentOnboardingGate() {
   const [fullName, setFullName] = useState(authUser?.fullName ?? "");
   const [phone, setPhone] = useState(authUser?.phone ?? "");
   const [avatarPreview, setAvatarPreview] = useState<string | null>((authUser as any)?.avatarUrl ?? null);
+  const [avatarImageFailed, setAvatarImageFailed] = useState(false);
   const [details, setDetails] = useState<StudentProfileDetails | null>(authUser ? buildInitialDetails(authUser) : null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -282,6 +283,7 @@ export default function StudentOnboardingGate() {
     setFullName(authUser.fullName ?? "");
     setPhone(authUser.phone ?? "");
     setAvatarPreview((authUser as any)?.avatarUrl ?? null);
+    setAvatarImageFailed(false);
     setDetails(buildInitialDetails(authUser));
     setStep(Math.min(Math.max(0, authUser.onboardingDraftStep ?? 0), steps.length - 1));
     setError("");
@@ -303,6 +305,7 @@ export default function StudentOnboardingGate() {
       if (typeof draft.phone === "string") setPhone(draft.phone);
       if (typeof draft.avatarPreview === "string" || draft.avatarPreview === null) {
         setAvatarPreview(draft.avatarPreview ?? null);
+        setAvatarImageFailed(false);
       }
       if (draft.details && typeof draft.details === "object") {
         const draftDetails = draft.details;
@@ -327,6 +330,10 @@ export default function StudentOnboardingGate() {
     };
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
   }, [authUser, avatarPreview, details, draftStorageKey, fullName, phone, step]);
+
+  useEffect(() => {
+    setAvatarImageFailed(false);
+  }, [avatarPreview]);
 
   useEffect(() => {
     const shouldLockBody = gateEnabled && (!rejectedResubmission || location === "/student/profile");
@@ -438,6 +445,7 @@ export default function StudentOnboardingGate() {
         outputType: "image/jpeg",
       });
       setAvatarPreview(resized);
+      setAvatarImageFailed(false);
       setError("");
     } catch {
       setError("Failed to process the selected image.");
@@ -468,7 +476,7 @@ export default function StudentOnboardingGate() {
 
   const validateStep = () => {
     if (step === 0) {
-      if (!avatarPreview?.trim()) return "Add a clear face photo before continuing. Applications without a face photo may be rejected.";
+      if (!avatarPreview?.trim()) return "Add a profile photo before continuing.";
       if (!fullName.trim()) return "Full name is required.";
       if (!details.dateOfBirth.trim()) return "Date of birth is required.";
       if (!phone.trim()) return "Phone number is required.";
@@ -654,27 +662,28 @@ export default function StudentOnboardingGate() {
               <div className="rounded-[24px] border border-[#E5EAF4] bg-[#F8FAFF] p-4 sm:p-5">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-[28px] border border-[#DCE3F1] bg-white shadow-[0_16px_32px_rgba(17,24,39,0.08)]">
-                      {avatarPreview ? (
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-[24px] border border-[#DCE3F1] bg-white shadow-[0_12px_24px_rgba(17,24,39,0.08)]">
+                      {avatarPreview && !avatarImageFailed ? (
                         <img
                           src={avatarPreview}
-                          alt="Student face photo"
+                          alt="Profile photo"
                           className="h-full w-full object-cover"
                           decoding="async"
+                          onError={() => setAvatarImageFailed(true)}
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FF9B3D] to-[#FF7A18] text-3xl font-semibold text-white">
+                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#FF9B3D] to-[#FF7A18] text-2xl font-semibold text-white">
                           {avatarInitials || "S"}
                         </div>
                       )}
-                      <div className="absolute bottom-2 right-2 rounded-full bg-[#111827] p-2 text-white shadow-lg">
-                        <Camera size={14} />
+                      <div className="absolute bottom-1.5 right-1.5 rounded-full bg-[#111827] p-1.5 text-white shadow-lg">
+                        <Camera size={12} />
                       </div>
                     </div>
                     <div className="space-y-1">
                       <p className="text-sm font-semibold text-[#111827]">Add profile photo</p>
                       <p className="max-w-md text-sm leading-6 text-[#6B7280]">
-                        Upload a clear profile picture for verification.
+                        Choose a profile photo for your account. You can update it anytime later.
                       </p>
                     </div>
                   </div>
