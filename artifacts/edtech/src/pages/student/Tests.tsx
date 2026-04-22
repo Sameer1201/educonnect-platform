@@ -20,6 +20,7 @@ import { differenceInDays, format } from "date-fns";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const TEST_DRAFT_PREFIX = "educonnect-test-draft";
+const ACTIVE_TEST_SESSION_KEY = "educonnect-active-test-id";
 
 type QuestionType = "mcq" | "multi" | "integer";
 type AnswerValue = number | number[] | string;
@@ -1165,11 +1166,27 @@ function ApprovedStudentTests() {
   const [mobileViewport, setMobileViewport] = useState<MobileViewportState>(() => getMobileViewportState());
   const [allowPortraitTestView, setAllowPortraitTestView] = useState(true);
   const fullscreenRequestedRef = useRef(false);
+  const restoreAttemptRef = useRef(false);
 
   const getDraftKey = (testId: number) => `${TEST_DRAFT_PREFIX}-${testId}`;
   const clearDraft = (testId: number) => localStorage.removeItem(getDraftKey(testId));
   const saveDraft = (test: TestDetail, draft: SavedTestDraft) => {
     localStorage.setItem(getDraftKey(test.id), JSON.stringify(draft));
+  };
+  const setActiveAttemptId = (testId: number) => {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem(ACTIVE_TEST_SESSION_KEY, String(testId));
+  };
+  const clearActiveAttemptId = () => {
+    if (typeof window === "undefined") return;
+    sessionStorage.removeItem(ACTIVE_TEST_SESSION_KEY);
+  };
+  const getActiveAttemptId = () => {
+    if (typeof window === "undefined") return null;
+    const raw = sessionStorage.getItem(ACTIVE_TEST_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
   };
   const buildCurrentDraft = (overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
     answers: savedAnswers,
@@ -1445,6 +1462,7 @@ function ApprovedStudentTests() {
     const initialSavedAnswers = cloneAnswerRecord(shouldResume ? parsedDraft?.answers : undefined);
 
     setActiveTest(cleanTest);
+    setActiveAttemptId(cleanTest.id);
     setAnswers(initialSavedAnswers);
     setSavedAnswers(initialSavedAnswers);
     const initialSeconds = shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60;
@@ -1483,6 +1501,7 @@ function ApprovedStudentTests() {
     if (!r.ok) return;
     const data: TestDetail = await r.json();
     if (data.submission) {
+      clearActiveAttemptId();
       return;
     }
     if (draftMode === "resume") {
@@ -1495,6 +1514,7 @@ function ApprovedStudentTests() {
         const initialSavedAnswers = cloneAnswerRecord(parsedDraft.answers);
 
         setActiveTest(cleanTest);
+        setActiveAttemptId(cleanTest.id);
         setAnswers(initialSavedAnswers);
         setSavedAnswers(initialSavedAnswers);
         const initialSeconds = Math.max(parsedDraft.timeLeft ?? cleanTest.durationMinutes * 60, 0);
@@ -1524,6 +1544,26 @@ function ApprovedStudentTests() {
     if (!activeTest || activeTest.submission) return;
     saveDraft(activeTest, buildCurrentDraft());
   }, [activeTest, savedAnswers, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
+
+  useEffect(() => {
+    if (restoreAttemptRef.current || activeTest || isLoading) return;
+    const storedAttemptId = getActiveAttemptId();
+    if (!storedAttemptId) return;
+    const matchingTest = tests.find((test) => test.id === storedAttemptId);
+    if (!matchingTest) {
+      clearActiveAttemptId();
+      return;
+    }
+    if (!localStorage.getItem(getDraftKey(storedAttemptId))) {
+      clearActiveAttemptId();
+      return;
+    }
+    restoreAttemptRef.current = true;
+    void openTestWithMode(storedAttemptId, "resume").catch(() => {
+      clearActiveAttemptId();
+      restoreAttemptRef.current = false;
+    });
+  }, [activeTest, isLoading, tests]);
 
   useEffect(() => {
     if (!activeTest || activeTest.submission) return;
@@ -1612,6 +1652,7 @@ function ApprovedStudentTests() {
       queryClient.invalidateQueries({ queryKey: ["student-tests"] });
       autoSubmitTriggeredRef.current = false;
       clearDraft(activeTest!.id);
+      clearActiveAttemptId();
       setShowSubmitReview(false);
       setActiveTest(null);
       setMobilePaletteOpen(false);
@@ -1878,6 +1919,7 @@ function ApprovedStudentTests() {
     const finalTimings = finalizeTimings();
     saveDraft(activeTest, buildCurrentDraft({ questionTimings: finalTimings }));
     autoSubmitTriggeredRef.current = false;
+    clearActiveAttemptId();
     setMobilePaletteOpen(false);
     setShowCalculator(false);
     setActiveTest(null);
@@ -2248,11 +2290,11 @@ function ApprovedStudentTests() {
           onEscapeKeyDown={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
-          className="inset-0 h-[100svh] max-h-[100svh] w-[100vw] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none sm:h-[100dvh] sm:max-h-[100dvh] sm:w-[100vw] sm:max-w-none sm:rounded-none sm:p-0 dark:bg-white"
+          className="inset-0 h-[100svh] max-h-[100svh] w-screen max-w-screen translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none sm:h-[100dvh] sm:max-h-[100dvh] sm:w-screen sm:max-w-screen sm:rounded-none sm:p-0 dark:bg-white"
         >
           {activeTest && (
             <>
-              <div className="relative flex h-full min-h-0 flex-col bg-white text-black [color-scheme:light]">
+              <div className="relative flex h-full min-h-0 flex-col overflow-x-hidden bg-white text-black [color-scheme:light]">
                 {showRotateOverlay && (
                   <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 px-4 md:hidden">
                     <div className="w-full max-w-sm rounded-[28px] bg-white p-5 text-center shadow-[0_24px_70px_rgba(15,23,42,0.32)]">
@@ -2281,24 +2323,24 @@ function ApprovedStudentTests() {
                     </div>
                   </div>
                 )}
-                <div className="border-b border-[#7f7f7f] bg-white text-black">
-                  <div className="flex items-center justify-between border-b border-[#a76d1c] px-3 py-2 sm:px-4">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[10px] font-bold text-[#57438f] sm:h-10 sm:w-10">EC</div>
-                    <div className="min-w-0 flex-1 px-2 text-center leading-tight sm:px-4">
-                      <p className="truncate text-base font-bold uppercase tracking-tight text-[#6e4ca5] sm:text-xl">{examHeading}</p>
-                      <p className="truncate text-[10px] font-semibold uppercase text-[#3a8b2e] sm:text-xs">{examSubheading}</p>
+                  <div className="overflow-hidden border-b border-[#7f7f7f] bg-white text-black">
+                  <div className="flex items-start justify-between gap-2 border-b border-[#a76d1c] px-2 py-2 sm:items-center sm:px-4">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[9px] font-bold text-[#57438f] sm:h-10 sm:w-10 sm:text-[10px]">EC</div>
+                    <div className="min-w-0 flex-1 px-0.5 text-center leading-tight sm:px-4">
+                      <p className="line-clamp-2 break-words text-[12px] font-bold uppercase tracking-[-0.03em] text-[#6e4ca5] [overflow-wrap:anywhere] sm:truncate sm:text-xl sm:tracking-tight">{examHeading}</p>
+                      <p className="mt-0.5 line-clamp-2 break-words text-[10px] font-semibold uppercase text-[#3a8b2e] [overflow-wrap:anywhere] sm:truncate sm:text-xs">{examSubheading}</p>
                     </div>
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[10px] font-bold text-[#d58a00] sm:h-10 sm:w-10">QB</div>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[9px] font-bold text-[#d58a00] sm:h-10 sm:w-10 sm:text-[10px]">QB</div>
                   </div>
                   <div className="flex flex-col items-start gap-2 bg-[#d7edf6] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-                    <p className="min-w-0 truncate text-[14px] font-bold text-[#4d4d4d] sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
+                    <p className="min-w-0 max-w-full break-words text-[13px] font-bold leading-5 text-[#4d4d4d] [overflow-wrap:anywhere] sm:truncate sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
                     {!showInstructions && (
-                      <div className="flex w-full items-center justify-between gap-2 md:hidden">
+                      <div className="flex w-full flex-wrap items-center justify-between gap-2 md:hidden">
                         {calculatorEnabled ? (
                           <button
                             type="button"
                             onClick={openScientificCalculator}
-                            className="inline-flex items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
+                            className="inline-flex min-w-0 items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
                           >
                             <Calculator size={13} />
                             Calculator
@@ -2309,7 +2351,7 @@ function ApprovedStudentTests() {
                             initialSeconds={timerInitialSeconds}
                             onTick={handleTimerTick}
                             onExpire={handleTimerExpire}
-                            className="shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
+                            className="max-w-full shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
                           />
                         ) : null}
                       </div>
@@ -2486,7 +2528,7 @@ function ApprovedStudentTests() {
                             <span className="hidden md:block h-7 w-7" />
                           )}
                         </div>
-                        <div ref={sectionInfoAreaRef} className="-mx-1.5 mt-1.5 relative flex items-center border-y border-slate-300 bg-white overflow-visible">
+                        <div ref={sectionInfoAreaRef} className="mx-0 mt-1.5 relative flex items-center overflow-visible border-y border-slate-300 bg-white sm:-mx-1.5">
                           <div className="min-w-0 flex-1 overflow-x-auto overflow-y-visible px-2 py-1">
                             <div className="flex min-w-max items-center gap-2 text-xs font-medium">
                               {sectionGroups.map((section) => {
@@ -2576,8 +2618,8 @@ function ApprovedStudentTests() {
                         </button>
                       </div>
 
-                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-2.5 py-2 pb-40 sm:px-4 sm:py-3 sm:pb-6">
-                        <div className="relative mx-auto max-w-none overflow-hidden">
+                      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white px-2 py-2 pb-40 sm:px-4 sm:py-3 sm:pb-6">
+                        <div className="relative mx-auto max-w-full overflow-hidden">
                           {!isCompactMobileRunner && questionWatermarkLines.length > 0 && (
                             <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
                               <div className="grid min-h-full grid-cols-2 justify-items-center gap-x-14 gap-y-16 px-2 py-5 sm:grid-cols-3 sm:gap-x-20 sm:gap-y-20 lg:grid-cols-4">
@@ -2600,8 +2642,8 @@ function ApprovedStudentTests() {
                             <div className="text-[12px] font-semibold text-black sm:text-[13px]">
                               Question No. {currentSectionQuestionNumber}
                             </div>
-                            <RichQuestionContent content={currentQuestion.question} className="text-[14px] leading-6 text-slate-900 sm:text-base sm:leading-7" />
-                            {currentQuestion.imageData && <img src={currentQuestion.imageData} alt="" className="max-h-[420px] w-full rounded-xl border border-slate-200 object-contain bg-white" />}
+                            <RichQuestionContent content={currentQuestion.question} className="max-w-full text-[14px] leading-6 text-slate-900 [overflow-wrap:anywhere] sm:text-base sm:leading-7" />
+                            {currentQuestion.imageData && <img src={currentQuestion.imageData} alt="" className="mx-auto max-h-[240px] w-auto max-w-full rounded-xl border border-slate-200 object-contain bg-white sm:max-h-[420px]" />}
 
                             {(currentQuestion.questionType === "mcq" || currentQuestion.questionType === "multi") && (
                               <div className="space-y-3">
@@ -2615,7 +2657,7 @@ function ApprovedStudentTests() {
                                       key={i}
                                       type="button"
                                       onClick={() => currentQuestion.questionType === "multi" ? toggleMultiAnswer(currentQuestion.id, i) : setMcqAnswer(currentQuestion.id, i)}
-                                      className="relative w-full touch-manipulation border-0 bg-transparent px-1 py-2 text-left"
+                                      className="relative w-full max-w-full touch-manipulation overflow-hidden border-0 bg-transparent px-1 py-2 text-left"
                                       data-testid={`option-${currentQuestion.id}-${i}`}
                                     >
                                       <div className="flex items-start gap-3 sm:gap-4">
@@ -2650,7 +2692,7 @@ function ApprovedStudentTests() {
                                               className="[&_*]:font-inherit [&_*]:text-inherit [&_*]:leading-inherit"
                                             />
                                           </div>
-                                          {optImg && <img src={optImg} alt="" className="mt-3 max-h-40 rounded-lg border border-slate-200 object-contain bg-white" />}
+                                          {optImg && <img src={optImg} alt="" className="mt-3 max-h-28 w-auto max-w-full rounded-lg border border-slate-200 object-contain bg-white sm:max-h-40" />}
                                         </div>
                                       </div>
                                     </button>
@@ -2730,33 +2772,33 @@ function ApprovedStudentTests() {
                       </div>
 
                       <div
-                        className="sticky bottom-0 z-10 border-t border-slate-300 bg-white px-2 py-3 md:hidden"
+                        className="sticky bottom-0 z-10 overflow-x-hidden border-t border-slate-300 bg-white px-2 py-2 md:hidden"
                         style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
                       >
-                        <div className="space-y-2 md:hidden">
-                          <div className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
+                        <div className="mx-auto max-w-full space-y-2 md:hidden">
+                          <div className="grid min-w-0 grid-cols-2 gap-2">
+                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
                               Exit
                             </Button>
-                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
+                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
                               Previous
                             </Button>
-                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
+                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
                               Clear Response
                             </Button>
                             <Button
                               variant="outline"
-                              className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]"
+                              className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]"
                               onClick={() => setMobilePaletteOpen(true)}
                             >
                               Palette
                             </Button>
                           </div>
-                          <div className="grid grid-cols-1 gap-2">
-                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
+                          <div className="grid min-w-0 grid-cols-1 gap-2">
+                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
                             </Button>
-                            <Button className="touch-manipulation rounded-lg border border-[#6d9cc8] bg-[#4a8ac5] px-3 py-2 text-xs text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
+                            <Button className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#6d9cc8] bg-[#4a8ac5] px-2 py-2 text-[11px] leading-tight text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Save Response" : "Save & Next"}
                             </Button>
                           </div>
