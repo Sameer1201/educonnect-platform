@@ -931,7 +931,7 @@ function StudentTestsPreview() {
           />
 
           <div className="flex flex-col gap-3 rounded-[24px] border border-[#E5E7EB] bg-white px-3 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:px-4 md:flex-row md:items-center md:justify-between">
-            <div className="-mx-1 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
+            <div className="grid w-full grid-cols-4 gap-1.5 md:flex md:w-auto md:flex-wrap md:items-center md:gap-2">
               {[
                 { id: "all", label: "All" },
                 { id: "upcoming", label: "Upcoming" },
@@ -944,9 +944,9 @@ function StudentTestsPreview() {
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                    className={`rounded-full px-6 py-2.5 text-base font-semibold transition-colors ${
+                    className={`min-w-0 rounded-full px-2 py-2.5 text-center text-[13px] font-semibold transition-colors sm:text-sm md:px-6 md:text-base ${
                       isActive ? "chip-orange-solid" : "text-[#64748B] hover:text-[#0F172A]"
-                    } snap-start whitespace-nowrap`}
+                    } whitespace-nowrap`}
                   >
                     {tab.label}
                   </button>
@@ -959,7 +959,7 @@ function StudentTestsPreview() {
                 <select
                   value={subjectFilter}
                   onChange={(event) => setSubjectFilter(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-full border-0 bg-white py-2 pl-4 pr-11 text-base font-semibold text-[#0F172A] outline-none"
+                  className="h-10 w-full appearance-none rounded-full border-0 bg-white py-2 pl-4 pr-11 text-sm font-semibold text-[#0F172A] outline-none sm:text-base"
                 >
                   <option value="all">All Subjects</option>
                   {subjectOptions.map((subject) => (
@@ -1993,7 +1993,7 @@ function ApprovedStudentTests() {
         />
 
         <div className="flex flex-col gap-3 rounded-[24px] border border-[#E5E7EB] bg-white px-3 py-3 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:px-4 md:flex-row md:items-center md:justify-between">
-          <div className="-mx-1 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto px-1 pb-1 md:mx-0 md:flex-wrap md:overflow-visible md:px-0 md:pb-0">
+          <div className="grid w-full grid-cols-4 gap-1.5 md:flex md:w-auto md:flex-wrap md:items-center md:gap-2">
             {[
               { id: "all", label: "All" },
               { id: "upcoming", label: "Upcoming" },
@@ -2006,11 +2006,11 @@ function ApprovedStudentTests() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                  className={`rounded-full px-6 py-2.5 text-base font-semibold transition-colors ${
+                  className={`min-w-0 rounded-full px-2 py-2.5 text-center text-[13px] font-semibold transition-colors sm:text-sm md:px-6 md:text-base ${
                     isActive
                       ? "chip-orange-solid"
                       : "text-[#64748B] hover:text-[#0F172A]"
-                  } snap-start whitespace-nowrap`}
+                  } whitespace-nowrap`}
                 >
                   {tab.label}
                 </button>
@@ -2023,7 +2023,7 @@ function ApprovedStudentTests() {
               <select
                 value={subjectFilter}
                 onChange={(event) => setSubjectFilter(event.target.value)}
-                className="h-10 w-full appearance-none rounded-full border-0 bg-white py-2 pl-4 pr-11 text-base font-semibold text-[#0F172A] outline-none"
+                className="h-10 w-full appearance-none rounded-full border-0 bg-white py-2 pl-4 pr-11 text-sm font-semibold text-[#0F172A] outline-none sm:text-base"
               >
                 <option value="all">All Subjects</option>
                 {subjectOptions.map((subject) => (
