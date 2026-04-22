@@ -421,8 +421,8 @@ function DailyGoalTracker({
         background: "linear-gradient(135deg, #6d28d9 0%, #4f46e5 45%, #0ea5e9 100%)",
       }}
     >
-      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
-        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+      <div className="relative flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:shrink-0">
           <Flame className="h-4 w-4 text-orange-300" />
           <span className="text-white font-semibold text-sm">Your Daily Goal</span>
           {isEditing ? (
@@ -462,44 +462,90 @@ function DailyGoalTracker({
           )}
         </div>
 
-        <div className="relative h-3 w-full flex-1 overflow-visible rounded-full bg-white/20 sm:mx-4">
-          <div
-            className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
-            style={{
-              width: `${progress}%`,
-              background: "linear-gradient(90deg, #c4b5fd 0%, #60a5fa 50%, #34d399 100%)",
-              boxShadow: "0 0 10px rgba(196,181,253,0.5)",
-            }}
-          />
-          {milestones.map((milestone) => {
-            const pct = (milestone.at / goal) * 100;
-            const reached = solved >= milestone.at;
-            return (
-              <div
-                key={milestone.at}
-                className="absolute top-1/2 flex items-center justify-center w-7 h-7 rounded-full text-sm border-2 shadow-md transition-all duration-500"
-                style={{
-                  left: `${pct}%`,
-                  transform: "translate(-50%, -50%)",
-                  backgroundColor: reached ? milestone.color : "rgba(255,255,255,0.15)",
-                  borderColor: reached ? milestone.color : "rgba(255,255,255,0.25)",
-                }}
-              >
-                <span style={{ fontSize: "12px", lineHeight: 1 }}>{milestone.icon}</span>
-              </div>
-            );
-          })}
+        <div className="hidden items-center gap-6 sm:flex">
+          <div className="relative h-3 w-full flex-1 overflow-visible rounded-full bg-white/20 sm:mx-4">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
+              style={{
+                width: `${progress}%`,
+                background: "linear-gradient(90deg, #c4b5fd 0%, #60a5fa 50%, #34d399 100%)",
+                boxShadow: "0 0 10px rgba(196,181,253,0.5)",
+              }}
+            />
+            {milestones.map((milestone) => {
+              const pct = (milestone.at / goal) * 100;
+              const reached = solved >= milestone.at;
+              return (
+                <div
+                  key={milestone.at}
+                  className="absolute top-1/2 flex h-7 w-7 items-center justify-center rounded-full border-2 text-sm shadow-md transition-all duration-500"
+                  style={{
+                    left: `${pct}%`,
+                    transform: "translate(-50%, -50%)",
+                    backgroundColor: reached ? milestone.color : "rgba(255,255,255,0.15)",
+                    borderColor: reached ? milestone.color : "rgba(255,255,255,0.25)",
+                  }}
+                >
+                  <span style={{ fontSize: "12px", lineHeight: 1 }}>{milestone.icon}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex w-full items-center justify-between gap-4 text-white sm:w-auto sm:shrink-0 sm:justify-start">
+            <div className="text-center">
+              <p className="text-white/60 text-[10px] uppercase tracking-wide">Streak</p>
+              <p className="font-bold text-sm">{streak} 🔥</p>
+            </div>
+            <div className="h-6 w-px bg-white/20" />
+            <div className="text-center">
+              <p className="text-white/60 text-[10px] uppercase tracking-wide">Progress</p>
+              <p className="font-bold text-sm">{Math.round(progress)}%</p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex w-full items-center justify-between gap-4 text-white sm:w-auto sm:shrink-0 sm:justify-start">
-          <div className="text-center">
-            <p className="text-white/60 text-[10px] uppercase tracking-wide">Streak</p>
-            <p className="font-bold text-sm">{streak} 🔥</p>
+        <div className="space-y-3 sm:hidden">
+          <div className="grid grid-cols-5 gap-2">
+            {milestones.map((milestone) => {
+              const reached = solved >= milestone.at;
+              return (
+                <div key={`mobile-${milestone.at}`} className="flex flex-col items-center gap-1">
+                  <div
+                    className="flex h-9 w-9 items-center justify-center rounded-full border text-sm shadow-sm transition-all duration-500"
+                    style={{
+                      backgroundColor: reached ? milestone.color : "rgba(255,255,255,0.14)",
+                      borderColor: reached ? milestone.color : "rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    <span style={{ fontSize: "12px", lineHeight: 1 }}>{milestone.icon}</span>
+                  </div>
+                  <span className="text-[10px] font-medium text-white/75">{milestone.at}</span>
+                </div>
+              );
+            })}
           </div>
-          <div className="w-px h-6 bg-white/20" />
-          <div className="text-center">
-            <p className="text-white/60 text-[10px] uppercase tracking-wide">Progress</p>
-            <p className="font-bold text-sm">{Math.round(progress)}%</p>
+
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/20">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${progress}%`,
+                background: "linear-gradient(90deg, #c4b5fd 0%, #60a5fa 50%, #34d399 100%)",
+                boxShadow: "0 0 10px rgba(196,181,253,0.45)",
+              }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-white">
+            <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/60">Streak</p>
+              <p className="mt-1 text-base font-bold">{streak} 🔥</p>
+            </div>
+            <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-white/60">Progress</p>
+              <p className="mt-1 text-base font-bold">{Math.round(progress)}%</p>
+            </div>
           </div>
         </div>
       </div>
