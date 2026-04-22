@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import { isStudentPendingVerification, STUDENT_VERIFICATION_CONTACT_EMAIL } from "@/lib/student-access";
 import {
   BrainCircuit,
@@ -345,7 +346,7 @@ function buildPendingDashboardPreview(targetExam?: string | null): PendingPrevie
     { name: "Incorrect/Unattempted", value: 19, color: "hsl(var(--muted))" },
   ];
 
-  const label = (targetExam ?? "Practice").trim() || "Practice";
+  const label = formatExamDisplayName(targetExam) || "Practice";
   const recentTests = [
     { id: 901, name: `${label} Preview Test 1`, date: "Apr 16, 2026", score: "58/100", accuracy: "58%", time: "89 min" },
     { id: 902, name: `${label} Preview Test 2`, date: "Apr 17, 2026", score: "64/100", accuracy: "64%", time: "84 min" },
@@ -527,18 +528,18 @@ function PendingPreviewDashboard({
       </div>
 
       <Card className="overflow-hidden border-[#D9D6FE] bg-[linear-gradient(135deg,#F8F7FF_0%,#EEF2FF_100%)] shadow-sm">
-        <CardContent className="flex flex-col gap-5 px-5 py-5 md:flex-row md:items-center md:justify-between">
+        <CardContent className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#5B4DFF] text-white shadow-sm">
-              <ShieldAlert className="h-5 w-5" />
+            <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-[#DC2626] text-white shadow-sm">
+              <ShieldAlert className="h-4 w-4 translate-y-[0.5px]" />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5B4DFF]">Verification Pending</p>
-                <h2 className="mt-1 text-xl font-bold text-[#111827]">Student dashboard preview unlocked</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#DC2626]">Verification Pending</p>
+                <h2 className="mt-1 text-lg font-bold text-[#111827] sm:text-xl">Preview unlocked</h2>
               </div>
-              <p className="max-w-2xl text-sm leading-6 text-[#6B7280]">
-                The metrics shown here are sample preview values for now. Tests, question bank, and deeper actions will unlock after admin approval.
+              <p className="max-w-xl text-sm leading-5 text-[#6B7280]">
+                Sample metrics are visible for now. Tests and question bank unlock after approval.
               </p>
               <div className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
                 <Mail className="h-4 w-4 text-[#5B4DFF]" />
@@ -547,22 +548,22 @@ function PendingPreviewDashboard({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
             <Button
               type="button"
               variant="outline"
-              className="rounded-2xl border-[#D9D6FE] bg-white text-[#5B4DFF] hover:bg-[#EEF2FF]"
+              className="h-10 whitespace-nowrap rounded-2xl border-[#D9D6FE] bg-white px-4 text-sm text-[#5B4DFF] hover:bg-[#EEF2FF]"
               onClick={onOpenStatusPage}
             >
-              Check verification
+              Check status
             </Button>
             <Button
               type="button"
-              className="rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+              className="h-10 whitespace-nowrap rounded-2xl bg-[#5B4DFF] px-4 text-sm text-white hover:bg-[#4C3FFD]"
               onClick={onLockedAction}
             >
               <LockKeyhole className="mr-2 h-4 w-4" />
-              Open locked features
+              Open locked
             </Button>
           </div>
         </CardContent>

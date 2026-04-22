@@ -7,7 +7,7 @@ import PendingVerificationDialog from "@/components/student/PendingVerificationD
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStudentPendingVerification } from "@/lib/student-access";
-import { getPendingPreviewQuestionBankExams, useStudentQuestionBankExams } from "@/pages/student/question-bank/api";
+import { applyPendingPreviewLocksToExamSummaries, useStudentQuestionBankExams } from "@/pages/student/question-bank/api";
 
 type QuestionBankProgressSummary = {
   totalSolvedQuestions: number;
@@ -16,7 +16,8 @@ type QuestionBankProgressSummary = {
 function PendingQuestionBankPreview() {
   const [, setLocation] = useLocation();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const previewExams = getPendingPreviewQuestionBankExams();
+  const { data: exams = [], isLoading } = useStudentQuestionBankExams();
+  const previewExams = applyPendingPreviewLocksToExamSummaries(exams);
   const totalExams = previewExams.length;
   const totalQuestions = previewExams.reduce((sum, exam) => sum + exam.questionCount, 0);
   const totalChapters = previewExams.reduce((sum, exam) => sum + exam.chapterCount, 0);
@@ -28,7 +29,7 @@ function PendingQuestionBankPreview() {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">My Question Banks</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Preview mode active. Sample question bank values visible until verification is approved.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Preview mode is active until verification is approved.</p>
           </div>
 
           <Button
@@ -44,9 +45,9 @@ function PendingQuestionBankPreview() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Verification pending</p>
-              <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Sample question bank unlocked</h2>
+              <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">GATE preview unlocked</h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
-                Question Bank preview is active. You can open the sample GATE flow, while all other exams remain locked until verification is approved.
+                The GATE preview stays synced with the live super admin question bank. Only one subject and one chapter remain open in review mode.
               </p>
             </div>
             <Button
@@ -68,72 +69,81 @@ function PendingQuestionBankPreview() {
 
         <div>
           <h2 className="mb-3 text-base font-semibold text-foreground">Available Exam Question Banks</h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {previewExams.map((exam) => {
-              const attempted = exam.attemptedQuestionCount ?? 0;
-              const pct = exam.questionCount > 0 ? Math.round((attempted / exam.questionCount) * 100) : 0;
-              const isLocked = Boolean(exam.isLocked);
+          {isLoading ? (
+            <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
+              Loading question banks...
+            </div>
+          ) : previewExams.length === 0 ? (
+            <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
+              No question bank preview is available yet.
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {previewExams.map((exam) => {
+                const attempted = exam.attemptedQuestionCount ?? 0;
+                const pct = exam.questionCount > 0 ? Math.round((attempted / exam.questionCount) * 100) : 0;
+                const isLocked = Boolean(exam.isLocked);
 
-              return (
-                <button
-                  key={exam.key}
-                  type="button"
-                  onClick={() => {
-                    if (isLocked) {
-                      setDialogOpen(true);
-                      return;
-                    }
-                    setLocation(`/student/question-bank/exam/${exam.key}`);
-                  }}
-                  className="group cursor-pointer rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md sm:p-5"
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="chip-orange-soft inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold">
-                          {exam.label}
-                        </span>
-                        <span className="chip-orange-solid rounded-full px-2 py-0.5 text-xs font-medium">
-                          {isLocked ? "Locked" : "Preview"}
-                        </span>
+                return (
+                  <button
+                    key={exam.key}
+                    type="button"
+                    onClick={() => {
+                      if (isLocked) {
+                        setDialogOpen(true);
+                        return;
+                      }
+                      setLocation(`/student/question-bank/exam/${exam.key}`);
+                    }}
+                    className="group cursor-pointer rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md sm:p-5"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="chip-orange-soft inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold">
+                            {exam.label}
+                          </span>
+                          <span className="chip-orange-solid rounded-full px-2 py-0.5 text-xs font-medium">
+                            {isLocked ? "Locked" : "Preview"}
+                          </span>
+                        </div>
+                        <h3 className="mt-2 text-sm font-semibold leading-tight text-foreground">{exam.label}</h3>
                       </div>
-                      <h3 className="mt-2 text-sm font-semibold leading-tight text-foreground">{exam.label}</h3>
+                      {isLocked ? (
+                        <Lock className="h-4 w-4 text-amber-600" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                      )}
                     </div>
-                    {isLocked ? (
-                      <Lock className="h-4 w-4 text-amber-600" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                    )}
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <div>
-                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.subjectCount}</div>
-                      <div className="text-[10px] text-muted-foreground">Subjects</div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <div className="text-base font-bold text-foreground sm:text-lg">{exam.subjectCount}</div>
+                        <div className="text-[10px] text-muted-foreground">Subjects</div>
+                      </div>
+                      <div>
+                        <div className="text-base font-bold text-foreground sm:text-lg">{exam.chapterCount}</div>
+                        <div className="text-[10px] text-muted-foreground">Chapters</div>
+                      </div>
+                      <div>
+                        <div className="text-base font-bold text-foreground sm:text-lg">{exam.questionCount}</div>
+                        <div className="text-[10px] text-muted-foreground">Questions</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.chapterCount}</div>
-                      <div className="text-[10px] text-muted-foreground">Chapters</div>
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Progress</span>
+                        <span>{attempted}/{exam.questionCount} attempted</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.questionCount}</div>
-                      <div className="text-[10px] text-muted-foreground">Questions</div>
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Progress</span>
-                      <span>{attempted}/{exam.questionCount} attempted</span>
-                    </div>
-                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-
       </div>
 
       <PendingVerificationDialog
@@ -182,56 +192,56 @@ function ApprovedQuestionBankDashboard() {
             No question bank is available for your exam profile yet.
           </div>
         ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {exams.map((exam) => {
-            const attempted = exam.attemptedQuestionCount ?? 0;
-            const pct = exam.questionCount > 0 ? Math.round((attempted / exam.questionCount) * 100) : 0;
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {exams.map((exam) => {
+              const attempted = exam.attemptedQuestionCount ?? 0;
+              const pct = exam.questionCount > 0 ? Math.round((attempted / exam.questionCount) * 100) : 0;
 
-            return (
-              <Link key={exam.key} to={`/student/question-bank/exam/${exam.key}`}>
-                <div className="group cursor-pointer rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md sm:p-5">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="chip-orange-soft inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold">
-                          {exam.label}
-                        </span>
-                        <span className="chip-orange-solid rounded-full px-2 py-0.5 text-xs font-medium">
-                          Open
-                        </span>
+              return (
+                <Link key={exam.key} to={`/student/question-bank/exam/${exam.key}`}>
+                  <div className="group cursor-pointer rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md sm:p-5">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="chip-orange-soft inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold">
+                            {exam.label}
+                          </span>
+                          <span className="chip-orange-solid rounded-full px-2 py-0.5 text-xs font-medium">
+                            Open
+                          </span>
+                        </div>
+                        <h3 className="mt-2 text-sm font-semibold leading-tight text-foreground">{exam.label}</h3>
                       </div>
-                      <h3 className="mt-2 text-sm font-semibold leading-tight text-foreground">{exam.label}</h3>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <div className="text-base font-bold text-foreground sm:text-lg">{exam.subjectCount}</div>
+                        <div className="text-[10px] text-muted-foreground">Subjects</div>
+                      </div>
+                      <div>
+                        <div className="text-base font-bold text-foreground sm:text-lg">{exam.chapterCount}</div>
+                        <div className="text-[10px] text-muted-foreground">Chapters</div>
+                      </div>
+                      <div>
+                        <div className="text-base font-bold text-foreground sm:text-lg">{exam.questionCount}</div>
+                        <div className="text-[10px] text-muted-foreground">Questions</div>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Progress</span>
+                        <span>{attempted}/{exam.questionCount} attempted</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <div>
-                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.subjectCount}</div>
-                      <div className="text-[10px] text-muted-foreground">Subjects</div>
-                    </div>
-                    <div>
-                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.chapterCount}</div>
-                      <div className="text-[10px] text-muted-foreground">Chapters</div>
-                    </div>
-                    <div>
-                      <div className="text-base font-bold text-foreground sm:text-lg">{exam.questionCount}</div>
-                      <div className="text-[10px] text-muted-foreground">Questions</div>
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>Progress</span>
-                      <span>{attempted}/{exam.questionCount} attempted</span>
-                    </div>
-                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+                </Link>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -262,12 +272,14 @@ function StatCard({
   bg: string;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4">
-      <div className={`inline-flex items-center justify-center rounded-lg p-2 ${bg}`}>
-        <span className={color}>{icon}</span>
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className={`flex h-9 w-9 items-center justify-center rounded-full ${bg} ${color}`}>{icon}</div>
+        <div>
+          <div className="text-lg font-bold text-foreground">{value}</div>
+          <div className="text-xs text-muted-foreground">{label}</div>
+        </div>
       </div>
-      <div className="mt-3 text-xl font-bold text-foreground sm:text-2xl">{value}</div>
-      <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }

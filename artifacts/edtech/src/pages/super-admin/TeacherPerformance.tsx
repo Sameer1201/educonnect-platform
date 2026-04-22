@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -280,7 +281,7 @@ export default function TeacherPerformance() {
                           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <span className="text-xs text-muted-foreground">@{teacher.username}</span>
                             {teacher.subject && (
-                              <Badge variant="secondary" className="text-[10px]">{teacher.subject}</Badge>
+                              <Badge variant="secondary" className="text-[10px]">{formatExamDisplayName(teacher.subject) || teacher.subject}</Badge>
                             )}
                             {teacher.status !== "approved" && (
                               <Badge variant="destructive" className="text-[10px]">{teacher.status}</Badge>
@@ -386,7 +387,7 @@ export default function TeacherPerformance() {
                         </div>
                         <div>
                           <p className="font-medium text-xs">{teacher.fullName}</p>
-                          {teacher.subject && <p className="text-[10px] text-muted-foreground">{teacher.subject}</p>}
+                          {teacher.subject && <p className="text-[10px] text-muted-foreground">{formatExamDisplayName(teacher.subject) || teacher.subject}</p>}
                         </div>
                       </div>
                     </td>

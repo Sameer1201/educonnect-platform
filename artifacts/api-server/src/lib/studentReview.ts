@@ -31,6 +31,7 @@ export type StudentReviewSummary = {
 const DEFAULT_SUPER_ADMIN_REVIEW_EMAIL = "sameermajhi339@gmail.com";
 const DEFAULT_EMAIL_REJECTION_REASON = "Application rejected from super admin email review. Please update your profile details and resubmit for approval.";
 const STUDENT_REVIEW_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
 
 function readTrimmedEnv(name: string) {
   const value = process.env[name];
@@ -45,7 +46,7 @@ function readStudentReviewSigningSecret() {
 }
 
 function readPublicAppUrl() {
-  return readTrimmedEnv("PUBLIC_APP_URL") || "http://localhost:5173";
+  return readTrimmedEnv("PUBLIC_APP_URL") || DEFAULT_PUBLIC_APP_URL;
 }
 
 function readSuperAdminReviewEmail() {

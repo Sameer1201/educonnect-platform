@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft, ChevronRight, Lock, Search } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStudentPendingVerification } from "@/lib/student-access";
 import {
-  getPendingPreviewQuestionBankExam,
+  applyPendingPreviewLocksToExam,
   useStudentQuestionBankExam,
 } from "@/pages/student/question-bank/api";
 import { SubjectThemeIcon, getSubjectAccent, getSubjectTheme } from "@/lib/subject-theme";
@@ -15,13 +15,15 @@ export default function StudentQuestionBankExamPage() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isPreviewMode = isStudentPendingVerification(user);
-  const previewData = isPreviewMode ? getPendingPreviewQuestionBankExam(examId) : null;
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { data: liveData, isLoading } = useStudentQuestionBankExam(isPreviewMode ? "" : examId);
-  const data = previewData ?? liveData;
+  const { data: liveData, isLoading } = useStudentQuestionBankExam(examId);
+  const data = useMemo(() => {
+    if (!liveData) return null;
+    return isPreviewMode ? applyPendingPreviewLocksToExam(liveData) : liveData;
+  }, [isPreviewMode, liveData]);
 
-  if (!previewData && isLoading) {
+  if (isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading exam question bank...</div>;
   }
 
@@ -77,7 +79,7 @@ export default function StudentQuestionBankExamPage() {
                 {isLockedExam
                   ? "This exam is locked in review mode. Complete verification to access it."
                   : isPreviewMode
-                    ? "Only one subject is unlocked in review mode. The rest unlock after verification."
+                    ? "Only one subject is unlocked in review mode. The remaining GATE subjects unlock after verification."
                     : "Select a subject to browse chapters and questions."}
               </p>
             </div>

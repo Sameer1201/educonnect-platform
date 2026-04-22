@@ -16,6 +16,7 @@ import DifficultyAnalysis from "@/features/test-analysis/pages/DifficultyAnalysi
 import SubjectMovement from "@/features/test-analysis/pages/SubjectMovement";
 import QuestionJourney from "@/features/test-analysis/pages/QuestionJourney";
 import QsByQsAnalysis from "@/features/test-analysis/pages/QsByQsAnalysis";
+import { getSamplePreviewAnalysisData, isSamplePreviewAnalysisId } from "@/pages/student/sampleTestAnalysis";
 
 const pageTitles: Record<string, string> = {
   overview: "Overview",
@@ -103,6 +104,8 @@ export default function StudentTestAnalysis() {
   const [datasetReady, setDatasetReady] = useState(false);
   const [datasetVersion, setDatasetVersion] = useState(0);
   const [expandTechnical, setExpandTechnical] = useState(false);
+  const isSamplePreview = isSamplePreviewAnalysisId(id);
+  const sampleAnalysisData = useMemo(() => getSamplePreviewAnalysisData(id), [id]);
 
   const analysisQuery = useQuery({
     queryKey: ["student-analysis", id],
@@ -114,25 +117,27 @@ export default function StudentTestAnalysis() {
       }
       return response.json();
     },
-    enabled: !!id,
+    enabled: !!id && !isSamplePreview,
   });
 
-  const dataset = useMemo(() => {
-    if (!analysisQuery.data) return null;
-    const gateExam = isGateExamTest(analysisQuery.data.test);
-    return buildAnalysisDataset(analysisQuery.data, { expandTechnical: gateExam && expandTechnical });
-  }, [analysisQuery.data, expandTechnical]);
+  const analysisData = sampleAnalysisData ?? analysisQuery.data;
 
-  const isGateExam = useMemo(() => isGateExamTest(analysisQuery.data?.test), [analysisQuery.data]);
+  const dataset = useMemo(() => {
+    if (!analysisData) return null;
+    const gateExam = isGateExamTest(analysisData.test);
+    return buildAnalysisDataset(analysisData, { expandTechnical: gateExam && expandTechnical });
+  }, [analysisData, expandTechnical]);
+
+  const isGateExam = useMemo(() => isGateExamTest(analysisData?.test), [analysisData]);
 
   const hasTechnicalSections = useMemo(
     () =>
       Boolean(
-        (analysisQuery.data?.sections ?? []).some((section: { title?: string | null; subjectLabel?: string | null }) =>
+        (analysisData?.sections ?? []).some((section: { title?: string | null; subjectLabel?: string | null }) =>
           String(section.subjectLabel ?? section.title ?? "").trim().toLowerCase().includes("technical"),
         ),
       ),
-    [analysisQuery.data],
+    [analysisData],
   );
 
   useEffect(() => () => resetAnalysisDataset(), []);
@@ -153,7 +158,7 @@ export default function StudentTestAnalysis() {
     setDatasetVersion((version) => version + 1);
   }, [dataset]);
 
-  if (analysisQuery.isLoading) {
+  if (!isSamplePreview && analysisQuery.isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB]">
         <div className="text-center">
@@ -164,7 +169,7 @@ export default function StudentTestAnalysis() {
     );
   }
 
-  if (analysisQuery.isError) {
+  if (!isSamplePreview && analysisQuery.isError) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F5F7FB] px-6">
         <div className="max-w-md rounded-2xl border border-[#E5E7EB] bg-white p-6 text-center shadow-sm">
@@ -195,16 +200,16 @@ export default function StudentTestAnalysis() {
   }
 
   const mobileTabs = mode === "comparative" ? comparativeMobileTabs : personalMobileTabs;
-  const headerSummary = dataset && analysisQuery.data ? {
-    testTitle: analysisQuery.data.test?.title ?? "Test Analysis",
+  const headerSummary = dataset && analysisData ? {
+    testTitle: analysisData.test?.title ?? "Test Analysis",
     scoreLabel: `${dataset.testData.overallScore}/${dataset.testData.maxScore}`,
     accuracyLabel: `${dataset.testData.accuracy}%`,
     percentileLabel: `${dataset.testData.predictedPercentile}%ile`,
     attemptedLabel: `${dataset.testData.questionsAttempted}/${dataset.testData.totalQuestions}`,
     timeLabel: `${dataset.testData.timeTaken} min`,
     rankLabel:
-      analysisQuery.data.classStats?.totalSubs && analysisQuery.data.classStats.totalSubs > 0
-        ? `${analysisQuery.data.classStats.rank}/${analysisQuery.data.classStats.totalSubs}`
+      analysisData.classStats?.totalSubs && analysisData.classStats.totalSubs > 0
+        ? `${analysisData.classStats.rank}/${analysisData.classStats.totalSubs}`
         : undefined,
   } : undefined;
 
@@ -234,7 +239,7 @@ export default function StudentTestAnalysis() {
           </div>
           <div className="rounded-3xl border border-[#E5E7EB] bg-white p-4 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6B7280]">Test Analysis</p>
-            <h1 className="mt-2 text-xl font-bold text-[#111827]">{analysisQuery.data?.test?.title ?? "Analysis"}</h1>
+            <h1 className="mt-2 text-xl font-bold text-[#111827]">{analysisData?.test?.title ?? "Analysis"}</h1>
             <div className="mt-3 flex rounded-full bg-[#F3F5F9] p-1">
               <button
                 type="button"
@@ -269,14 +274,16 @@ export default function StudentTestAnalysis() {
                 Comparative
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setLocation(`/student/tests/${id}/solutions`)}
-              disabled={!analysisQuery.data?.sections?.length}
-              className="chip-orange-solid mt-3 inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              View Solution
-            </button>
+            {!isSamplePreview ? (
+              <button
+                type="button"
+                onClick={() => setLocation(`/student/tests/${id}/solutions`)}
+                disabled={!analysisData?.sections?.length}
+                className="chip-orange-solid mt-3 inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                View Solution
+              </button>
+            ) : null}
           </div>
 
           <div className="-mx-1 overflow-x-auto px-1 pb-1">
@@ -305,8 +312,8 @@ export default function StudentTestAnalysis() {
           <Header
             title={pageTitles[activeTab] || "Overview"}
             summary={headerSummary}
-            onViewSolutions={() => setLocation(`/student/tests/${id}/solutions`)}
-            viewSolutionsDisabled={!analysisQuery.data?.sections?.length}
+            onViewSolutions={isSamplePreview ? undefined : () => setLocation(`/student/tests/${id}/solutions`)}
+            viewSolutionsDisabled={!analysisData?.sections?.length}
             compact={activeTab !== "overview"}
             showExpandTechnical={isGateExam && hasTechnicalSections}
             expandTechnical={expandTechnical}

@@ -22,6 +22,7 @@ import { useState } from "react";
 import type { StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
 import { StudentProfileAnalysisPanel } from "@/components/student/StudentProfileAnalysisPanel";
 import { StudentVerificationReviewDialog } from "@/components/student/StudentVerificationReviewDialog";
+import { formatExamDisplayName } from "@/lib/exam-display";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -59,7 +60,7 @@ function getStatusIcon(status: string) {
 }
 
 function getStudentTargetExam(student: User) {
-  return student.profileDetails?.preparation?.targetExam?.trim() || student.subject?.trim() || "";
+  return formatExamDisplayName(student.profileDetails?.preparation?.targetExam?.trim() || student.subject?.trim()) || "";
 }
 
 async function fetchStudentInsights(studentId: number) {

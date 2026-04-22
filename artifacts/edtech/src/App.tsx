@@ -149,6 +149,10 @@ function studentNeedsOnboarding(user: { role: string; onboardingComplete?: boole
   return user.role === "student" && !user.onboardingComplete;
 }
 
+function isPendingStudentPreviewAnalysisPath(location: string) {
+  return /^\/student\/tests\/-\d+\/analysis$/.test(location);
+}
+
 function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
@@ -182,6 +186,7 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
         "/student/tests",
         "/student/question-bank",
       ].includes(location)
+      && !isPendingStudentPreviewAnalysisPath(location)
     ) {
       setLocation("/student/dashboard");
       return null;

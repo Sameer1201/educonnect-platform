@@ -1,13 +1,14 @@
-import { useState } from "react";
-import { ArrowLeft, CheckCircle2, Circle, Tag } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeft, CheckCircle2, Circle, Lock, Tag } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
+import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { stripRichHtmlToText } from "@/lib/richContent";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStudentPendingVerification } from "@/lib/student-access";
 import {
+  applyPendingPreviewLocksToExam,
   formatDifficultyLabel,
   getChapterDifficultyLabel,
-  getPendingPreviewQuestionBankExam,
   getQuestionAttempted,
   getQuestionDifficultyTone,
   useStudentQuestionBankExam,
@@ -33,12 +34,15 @@ export default function StudentQuestionBankChapterPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const isPreviewMode = isStudentPendingVerification(user);
-  const previewData = isPreviewMode ? getPendingPreviewQuestionBankExam(examId) : null;
   const [filterAttempted, setFilterAttempted] = useState<"all" | "attempted" | "unattempted">("all");
-  const { data: liveData, isLoading } = useStudentQuestionBankExam(isPreviewMode ? "" : examId);
-  const data = previewData ?? liveData;
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: liveData, isLoading } = useStudentQuestionBankExam(examId);
+  const data = useMemo(() => {
+    if (!liveData) return null;
+    return isPreviewMode ? applyPendingPreviewLocksToExam(liveData) : liveData;
+  }, [isPreviewMode, liveData]);
 
-  if (!previewData && isLoading) {
+  if (isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading chapter questions...</div>;
   }
 
@@ -46,7 +50,7 @@ export default function StudentQuestionBankChapterPage() {
   const subject = data?.subjects.find((entry) => String(entry.id) === subjectId);
   const chapter = subject?.chapters.find((entry) => String(entry.id) === chapterId);
 
-  if (!exam || !subject || !chapter || subject.isLocked) {
+  if (!exam || !subject || !chapter) {
     return (
       <div className="py-20 text-center text-muted-foreground">
         Not found.{" "}
@@ -54,6 +58,51 @@ export default function StudentQuestionBankChapterPage() {
           Go home
         </Link>
       </div>
+    );
+  }
+
+  if (subject.isLocked || chapter.isLocked) {
+    return (
+      <>
+        <div className="space-y-6">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+            <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}`}>
+              <button className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary">
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </button>
+            </Link>
+          </div>
+
+          <div className="rounded-2xl border border-[#F3D39A] bg-[linear-gradient(180deg,#FFF8ED_0%,#FFFFFF_100%)] p-6 shadow-sm">
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#F3D39A] bg-[#FFF2D8] px-3 py-1 text-xs font-semibold text-[#B45309]">
+                <Lock className="h-3.5 w-3.5" />
+                Locked chapter
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">{chapter.title}</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">
+                  Only one chapter inside the unlocked GATE subject stays open in review mode. Complete verification to access the rest.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDialogOpen(true)}
+                className="rounded-full bg-[#F59E0B] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#EA580C]"
+              >
+                Unlock after verification
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <PendingVerificationDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onCheckStatus={() => navigate("/student/pending-approval")}
+        />
+      </>
     );
   }
 
@@ -119,7 +168,7 @@ export default function StudentQuestionBankChapterPage() {
             </div>
           </div>
         </div>
-        {allQuestions.length > 0 && (
+        {allQuestions.length > 0 ? (
           <div className="mt-4">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Progress</span>
@@ -129,7 +178,7 @@ export default function StudentQuestionBankChapterPage() {
               <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.round((attempted / allQuestions.length) * 100)}%` }} />
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       <div>
@@ -198,7 +247,7 @@ export default function StudentQuestionBankChapterPage() {
           </div>
         )}
 
-        {filteredQuestions.length > 0 && !allQuestions.every((question) => getQuestionAttempted(question)) && (
+        {filteredQuestions.length > 0 && !allQuestions.every((question) => getQuestionAttempted(question)) ? (
           <div className="mt-6 flex justify-center">
             <button
               onClick={() => {
@@ -212,7 +261,7 @@ export default function StudentQuestionBankChapterPage() {
               Start Practising
             </button>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

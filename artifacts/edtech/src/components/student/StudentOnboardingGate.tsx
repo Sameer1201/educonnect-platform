@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import indiaStateDistrictSource from "@/data/india-state-districts.json";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 import { invalidateStudentContentQueries } from "@/lib/student-content-cache";
 import type { AuthUser, StudentProfileDetails } from "@/types/auth";
@@ -582,7 +583,7 @@ export default function StudentOnboardingGate() {
       <option value="">Select your target exam</option>
       {examOptions.map((option) => (
         <option key={option.exam} value={option.exam}>
-          {option.label}
+          {formatExamDisplayName(option.label || option.exam) || option.label}
         </option>
       ))}
     </select>

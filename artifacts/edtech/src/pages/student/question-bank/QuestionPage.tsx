@@ -8,20 +8,17 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStudentPendingVerification } from "@/lib/student-access";
 import {
+  applyPendingPreviewLocksToExam,
   formatDifficultyLabel,
-  getPendingPreviewQuestionBankExam,
   getQuestionAttempted,
   getQuestionDifficultyTone,
   getQuestionSolved,
   type QuestionType,
+  type StudentQuestionBankQuestion,
   useStudentQuestionBankExam,
 } from "@/pages/student/question-bank/api";
 
-function isPreviewAnswerCorrect(
-  questionType: QuestionType,
-  answer: number | number[] | string,
-  question: NonNullable<ReturnType<typeof getPendingPreviewQuestionBankExam>>["subjects"][number]["chapters"][number]["questions"][number],
-) {
+function isPreviewAnswerCorrect(questionType: QuestionType, answer: number | number[] | string, question: StudentQuestionBankQuestion) {
   if (questionType === "integer") {
     const normalized = String(answer).trim();
     if (question.correctAnswerMin != null && question.correctAnswerMax != null) {
@@ -47,9 +44,11 @@ export default function StudentQuestionBankQuestionPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isPreviewMode = isStudentPendingVerification(user);
-  const previewData = isPreviewMode ? getPendingPreviewQuestionBankExam(examId) : null;
-  const { data: liveData, isLoading } = useStudentQuestionBankExam(isPreviewMode ? "" : examId);
-  const data = previewData ?? liveData;
+  const { data: liveData, isLoading } = useStudentQuestionBankExam(examId);
+  const data = useMemo(() => {
+    if (!liveData) return null;
+    return isPreviewMode ? applyPendingPreviewLocksToExam(liveData) : liveData;
+  }, [isPreviewMode, liveData]);
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedMulti, setSelectedMulti] = useState<number[]>([]);
   const [integerAnswer, setIntegerAnswer] = useState("");
@@ -109,11 +108,11 @@ export default function StudentQuestionBankQuestionPage() {
 
   const submittedMulti = useMemo(() => [...selectedMulti].sort((left, right) => left - right), [selectedMulti]);
 
-  if (!previewData && isLoading) {
+  if (isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading question...</div>;
   }
 
-  if (!exam || !subject || !chapter || !question || subject.isLocked) {
+  if (!exam || !subject || !chapter || !question || subject.isLocked || chapter.isLocked) {
     return (
       <div className="py-20 text-center text-muted-foreground">
         Not found.{" "}

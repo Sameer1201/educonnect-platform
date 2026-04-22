@@ -619,7 +619,7 @@ export async function setBrevoProviderActiveState({
 }
 
 function readPortalUrl() {
-  return readTrimmedEnv("PUBLIC_APP_URL") || "http://localhost:5173";
+  return readTrimmedEnv("PUBLIC_APP_URL") || "https://educonnect-platform-production-b1ce.up.railway.app";
 }
 
 function buildPortalUrl(path: string) {

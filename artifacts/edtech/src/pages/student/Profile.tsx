@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 import { invalidateStudentContentQueries } from "@/lib/student-content-cache";
 import {
@@ -233,7 +234,7 @@ export default function StudentProfile() {
                   variant="outline"
                   className="gap-1 border-[#D8E5FF] bg-[#EFF5FF] text-[#245BDB] hover:bg-[#E8F1FF]"
                 >
-                  <BookOpen size={12} /> Primary Exam: {user.subject ?? "Not selected"}
+                  <BookOpen size={12} /> Primary Exam: {formatExamDisplayName(user.subject) || "Not selected"}
                 </Badge>
                 <Badge variant="outline" className="gap-1"><CalendarDays size={12} /> Active Since: {user.createdAt ? new Date(user.createdAt as any).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "—"}</Badge>
               </div>
@@ -344,7 +345,7 @@ export default function StudentProfile() {
         <CardContent className="space-y-4">
           <div className="rounded-xl border border-border bg-muted/30 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Primary Exam</p>
-            <p className="mt-1 text-lg font-semibold">{user.subject ?? "Not selected"}</p>
+            <p className="mt-1 text-lg font-semibold">{formatExamDisplayName(user.subject) || "Not selected"}</p>
             <p className="mt-1 text-xs text-muted-foreground">This comes from the exam selected at registration and is used for your main batch assignment.</p>
           </div>
 
@@ -364,7 +365,7 @@ export default function StudentProfile() {
                 <option value="">Select exam to add</option>
                 {availableExamOptions
                   .filter((exam) => exam !== user.subject && !additionalExams.includes(exam))
-                  .map((exam) => <option key={exam} value={exam}>{exam}</option>)}
+                  .map((exam) => <option key={exam} value={exam}>{formatExamDisplayName(exam) || exam}</option>)}
               </select>
               <div className="flex flex-1 gap-2">
                 <Input value={customExam} onChange={(e) => setCustomExam(e.target.value)} placeholder="Or type another exam name" />
@@ -389,7 +390,7 @@ export default function StudentProfile() {
                 variant="secondary"
                 className="gap-2 border-[#D8E5FF] bg-[#EFF5FF] px-3 py-1 text-[#245BDB]"
               >
-                {exam}
+                {formatExamDisplayName(exam) || exam}
                 <button type="button" onClick={() => removeExam(exam)} className="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground">
                   <Trash2 size={11} />
                 </button>

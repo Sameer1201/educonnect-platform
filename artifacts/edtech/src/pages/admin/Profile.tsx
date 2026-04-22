@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
 import {
   Camera, User, Mail, Phone, BookOpen, Shield, CheckCircle,
@@ -271,7 +272,7 @@ export default function AdminProfile() {
               <Label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <BookOpen size={12} /> Subject
               </Label>
-              <Input value={user.subject ?? "—"} disabled className="bg-muted/50 text-muted-foreground" />
+              <Input value={formatExamDisplayName(user.subject) || "—"} disabled className="bg-muted/50 text-muted-foreground" />
             </div>
           </div>
 

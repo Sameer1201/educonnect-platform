@@ -55,6 +55,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { StudentProfileInsightsPanel, type StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
 import { StudentVerificationReviewDialog } from "@/components/student/StudentVerificationReviewDialog";
+import { formatExamDisplayName } from "@/lib/exam-display";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -105,7 +106,7 @@ function getStudentTargetExam(student: User) {
       }).profileDetails?.preparation?.targetExam?.trim()
     : "";
 
-  return profileTargetExam || student.subject?.trim() || "Not set";
+  return formatExamDisplayName(profileTargetExam || student.subject?.trim()) || "Not set";
 }
 
 function buildStudentViewModel(student: User): StudentViewModel {

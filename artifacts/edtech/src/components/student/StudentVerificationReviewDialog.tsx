@@ -27,6 +27,7 @@ import {
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import type { StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
 import { PremiumWhiteLoader } from "@/components/ui/PremiumWhiteLoader";
+import { formatExamDisplayName, formatExamDisplayNames } from "@/lib/exam-display";
 
 interface StudentVerificationSummary {
   fullName: string;
@@ -224,22 +225,27 @@ export function StudentVerificationReviewDialog({
   }, [insights, student]);
 
   const primaryExam = useMemo(
-    () => insights?.preparationSnapshot.preparation.targetExam?.trim()
+    () => formatExamDisplayName(
+      insights?.preparationSnapshot.preparation.targetExam?.trim()
       || insights?.student.subject?.trim()
       || student?.targetExam?.trim()
       || "",
+    ),
     [insights, student?.targetExam],
   );
 
   const selectedExams = useMemo(() => {
-    const exams = [
+    const exams = formatExamDisplayNames([
       primaryExam,
       ...(insights?.student.additionalExams ?? []),
-    ]
-      .map((exam) => exam.trim())
-      .filter((exam, index, all) => Boolean(exam) && all.indexOf(exam) === index);
+    ]);
     return exams;
   }, [insights?.student.additionalExams, primaryExam]);
+
+  const additionalExamLabels = useMemo(
+    () => formatExamDisplayNames(insights?.student.additionalExams ?? []),
+    [insights?.student.additionalExams],
+  );
 
   const learningMode = useMemo(() => {
     if (!insights) return "";
@@ -602,7 +608,7 @@ export function StudentVerificationReviewDialog({
                     <InfoCard icon={<BookOpen className="h-4 w-4" />} label="Provider" value={insights.preparationSnapshot.learningMode.provider || "Not provided"} iconBg="bg-amber-50" iconColor="text-amber-500" hoverBorder="hover:border-amber-200" hoverBg="group-hover:bg-amber-100" />
                     <InfoCard icon={<Search className="h-4 w-4" />} label="Lead Source" value={insights.preparationSnapshot.hearAboutUs || "Not provided"} iconBg="bg-violet-50" iconColor="text-violet-500" hoverBorder="hover:border-violet-200" hoverBg="group-hover:bg-violet-100" />
                     <div className="md:col-span-2">
-                      <InfoCard icon={<Target className="h-4 w-4" />} label="Additional Exams" value={insights.student.additionalExams.length > 0 ? insights.student.additionalExams.join(", ") : "Not provided"} iconBg="bg-rose-50" iconColor="text-rose-500" hoverBorder="hover:border-rose-200" hoverBg="group-hover:bg-rose-100" />
+                      <InfoCard icon={<Target className="h-4 w-4" />} label="Additional Exams" value={additionalExamLabels.length > 0 ? additionalExamLabels.join(", ") : "Not provided"} iconBg="bg-rose-50" iconColor="text-rose-500" hoverBorder="hover:border-rose-200" hoverBg="group-hover:bg-rose-100" />
                     </div>
                   </div>
                 </div>

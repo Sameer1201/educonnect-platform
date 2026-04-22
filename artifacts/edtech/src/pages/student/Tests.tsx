@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -308,8 +308,8 @@ const PENDING_PREVIEW_TEST_RESULTS: Record<number, {
 }> = {
   [-103]: {
     answeredCount: 14,
-    percentage: 72,
-    score: 21.5,
+    percentage: 68,
+    score: 20.5,
     totalPoints: 30,
     submittedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
   },
@@ -631,7 +631,7 @@ function StudentTestSeriesCard({
   const statusLabel = isCompleted
     ? completedSummary
     : isUpcoming
-      ? (daysUntil > 0 ? `In ${daysUntil} days` : "Upcoming")
+      ? (daysUntil > 1 ? `${daysUntil} days left` : daysUntil === 1 ? "1 day left" : "Upcoming")
       : "Ongoing";
   const statusClass = isCompleted
     ? "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]"
@@ -643,18 +643,20 @@ function StudentTestSeriesCard({
     <div className="group flex h-full flex-col overflow-hidden rounded-[26px] border border-[#E5E7EB] bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_16px_36px_rgba(15,23,42,0.10)]">
       <div className={`h-1.5 w-full ${accent.line}`} />
       <div className="flex h-full flex-col p-4 sm:p-6">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
+        <div className="mb-3 flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-2 min-w-0">
             <span className={`h-2.5 w-2.5 rounded-full ${accent.dot}`} />
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B7280]">{subject}</span>
           </div>
-          <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${categoryTone.pill}`}>
-            {getTestCategoryLabel(testCategory)}
-          </span>
-          <span className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs font-bold ${statusClass}`}>
-            {!isCompleted && !isUpcoming && <span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_0_2px_rgba(245,158,11,0.14)]" />}
-            {statusLabel}
-          </span>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:justify-end">
+            <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${categoryTone.pill}`}>
+              {getTestCategoryLabel(testCategory)}
+            </span>
+            <span className={`inline-flex shrink-0 whitespace-nowrap items-center rounded-full border px-3 py-1 text-xs font-bold ${statusClass}`}>
+              {!isCompleted && !isUpcoming && <span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_0_2px_rgba(245,158,11,0.14)]" />}
+              {statusLabel}
+            </span>
+          </div>
         </div>
 
         <h3 className="line-clamp-2 text-[17px] font-bold leading-tight text-[#0F172A] sm:text-[19px]">{test.title}</h3>
@@ -789,6 +791,56 @@ function TruncatedPentagonBadge({
         {countLabel}
       </span>
     </span>
+  );
+}
+
+function formatTimeLabel(totalSeconds: number) {
+  return `${Math.floor(totalSeconds / 60).toString().padStart(2, "0")}:${(totalSeconds % 60).toString().padStart(2, "0")}`;
+}
+
+function LiveTimeIndicator({
+  initialSeconds,
+  onTick,
+  onExpire,
+  className,
+}: {
+  initialSeconds: number;
+  onTick: (seconds: number) => void;
+  onExpire: () => void;
+  className: string;
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
+  const didExpireRef = useRef(false);
+
+  useEffect(() => {
+    setSecondsLeft(initialSeconds);
+    onTick(initialSeconds);
+    didExpireRef.current = initialSeconds <= 0;
+
+    const startedAt = Date.now();
+    const seed = initialSeconds;
+
+    const update = () => {
+      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+      const nextSeconds = Math.max(0, seed - elapsedSeconds);
+      onTick(nextSeconds);
+      setSecondsLeft((current) => (current === nextSeconds ? current : nextSeconds));
+
+      if (nextSeconds === 0 && !didExpireRef.current) {
+        didExpireRef.current = true;
+        onExpire();
+      }
+    };
+
+    update();
+    const intervalId = window.setInterval(update, 250);
+    return () => window.clearInterval(intervalId);
+  }, [initialSeconds, onExpire, onTick]);
+
+  return (
+    <div className={`${className} ${secondsLeft <= 300 ? "animate-pulse text-red-700" : "text-[#2b2b2b]"}`}>
+      <Clock size={13} /> Time Left : {formatTimeLabel(secondsLeft)}
+    </div>
   );
 }
 
@@ -930,7 +982,13 @@ function StudentTestsPreview() {
                 questionCount={PENDING_PREVIEW_TEST_QUESTION_COUNTS[test.id] ?? null}
                 detail={null}
                 hasSavedDraft={false}
-                onPrimaryAction={() => setPreviewTestId(test.id)}
+                onPrimaryAction={() => {
+                  if (getStudentTestStatus(test) === "completed") {
+                    setLocation(`/student/tests/${test.id}/analysis`);
+                    return;
+                  }
+                  setPreviewTestId(test.id);
+                }}
               />
             ))}
           </div>
@@ -1046,11 +1104,16 @@ function StudentTestsPreview() {
                   type="button"
                   className="rounded-full bg-[#F59E0B] px-6 text-white hover:bg-[#EA580C]"
                   onClick={() => {
+                    if (previewStatus === "completed") {
+                      setPreviewTestId(null);
+                      setLocation(`/student/tests/${previewTest.id}/analysis`);
+                      return;
+                    }
                     setPreviewTestId(null);
                     setPendingDialogOpen(true);
                   }}
                 >
-                  {previewStatus === "completed" ? "Open full analysis" : previewStatus === "upcoming" ? "Unlock test access" : "Resume after approval"}
+                  {previewStatus === "completed" ? "Open sample result" : previewStatus === "upcoming" ? "Unlock test access" : "Resume after approval"}
                 </Button>
               </div>
             </div>
@@ -1079,7 +1142,7 @@ function ApprovedStudentTests() {
   const [activeTest, setActiveTest] = useState<TestDetail | null>(null);
   const [answers, setAnswers] = useState<Record<number, AnswerValue>>({});
   const [savedAnswers, setSavedAnswers] = useState<Record<number, AnswerValue>>({});
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [timerInitialSeconds, setTimerInitialSeconds] = useState(0);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [visitedSet, setVisitedSet] = useState<Set<number>>(new Set());
   const [reviewSet, setReviewSet] = useState<Set<number>>(new Set());
@@ -1090,16 +1153,17 @@ function ApprovedStudentTests() {
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
   const [openSectionInfoId, setOpenSectionInfoId] = useState<number | null>(null);
   const [sectionInfoPopupLeft, setSectionInfoPopupLeft] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const integerInputRef = useRef<HTMLInputElement | null>(null);
   const sectionInfoCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionInfoAreaRef = useRef<HTMLDivElement | null>(null);
 
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
+  const timeLeftRef = useRef(0);
+  const autoSubmitTriggeredRef = useRef(false);
   const [interactionLog, setInteractionLog] = useState<InteractionLogEntry[]>([]);
   const [mobileViewport, setMobileViewport] = useState<MobileViewportState>(() => getMobileViewportState());
-  const [allowPortraitTestView, setAllowPortraitTestView] = useState(false);
+  const [allowPortraitTestView, setAllowPortraitTestView] = useState(true);
   const fullscreenRequestedRef = useRef(false);
 
   const getDraftKey = (testId: number) => `${TEST_DRAFT_PREFIX}-${testId}`;
@@ -1109,7 +1173,7 @@ function ApprovedStudentTests() {
   };
   const buildCurrentDraft = (overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
     answers: savedAnswers,
-    timeLeft,
+    timeLeft: timeLeftRef.current,
     currentQuestionIndex,
     visitedQuestionIds: Array.from(visitedSet),
     reviewQuestionIds: Array.from(reviewSet),
@@ -1174,7 +1238,7 @@ function ApprovedStudentTests() {
 
   const getElapsedSeconds = () => {
     if (!activeTest) return 0;
-    return Math.max(0, activeTest.durationMinutes * 60 - timeLeft);
+    return Math.max(0, activeTest.durationMinutes * 60 - timeLeftRef.current);
   };
 
   const logInteraction = (
@@ -1353,18 +1417,11 @@ function ApprovedStudentTests() {
   }, []);
 
   useEffect(() => {
-    if (!mobileViewport.isPortrait) {
-      setAllowPortraitTestView(false);
-    }
-  }, [mobileViewport.isPortrait]);
-
-  useEffect(() => {
     if (!activeTest) {
       void releaseLandscapeExperience();
       return;
     }
-    setAllowPortraitTestView(false);
-    void requestLandscapeExperience();
+    setAllowPortraitTestView(true);
 
     return () => {
       void releaseLandscapeExperience();
@@ -1390,7 +1447,10 @@ function ApprovedStudentTests() {
     setActiveTest(cleanTest);
     setAnswers(initialSavedAnswers);
     setSavedAnswers(initialSavedAnswers);
-    setTimeLeft(shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60);
+    const initialSeconds = shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60;
+    timeLeftRef.current = initialSeconds;
+    setTimerInitialSeconds(initialSeconds);
+    autoSubmitTriggeredRef.current = false;
     setQuestionTimings(shouldResume ? parsedDraft?.questionTimings ?? {} : {});
     setInteractionLog(
       shouldResume
@@ -1437,7 +1497,10 @@ function ApprovedStudentTests() {
         setActiveTest(cleanTest);
         setAnswers(initialSavedAnswers);
         setSavedAnswers(initialSavedAnswers);
-        setTimeLeft(Math.max(parsedDraft.timeLeft ?? cleanTest.durationMinutes * 60, 0));
+        const initialSeconds = Math.max(parsedDraft.timeLeft ?? cleanTest.durationMinutes * 60, 0);
+        timeLeftRef.current = initialSeconds;
+        setTimerInitialSeconds(initialSeconds);
+        autoSubmitTriggeredRef.current = false;
         setQuestionTimings(parsedDraft.questionTimings ?? {});
         setInteractionLog(parsedDraft.interactionLog ?? []);
         timingActiveRef.current = null;
@@ -1458,17 +1521,18 @@ function ApprovedStudentTests() {
   };
 
   useEffect(() => {
-    if (!activeTest) { if (timerRef.current) clearInterval(timerRef.current); return; }
-    timerRef.current = setInterval(() => {
-      setTimeLeft((t) => { if (t <= 1) { clearInterval(timerRef.current!); return 0; } return t - 1; });
-    }, 1000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [activeTest]);
+    if (!activeTest || activeTest.submission) return;
+    saveDraft(activeTest, buildCurrentDraft());
+  }, [activeTest, savedAnswers, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
 
   useEffect(() => {
     if (!activeTest || activeTest.submission) return;
-    saveDraft(activeTest, buildCurrentDraft());
-  }, [activeTest, savedAnswers, timeLeft, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
+    const intervalId = window.setInterval(() => {
+      saveDraft(activeTest, buildCurrentDraft());
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeTest, savedAnswers, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
 
   useEffect(() => () => {
     if (sectionInfoCloseTimeoutRef.current) clearTimeout(sectionInfoCloseTimeoutRef.current);
@@ -1546,7 +1610,7 @@ function ApprovedStudentTests() {
     },
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["student-tests"] });
-      if (timerRef.current) clearInterval(timerRef.current);
+      autoSubmitTriggeredRef.current = false;
       clearDraft(activeTest!.id);
       setShowSubmitReview(false);
       setActiveTest(null);
@@ -1556,8 +1620,6 @@ function ApprovedStudentTests() {
     },
     onError: () => toast({ title: "Submission failed", variant: "destructive" }),
   });
-
-  const formatTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`;
 
   const totalQ = activeTest?.questions.length ?? 0;
   const sectionGroups = activeTest
@@ -1815,7 +1877,7 @@ function ApprovedStudentTests() {
     if (!activeTest || submitMutation.isPending) return;
     const finalTimings = finalizeTimings();
     saveDraft(activeTest, buildCurrentDraft({ questionTimings: finalTimings }));
-    if (timerRef.current) clearInterval(timerRef.current);
+    autoSubmitTriggeredRef.current = false;
     setMobilePaletteOpen(false);
     setShowCalculator(false);
     setActiveTest(null);
@@ -1827,7 +1889,7 @@ function ApprovedStudentTests() {
     || "Exam Interface";
   const examSubheading = activeTest?.examSubheader?.trim() || activeTest?.className || activeTest?.subjectName || activeTest?.chapterName || "Online Test";
   const candidateDisplayName = user?.fullName ?? user?.username ?? "John Smith";
-  const isTimerUrgent = timeLeft <= 300;
+  const isCompactMobileRunner = mobileViewport.isMobile;
   const questionWatermarkLines = useMemo(
     () => [user?.email?.trim(), user?.phone?.trim()].filter((value): value is string => Boolean(value)),
     [user?.email, user?.phone],
@@ -1836,6 +1898,14 @@ function ApprovedStudentTests() {
   const additionalInstructionItems = extractAdditionalInstructionItems(activeTest?.instructions, activeTest?.durationMinutes ?? 30);
   const calculatorEnabled = getCalculatorEnabledFromExamConfig(activeTest?.examConfig);
   const showRotateOverlay = Boolean(activeTest && mobileViewport.isMobile && mobileViewport.isPortrait && !allowPortraitTestView);
+  const handleTimerTick = useCallback((seconds: number) => {
+    timeLeftRef.current = seconds;
+  }, []);
+  const handleTimerExpire = useCallback(() => {
+    if (!activeTest || submitMutation.isPending || autoSubmitTriggeredRef.current) return;
+    autoSubmitTriggeredRef.current = true;
+    submitMutation.mutate();
+  }, [activeTest, submitMutation]);
 
   const applyIntegerEdit = (transform: (value: string, start: number, end: number) => { value: string; caret: number }) => {
     if (!currentQuestion || currentQuestion.questionType !== "integer") return;
@@ -2178,7 +2248,7 @@ function ApprovedStudentTests() {
           onEscapeKeyDown={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
-          className="inset-0 h-[100dvh] max-h-[100dvh] w-[100vw] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none sm:h-[100dvh] sm:max-h-[100dvh] sm:w-[100vw] sm:max-w-none sm:rounded-none sm:p-0 dark:bg-white"
+          className="inset-0 h-[100svh] max-h-[100svh] w-[100vw] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-white p-0 shadow-none sm:h-[100dvh] sm:max-h-[100dvh] sm:w-[100vw] sm:max-w-none sm:rounded-none sm:p-0 dark:bg-white"
         >
           {activeTest && (
             <>
@@ -2234,9 +2304,14 @@ function ApprovedStudentTests() {
                             Calculator
                           </button>
                         ) : null}
-                        <div className={`shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px] ${isTimerUrgent ? "animate-pulse text-red-700" : "text-[#2b2b2b]"}`}>
-                          <Clock size={13} /> Time Left : {formatTime(timeLeft)}
-                        </div>
+                        {isCompactMobileRunner ? (
+                          <LiveTimeIndicator
+                            initialSeconds={timerInitialSeconds}
+                            onTick={handleTimerTick}
+                            onExpire={handleTimerExpire}
+                            className="shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
+                          />
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -2425,7 +2500,7 @@ function ApprovedStudentTests() {
                                         const firstQuestion = section.questionEntries[0];
                                         if (firstQuestion) goToQuestion(firstQuestion.globalIndex);
                                       }}
-                                      className={`whitespace-nowrap rounded-sm border pl-3 pr-10 py-1.5 shadow-sm transition-colors ${
+                                      className={`whitespace-nowrap rounded-sm border ${isCompactMobileRunner ? "px-3 py-1.5 text-[11px]" : "pl-3 pr-10 py-1.5"} shadow-sm transition-colors ${
                                         isActiveSection
                                           ? "border-[#7aa9d4] bg-[#7aa9d4] text-white"
                                           : "border-slate-300 bg-white text-[#4b6f96] hover:border-[#7aa9d4]"
@@ -2443,7 +2518,7 @@ function ApprovedStudentTests() {
                                         event.stopPropagation();
                                         openSectionInfo(section.id, event.currentTarget.parentElement);
                                       }}
-                                      className={`absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-[#78b2eb] bg-[#70b6f4] text-white transition-colors hover:bg-[#62acef] ${
+                                      className={`absolute right-2 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-[#78b2eb] bg-[#70b6f4] text-white transition-colors hover:bg-[#62acef] md:flex ${
                                         isActiveSection ? "border-[#8dc3f6] bg-[#7ec0f5]" : ""
                                       }`}
                                       aria-label={`Show ${section.label} details`}
@@ -2474,9 +2549,14 @@ function ApprovedStudentTests() {
                               </div>
                             </div>
                           )}
-                          <div className={`hidden h-[48px] shrink-0 items-center px-3 text-[13px] font-bold md:flex ${isTimerUrgent ? "animate-pulse text-red-700" : "text-[#2f2f2f]"}`}>
-                            Time Left : {formatTime(timeLeft)}
-                          </div>
+                          {!isCompactMobileRunner ? (
+                            <LiveTimeIndicator
+                              initialSeconds={timerInitialSeconds}
+                              onTick={handleTimerTick}
+                              onExpire={handleTimerExpire}
+                              className="hidden h-[48px] shrink-0 items-center px-3 text-[13px] font-bold md:flex"
+                            />
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 border-b border-slate-300 bg-white px-2 py-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2489,16 +2569,16 @@ function ApprovedStudentTests() {
                         <button
                           type="button"
                           onClick={() => setMobilePaletteOpen(true)}
-                          className="inline-flex items-center gap-1 rounded-sm border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 md:hidden"
+                          className="inline-flex touch-manipulation items-center gap-1 rounded-sm border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 md:hidden"
                         >
                           <PanelRightOpen size={14} />
                           Palette
                         </button>
                       </div>
 
-                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-2.5 py-2 pb-32 sm:px-4 sm:py-3 sm:pb-6">
+                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-2.5 py-2 pb-40 sm:px-4 sm:py-3 sm:pb-6">
                         <div className="relative mx-auto max-w-none overflow-hidden">
-                          {questionWatermarkLines.length > 0 && (
+                          {!isCompactMobileRunner && questionWatermarkLines.length > 0 && (
                             <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
                               <div className="grid min-h-full grid-cols-2 justify-items-center gap-x-14 gap-y-16 px-2 py-5 sm:grid-cols-3 sm:gap-x-20 sm:gap-y-20 lg:grid-cols-4">
                                 {Array.from({ length: 12 }).map((_, index) => (
@@ -2535,7 +2615,7 @@ function ApprovedStudentTests() {
                                       key={i}
                                       type="button"
                                       onClick={() => currentQuestion.questionType === "multi" ? toggleMultiAnswer(currentQuestion.id, i) : setMcqAnswer(currentQuestion.id, i)}
-                                      className="relative w-full border-0 bg-transparent px-1 py-2 text-left"
+                                      className="relative w-full touch-manipulation border-0 bg-transparent px-1 py-2 text-left"
                                       data-testid={`option-${currentQuestion.id}-${i}`}
                                     >
                                       <div className="flex items-start gap-3 sm:gap-4">
@@ -2562,7 +2642,7 @@ function ApprovedStudentTests() {
                                         )}
                                         <div className="min-w-0 flex-1">
                                           <div
-                                            className="pt-[1px] text-[17px] leading-[1.4] text-[#161616] sm:text-[24px] sm:leading-[1.45]"
+                                            className="pt-[1px] text-[15px] leading-[1.45] text-[#161616] sm:text-[24px] sm:leading-[1.45]"
                                             style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}
                                           >
                                             <RichQuestionContent
@@ -2649,31 +2729,34 @@ function ApprovedStudentTests() {
                         </div>
                       </div>
 
-                      <div className="border-t border-slate-300 bg-white px-2 py-3 md:hidden">
+                      <div
+                        className="sticky bottom-0 z-10 border-t border-slate-300 bg-white px-2 py-3 md:hidden"
+                        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
+                      >
                         <div className="space-y-2 md:hidden">
                           <div className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
+                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
                               Exit
                             </Button>
-                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
+                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
                               Previous
                             </Button>
-                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
+                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
                               Clear Response
                             </Button>
                             <Button
                               variant="outline"
-                              className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]"
+                              className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]"
                               onClick={() => setMobilePaletteOpen(true)}
                             >
                               Palette
                             </Button>
                           </div>
                           <div className="grid grid-cols-1 gap-2">
-                            <Button variant="outline" className="rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
+                            <Button variant="outline" className="touch-manipulation rounded-lg border border-[#bdbdbd] bg-white px-3 py-2 text-xs text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
                             </Button>
-                            <Button className="rounded-lg border border-[#6d9cc8] bg-[#4a8ac5] px-3 py-2 text-xs text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
+                            <Button className="touch-manipulation rounded-lg border border-[#6d9cc8] bg-[#4a8ac5] px-3 py-2 text-xs text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
                               {currentQuestionIndex === totalQ - 1 ? "Save Response" : "Save & Next"}
                             </Button>
                           </div>
@@ -2726,7 +2809,7 @@ function ApprovedStudentTests() {
                                     key={question.id}
                                     type="button"
                                     onClick={() => goToQuestion(globalIndex)}
-                                    className="flex h-[56px] items-center justify-center bg-transparent outline-none focus:outline-none focus-visible:outline-none"
+                                    className="flex h-[56px] touch-manipulation items-center justify-center bg-transparent outline-none focus:outline-none focus-visible:outline-none"
                                     aria-current={isCurrent ? "true" : undefined}
                                   >
                                     {renderPaletteBadge(index + 1, status)}

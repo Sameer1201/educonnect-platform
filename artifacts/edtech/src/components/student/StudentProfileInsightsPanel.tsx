@@ -51,6 +51,7 @@ import {
   UserCheck,
   XCircle,
 } from "lucide-react";
+import { formatExamDisplayName, formatExamDisplayNames } from "@/lib/exam-display";
 
 const ACTIVITY_COLORS = ["#f59e0b", "#fb923c", "#fcd34d", "#fdba74"];
 const HEATMAP_COLORS = ["#e2e8f0", "#fde68a", "#fb923c", "#f97316", "#c2410c"];
@@ -398,15 +399,16 @@ export function StudentProfileInsightsPanel({
   mode?: "full" | "submittedOnly";
 }) {
   const primaryExam = useMemo(
-    () => insights.preparationSnapshot.preparation.targetExam.trim() || insights.student.subject?.trim() || "",
+    () => formatExamDisplayName(insights.preparationSnapshot.preparation.targetExam.trim() || insights.student.subject?.trim() || ""),
     [insights.preparationSnapshot.preparation.targetExam, insights.student.subject],
   );
   const exams = useMemo(
-    () =>
-      [primaryExam, ...(insights.student.additionalExams ?? [])]
-        .map((exam) => exam.trim())
-        .filter((exam, index, all) => Boolean(exam) && all.indexOf(exam) === index),
+    () => formatExamDisplayNames([primaryExam, ...(insights.student.additionalExams ?? [])]),
     [insights.student.additionalExams, primaryExam],
+  );
+  const additionalExamLabels = useMemo(
+    () => formatExamDisplayNames(insights.student.additionalExams ?? []),
+    [insights.student.additionalExams],
   );
   const learningProvider = useMemo(
     () =>
@@ -462,7 +464,7 @@ export function StudentProfileInsightsPanel({
           ? [{ label: "University", value: preparationInstitution.universityValue }]
           : []),
         { label: "Target year", value: insights.preparationSnapshot.preparation.targetYear || "Not provided" },
-        { label: "Target exam", value: insights.preparationSnapshot.preparation.targetExam || "Not provided" },
+        { label: "Target exam", value: formatExamDisplayName(insights.preparationSnapshot.preparation.targetExam) || "Not provided" },
       ],
       learning: [
         { label: "Mode", value: insights.preparationSnapshot.learningMode.mode || "Not provided" },
@@ -854,7 +856,7 @@ export function StudentProfileInsightsPanel({
                 />
                 <ReviewField
                   label="Additional exams"
-                  value={insights.student.additionalExams.length > 0 ? insights.student.additionalExams.join(", ") : "Not provided"}
+                  value={additionalExamLabels.length > 0 ? additionalExamLabels.join(", ") : "Not provided"}
                   icon={<Target size={18} />}
                 />
                 <ReviewField

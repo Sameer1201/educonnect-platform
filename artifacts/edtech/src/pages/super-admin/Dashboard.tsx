@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { DashboardScene, TiltCard } from "@/components/dashboard-3d";
 import { APP_NAME } from "@/lib/brand";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import {
   AreaChart, Area,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -121,7 +122,7 @@ function TeacherRow({ teacher, rank }: {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold truncate">{teacher.fullName}</p>
-        {teacher.subject && <p className="text-[10px] text-muted-foreground truncate">{teacher.subject}</p>}
+        {teacher.subject && <p className="text-[10px] text-muted-foreground truncate">{formatExamDisplayName(teacher.subject) || teacher.subject}</p>}
       </div>
       <div className="text-right shrink-0">
         <p className="text-xs font-bold">{teacher.testsCount} <span className="text-muted-foreground font-normal">tests</span></p>
@@ -717,7 +718,7 @@ export default function SuperAdminDashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold truncate">{admin.fullName}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      @{admin.username}{admin.subject ? ` · ${admin.subject}` : ""}
+                      @{admin.username}{admin.subject ? ` · ${formatExamDisplayName(admin.subject) || admin.subject}` : ""}
                     </p>
                   </div>
                   <Badge variant="secondary" className="text-[9px] shrink-0">Admin</Badge>

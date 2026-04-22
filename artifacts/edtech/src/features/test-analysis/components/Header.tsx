@@ -79,14 +79,16 @@ export default function Header({
           </div>
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             {technicalButton}
-            <button
-              onClick={onViewSolutions}
-              disabled={viewSolutionsDisabled}
-              className="chip-orange-solid inline-flex w-full items-center justify-center gap-2 self-start rounded-full px-6 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:w-auto sm:self-auto"
-            >
-              View Solution
-              <ArrowRight className="h-4 w-4" />
-            </button>
+            {onViewSolutions ? (
+              <button
+                onClick={onViewSolutions}
+                disabled={viewSolutionsDisabled}
+                className="chip-orange-solid inline-flex w-full items-center justify-center gap-2 self-start rounded-full px-6 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:w-auto sm:self-auto"
+              >
+                View Solution
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -110,14 +112,16 @@ export default function Header({
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
           {technicalButton}
-          <button
-            onClick={onViewSolutions}
-            disabled={viewSolutionsDisabled}
-            className="chip-orange-solid flex w-full items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:w-auto"
-          >
-            View Solution
-            <ArrowRight className="h-4 w-4" />
-          </button>
+          {onViewSolutions ? (
+            <button
+              onClick={onViewSolutions}
+              disabled={viewSolutionsDisabled}
+              className="chip-orange-solid flex w-full items-center justify-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed sm:w-auto"
+            >
+              View Solution
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
       </div>
 

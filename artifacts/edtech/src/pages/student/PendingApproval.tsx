@@ -5,6 +5,7 @@ import { Clock3, LogOut, Mail, RefreshCcw, ShieldCheck } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import { STUDENT_VERIFICATION_CONTACT_EMAIL } from "@/lib/student-access";
 import type { AuthUser } from "@/types/auth";
 
@@ -111,7 +112,7 @@ export default function StudentPendingApproval() {
             <div className="rounded-[20px] border border-[#E5E7EB] bg-[#FAFBFF] p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6B7280]">Exam</div>
               <p className="mt-2.5 truncate text-[1.9rem] font-black leading-none text-[#111827]">
-                {user?.subject || "Not selected"}
+                {formatExamDisplayName(user?.subject) || "Not selected"}
               </p>
               <p className="mt-1.5 text-xs leading-5 text-[#6B7280]">Locked for review</p>
             </div>

@@ -241,13 +241,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Logo */}
       <div className={`border-b border-[#E5E7EB] px-4 py-4 ${collapsed ? "items-center" : ""}`}>
         <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"} gap-2`}>
-          <div className="flex items-center gap-2.5 min-w-0">
-            <BrandLogo variant={collapsed ? "icon" : "wordmark"} imageClassName={collapsed ? "h-8" : "h-10"} />
-            {!collapsed && (
-              <div className="min-w-0">
-                <p className="text-[10px] text-[#6B7280]">{roleConfig.label} Portal</p>
-              </div>
-            )}
+          <div className="flex min-w-0 items-center">
+            <BrandLogo
+              variant={collapsed ? "icon" : "wordmark"}
+              imageClassName={collapsed ? "h-8" : "h-9 w-9"}
+            />
           </div>
         </div>
       </div>

@@ -15,6 +15,7 @@ import {
   GraduationCap, Users, CalendarDays,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { formatExamDisplayName } from "@/lib/exam-display";
 import { format } from "date-fns";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -170,7 +171,7 @@ function StaffProfileDialog({ staff }: { staff: StaffUser }) {
               <div className="space-y-2 text-sm">
                 <div className="flex items-start gap-2"><Mail size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.email || "No email added"}</span></div>
                 <div className="flex items-start gap-2"><Phone size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.phone || "No phone added"}</span></div>
-                <div className="flex items-start gap-2"><BookOpen size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.subject || "No subject assigned"}</span></div>
+                <div className="flex items-start gap-2"><BookOpen size={14} className="mt-0.5 text-muted-foreground" /><span>{formatExamDisplayName(profile.subject) || profile.subject || "No subject assigned"}</span></div>
                 <div className="flex items-start gap-2"><CalendarDays size={14} className="mt-0.5 text-muted-foreground" /><span>Joined {profile.createdAt ? format(new Date(profile.createdAt), "MMM d, yyyy") : "Unknown"}</span></div>
                 <div className="flex items-start gap-2"><KeyRound size={14} className="mt-0.5 text-muted-foreground" /><span>{profile.mustChangePassword ? "Password reset pending" : "Password active"}</span></div>
               </div>
@@ -705,7 +706,7 @@ export default function SuperAdminAdmins() {
                       <div className="mt-0.5 flex items-center gap-3 flex-wrap">
                         <span className="text-xs text-muted-foreground">@{staff.username}</span>
                         {staff.email && <span className="text-xs text-muted-foreground flex items-center gap-1"><Mail size={10} />{staff.email}</span>}
-                        {staff.subject && <span className="text-xs text-muted-foreground flex items-center gap-1"><BookOpen size={10} />{staff.subject}</span>}
+                        {staff.subject && <span className="text-xs text-muted-foreground flex items-center gap-1"><BookOpen size={10} />{formatExamDisplayName(staff.subject) || staff.subject}</span>}
                         {staff.phone && <span className="text-xs text-muted-foreground flex items-center gap-1"><Phone size={10} />{staff.phone}</span>}
                       </div>
                     </div>
