@@ -123,6 +123,15 @@ function buildExistingQuestionDuplicateKey(question: { question: string; questio
   return normalizeQuestionDuplicateKey(question.question, questionType);
 }
 
+function chunkValues<T>(values: T[], size: number): T[][] {
+  if (values.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
 async function getAccessibleQuestionBankClasses(auth: Auth) {
   if (auth.role === "super_admin") {
     return db
@@ -1993,16 +2002,21 @@ router.post("/question-bank/classes/:classId/structure-sync", async (req, res) =
 
   const result = await db.transaction(async (tx) => {
     const existingSubjects = await tx
-      .select()
+      .select({
+        id: subjectsTable.id,
+        title: subjectsTable.title,
+        order: subjectsTable.order,
+      })
       .from(subjectsTable)
-      .where(eq(subjectsTable.classId, classId))
-      .orderBy(subjectsTable.order, subjectsTable.createdAt, subjectsTable.id);
+      .where(eq(subjectsTable.classId, classId));
 
-    const existingSubjectMap = new Map(
-      existingSubjects
-        .map((subject) => [normalizeTitleKey(subject.title), subject] as const)
-        .filter((entry): entry is [string, typeof subjectsTable.$inferSelect] => Boolean(entry[0])),
-    );
+    const existingSubjectEntries = existingSubjects
+      .map((subject) => {
+        const key = normalizeTitleKey(subject.title);
+        return key ? ([key, subject] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, typeof existingSubjects[number]] => entry !== null);
+    const existingSubjectMap = new Map(existingSubjectEntries);
 
     const newSubjectValues = parsedSubjects
       .filter((subject) => !existingSubjectMap.has(normalizeTitleKey(subject.title)!))
@@ -2014,23 +2028,39 @@ router.post("/question-bank/classes/:classId/structure-sync", async (req, res) =
         order: existingSubjects.length + index,
       }));
 
-    const createdSubjects = newSubjectValues.length > 0
-      ? await tx.insert(subjectsTable).values(newSubjectValues).returning()
-      : [];
-
-    const subjectMap = new Map(existingSubjectMap);
-    for (const subject of createdSubjects) {
-      const key = normalizeTitleKey(subject.title);
-      if (key) subjectMap.set(key, subject);
+    if (newSubjectValues.length > 0) {
+      await tx.insert(subjectsTable).values(newSubjectValues);
     }
+
+    const allSubjects = newSubjectValues.length > 0
+      ? await tx
+          .select({
+            id: subjectsTable.id,
+            title: subjectsTable.title,
+            order: subjectsTable.order,
+          })
+          .from(subjectsTable)
+          .where(eq(subjectsTable.classId, classId))
+      : existingSubjects;
+
+    const subjectEntries = allSubjects
+      .map((subject) => {
+        const key = normalizeTitleKey(subject.title);
+        return key ? ([key, subject] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, typeof allSubjects[number]] => entry !== null);
+    const subjectMap = new Map(subjectEntries);
 
     const allSubjectIds = [...subjectMap.values()].map((subject) => subject.id);
     const existingChapters = allSubjectIds.length > 0
       ? await tx
-          .select()
+          .select({
+            subjectId: chaptersTable.subjectId,
+            title: chaptersTable.title,
+            order: chaptersTable.order,
+          })
           .from(chaptersTable)
           .where(inArray(chaptersTable.subjectId, allSubjectIds))
-          .orderBy(chaptersTable.order, chaptersTable.createdAt, chaptersTable.id)
       : [];
 
     const chapterKeysBySubject = new Map<number, Set<string>>();
@@ -2047,7 +2077,8 @@ router.post("/question-bank/classes/:classId/structure-sync", async (req, res) =
       nextOrderBySubject.set(chapter.subjectId, (nextOrderBySubject.get(chapter.subjectId) ?? 0) + 1);
     }
 
-    for (const subject of createdSubjects) {
+    for (const subject of allSubjects) {
+      if (nextOrderBySubject.has(subject.id)) continue;
       nextOrderBySubject.set(subject.id, 0);
       chapterKeysBySubject.set(subject.id, new Set());
     }
@@ -2081,16 +2112,18 @@ router.post("/question-bank/classes/:classId/structure-sync", async (req, res) =
       nextOrderBySubject.set(subject.id, nextOrder);
     }
 
-    const createdChapters = chapterValues.length > 0
-      ? await tx.insert(chaptersTable).values(chapterValues).returning()
-      : [];
+    if (chapterValues.length > 0) {
+      for (const chunk of chunkValues(chapterValues, 200)) {
+        await tx.insert(chaptersTable).values(chunk);
+      }
+    }
 
     const firstSubjectKey = normalizeTitleKey(parsedSubjects[0]?.title ?? "");
     const firstSubjectId = firstSubjectKey ? subjectMap.get(firstSubjectKey)?.id ?? null : null;
 
     return {
-      createdSubjects: createdSubjects.length,
-      createdChapters: createdChapters.length,
+      createdSubjects: newSubjectValues.length,
+      createdChapters: chapterValues.length,
       firstSubjectId,
     };
   });
