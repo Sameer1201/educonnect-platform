@@ -2512,7 +2512,7 @@ function ApprovedStudentTests() {
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     <div className="flex min-h-0 flex-1 overflow-hidden">
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white md:border-r md:border-slate-300">
-                      <div className="border-b border-slate-300 bg-white px-1.5 py-1.5">
+                      <div className="hidden border-b border-slate-300 bg-white px-1.5 py-1.5 md:block">
                         <div className="flex items-center justify-between gap-2 px-0.5">
                           <p className="text-[13px] font-bold text-[#5b5b5b]">Sections</p>
                           {calculatorEnabled ? (
@@ -2601,7 +2601,7 @@ function ApprovedStudentTests() {
                           ) : null}
                         </div>
                       </div>
-                      <div className="flex flex-col gap-2 border-b border-slate-300 bg-white px-2 py-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="hidden flex-col gap-2 border-b border-slate-300 bg-white px-2 py-2 sm:flex-row sm:items-center sm:justify-between md:flex">
                         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-[13px] font-bold text-black">Question Type: {currentQuestion.questionType.toUpperCase()}</span>
@@ -2777,21 +2777,11 @@ function ApprovedStudentTests() {
                       >
                         <div className="mx-auto max-w-full space-y-2 md:hidden">
                           <div className="grid min-w-0 grid-cols-2 gap-2">
-                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={exitTest}>
-                              Exit
-                            </Button>
                             <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
                               Previous
                             </Button>
                             <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
                               Clear Response
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]"
-                              onClick={() => setMobilePaletteOpen(true)}
-                            >
-                              Palette
                             </Button>
                           </div>
                           <div className="grid min-w-0 grid-cols-1 gap-2">
