@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Tag, XCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Sparkles, Tag, Trophy, XCircle } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "wouter";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
@@ -37,6 +37,42 @@ function isPreviewAnswerCorrect(questionType: QuestionType, answer: number | num
   return Number(answer) === (question.correctAnswer ?? -1);
 }
 
+const CHEER_STREAK_MILESTONES = new Set([3, 5, 10]);
+
+function getCorrectStreakTillQuestion(questions: StudentQuestionBankQuestion[], currentIndex: number, currentAttemptIsCorrect: boolean) {
+  if (currentIndex < 0 || !currentAttemptIsCorrect) return 0;
+
+  let streak = 0;
+  for (let index = currentIndex; index >= 0; index -= 1) {
+    const isCorrect = index === currentIndex ? currentAttemptIsCorrect : Boolean(questions[index]?.progress?.lastIsCorrect);
+    if (!isCorrect) break;
+    streak += 1;
+  }
+
+  return streak;
+}
+
+function getCheerCopy(streak: number) {
+  if (streak === 10) {
+    return {
+      title: "10 in a row",
+      description: "Brilliant streak. You are on fire.",
+    };
+  }
+
+  if (streak === 5) {
+    return {
+      title: "5 in a row",
+      description: "Great momentum. Keep the run going.",
+    };
+  }
+
+  return {
+    title: "3 in a row",
+    description: "Nice streak. Keep it up.",
+  };
+}
+
 export default function StudentQuestionBankQuestionPage() {
   const { examId, subjectId, chapterId, questionId } = useParams<{ examId: string; subjectId: string; chapterId: string; questionId: string }>();
   const [, navigate] = useLocation();
@@ -54,6 +90,7 @@ export default function StudentQuestionBankQuestionPage() {
   const [integerAnswer, setIntegerAnswer] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<{ isCorrect: boolean } | null>(null);
+  const [cheerStreak, setCheerStreak] = useState<number | null>(null);
 
   const exam = data?.exam;
   const subject = data?.subjects.find((entry) => String(entry.id) === subjectId);
@@ -78,16 +115,18 @@ export default function StudentQuestionBankQuestionPage() {
       setResult(payload);
       setRevealed(true);
 
+      if (payload.isCorrect) {
+        const streak = getCorrectStreakTillQuestion(chapterQuestions, currentIndex, true);
+        if (CHEER_STREAK_MILESTONES.has(streak)) {
+          setCheerStreak(streak);
+        }
+      }
+
       if (!isPreviewMode) {
         queryClient.invalidateQueries({ queryKey: ["student-question-bank-exam", examId] });
         queryClient.invalidateQueries({ queryKey: ["student-question-bank-exams"] });
         queryClient.invalidateQueries({ queryKey: ["dashboard-question-bank-progress"] });
       }
-
-      toast({
-        title: payload.isCorrect ? "Correct answer" : "Attempt recorded",
-        description: payload.isCorrect ? "Nice work." : isPreviewMode ? "Preview answer checked successfully." : "Keep going, your progress has been saved.",
-      });
     },
     onError: (error: Error) => {
       toast({
@@ -105,6 +144,12 @@ export default function StudentQuestionBankQuestionPage() {
     setRevealed(false);
     setResult(null);
   }, [questionId]);
+
+  useEffect(() => {
+    if (cheerStreak === null) return;
+    const timer = window.setTimeout(() => setCheerStreak(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [cheerStreak]);
 
   const submittedMulti = useMemo(() => [...selectedMulti].sort((left, right) => left - right), [selectedMulti]);
 
@@ -181,9 +226,34 @@ export default function StudentQuestionBankQuestionPage() {
   };
 
   const isCorrect = result?.isCorrect ?? false;
+  const cheerCopy = cheerStreak ? getCheerCopy(cheerStreak) : null;
 
   return (
     <div className="space-y-6">
+      {cheerCopy ? (
+        <div className="pointer-events-none fixed inset-x-0 top-5 z-50 flex justify-center px-4">
+          <div className="animate-in fade-in zoom-in-95 slide-in-from-top-2 duration-300">
+            <div className="relative overflow-hidden rounded-full border border-[#FDE68A] bg-gradient-to-r from-[#FFF7E8] via-white to-[#ECFCCB] px-4 py-3 shadow-[0_12px_32px_rgba(217,119,6,0.16)]">
+              <div className="absolute -left-2 top-1/2 h-10 w-10 -translate-y-1/2 rounded-full bg-[#F59E0B]/15 blur-xl" />
+              <div className="absolute -right-1 top-1 h-8 w-8 rounded-full bg-[#22C55E]/15 blur-lg" />
+              <div className="relative flex items-center gap-3">
+                <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#F59E0B]/15 text-[#D97706]">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#F59E0B]/20" />
+                  <Trophy className="relative h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 animate-pulse text-[#D97706]" />
+                    <p className="text-sm font-bold text-[#111827]">{cheerCopy.title}</p>
+                  </div>
+                  <p className="text-xs font-medium text-[#6B7280]">{cheerCopy.description}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
         <Link to={`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}`}>
           <button className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary">
