@@ -414,11 +414,11 @@ export default function StudentQuestionBankQuestionPage() {
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:flex sm:items-center sm:justify-between">
+      <div className="grid grid-cols-1 gap-3 sm:flex sm:items-center sm:justify-between">
         <button
           onClick={() => prevQuestion && navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${prevQuestion.id}`)}
           disabled={!prevQuestion}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Previous
@@ -431,7 +431,7 @@ export default function StudentQuestionBankQuestionPage() {
               attemptMutation.isPending ||
               (questionType === "integer" ? integerAnswer.trim() === "" : questionType === "multi" ? selectedMulti.length === 0 : selected === null)
             }
-            className="col-span-2 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:col-auto"
+            className="min-h-12 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
           >
             {attemptMutation.isPending ? "Submitting..." : "Submit Answer"}
           </button>
@@ -442,20 +442,22 @@ export default function StudentQuestionBankQuestionPage() {
                 ? navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${nextQuestion.id}`)
                 : navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}`)
             }
-            className="col-span-2 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 sm:col-auto"
+            className="min-h-12 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 sm:min-h-0"
           >
             {nextQuestion ? "Next Question" : "Finish Chapter"}
           </button>
         )}
 
-        <button
-          onClick={() => nextQuestion && navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${nextQuestion.id}`)}
-          disabled={!nextQuestion}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Next
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
+        {!revealed ? (
+          <button
+            onClick={() => nextQuestion && navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${nextQuestion.id}`)}
+            disabled={!nextQuestion}
+            className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
+          >
+            Next
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
       </div>
     </div>
   );
