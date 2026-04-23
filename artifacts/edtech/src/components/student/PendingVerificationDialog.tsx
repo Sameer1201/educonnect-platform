@@ -14,17 +14,27 @@ type PendingVerificationDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCheckStatus?: () => void;
+  title?: string;
+  description?: string;
+  emailSubject?: string;
+  emailBody?: string;
+  checkStatusLabel?: string;
 };
 
 export default function PendingVerificationDialog({
   open,
   onOpenChange,
   onCheckStatus,
+  title = "Verification Pending",
+  description = "The dashboard preview is available, but this feature will unlock only after admin verification.",
+  emailSubject = "Student verification pending",
+  emailBody = "Hi Admin,\n\nMy account verification is still pending. Please review my student account.\n",
+  checkStatusLabel = "Check status",
 }: PendingVerificationDialogProps) {
   const handleEmailAdmin = () => {
     if (typeof window === "undefined") return;
-    const subject = encodeURIComponent("Student verification pending");
-    const body = encodeURIComponent("Hi Admin,\n\nMy account verification is still pending. Please review my student account.\n");
+    const subject = encodeURIComponent(emailSubject);
+    const body = encodeURIComponent(emailBody);
     window.location.href = `mailto:${STUDENT_VERIFICATION_CONTACT_EMAIL}?subject=${subject}&body=${body}`;
   };
 
@@ -38,9 +48,9 @@ export default function PendingVerificationDialog({
                 <ShieldAlert className="h-5 w-5" />
               </div>
               <DialogHeader className="space-y-1 text-left">
-                <DialogTitle className="text-xl font-bold text-[#111827]">Verification Pending</DialogTitle>
+                <DialogTitle className="text-xl font-bold text-[#111827]">{title}</DialogTitle>
                 <DialogDescription className="text-sm leading-6 text-[#6B7280]">
-                  The dashboard preview is available, but this feature will unlock only after admin verification.
+                  {description}
                 </DialogDescription>
               </DialogHeader>
             </div>
@@ -79,7 +89,7 @@ export default function PendingVerificationDialog({
                       onCheckStatus();
                     }}
                   >
-                    Check status
+                    {checkStatusLabel}
                   </Button>
                 ) : null}
                 <Button

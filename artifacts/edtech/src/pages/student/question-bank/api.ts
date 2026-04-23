@@ -138,22 +138,23 @@ export function applyPendingPreviewLocksToExam(data: StudentQuestionBankExamResp
   };
 }
 
-export function useStudentQuestionBankExams() {
+export function useStudentQuestionBankExams(enabled = true) {
   return useQuery<StudentQuestionBankExamSummary[]>({
     queryKey: ["student-question-bank-exams"],
     queryFn: async () => {
       const exams = await api.get<StudentQuestionBankExamSummary[]>("/question-bank/exams");
       return exams.map(normalizeExamSummary);
     },
+    enabled,
     staleTime: 60_000,
   });
 }
 
-export function useStudentQuestionBankExam(examKey: string) {
+export function useStudentQuestionBankExam(examKey: string, enabled = true) {
   return useQuery<StudentQuestionBankExamResponse>({
     queryKey: ["student-question-bank-exam", examKey],
     queryFn: async () => normalizeExamResponse(await api.get<StudentQuestionBankExamResponse>(`/question-bank/exams/${examKey}`)),
-    enabled: Boolean(examKey),
+    enabled: enabled && Boolean(examKey),
     staleTime: 30_000,
   });
 }

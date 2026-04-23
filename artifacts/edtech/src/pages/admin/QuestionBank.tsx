@@ -42,11 +42,13 @@ import { Input } from "@/components/ui/input";
 import { PremiumWhiteLoader } from "@/components/ui/PremiumWhiteLoader";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
+import { buildQuestionBankWordTemplateText, parseQuestionBankWordText } from "@/lib/questionBankWordImport";
 import { stripRichHtmlToText } from "@/lib/richContent";
 import { SubjectThemeIcon, getSubjectAccent, getSubjectTheme } from "@/lib/subject-theme";
 import {
@@ -145,6 +147,10 @@ interface ReportQueueItem {
   createdAt: string;
 }
 
+type WordImportTarget =
+  | { mode: "exam"; examKey: string }
+  | { mode: "subject"; subject: SubjectItem };
+
 function formatQuestionBankDeadlineLabel(value: string | null | undefined) {
   if (!value) return null;
   const date = new Date(value);
@@ -219,6 +225,8 @@ interface QuestionBankSubjectTransferBundle {
     questions?: Array<Record<string, unknown>>;
   }>;
 }
+
+const QUESTION_BANK_JSON_IMPORT_ACCEPT = ".json,application/json";
 
 const emptyEditor = (): EditorState => ({
   question: "",
@@ -468,6 +476,97 @@ function slugifyFilename(value: string, fallback: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || fallback;
 }
 
+function normalizeQuestionBankImportKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function parseExamImportBundle(file: File): Promise<{
+  bundle: QuestionBankExamTransferBundle;
+  sourceLabel: "JSON";
+  warnings: string[];
+}> {
+  const text = await file.text();
+  return {
+    bundle: JSON.parse(text) as QuestionBankExamTransferBundle,
+    sourceLabel: "JSON",
+    warnings: [],
+  };
+}
+
+async function parseSubjectImportBundle(
+  file: File,
+): Promise<{
+  bundle: QuestionBankSubjectTransferBundle;
+  sourceLabel: "JSON";
+  warnings: string[];
+}> {
+  const text = await file.text();
+  return {
+    bundle: JSON.parse(text) as QuestionBankSubjectTransferBundle,
+    sourceLabel: "JSON",
+    warnings: [],
+  };
+}
+
+function buildExamImportBundleFromWordText(text: string): {
+  bundle: QuestionBankExamTransferBundle;
+  sourceLabel: "Document";
+  warnings: string[];
+} {
+  const parsed = parseQuestionBankWordText(text);
+  return {
+    bundle: {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      subjects: parsed.subjects.map((subject) => ({
+        title: subject.title,
+        chapters: subject.chapters.map((chapter) => ({
+          title: chapter.title,
+          description: chapter.description,
+          questions: chapter.questions.map((question) => ({ ...question })) as Array<Record<string, unknown>>,
+        })),
+      })),
+    },
+    sourceLabel: "Document",
+    warnings: parsed.warnings,
+  };
+}
+
+function buildSubjectImportBundleFromWordText(
+  text: string,
+  subject: SubjectItem,
+): {
+  bundle: QuestionBankSubjectTransferBundle;
+  sourceLabel: "Document";
+  warnings: string[];
+} {
+  const parsed = parseQuestionBankWordText(text, { defaultSubjectTitle: subject.title });
+  const subjectKey = normalizeQuestionBankImportKey(subject.title);
+  const matchedSubject = parsed.subjects.find((entry) => normalizeQuestionBankImportKey(entry.title) === subjectKey)
+    ?? (parsed.subjects.length === 1 ? parsed.subjects[0] : null);
+
+  if (!matchedSubject) {
+    throw new Error(`This document contains multiple subjects. Open the exam-level Word setup or keep only ${subject.title} here.`);
+  }
+
+  return {
+    bundle: {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      subject: {
+        title: matchedSubject.title,
+      },
+      chapters: matchedSubject.chapters.map((chapter) => ({
+        title: chapter.title,
+        description: chapter.description,
+        questions: chapter.questions.map((question) => ({ ...question })) as Array<Record<string, unknown>>,
+      })),
+    },
+    sourceLabel: "Document",
+    warnings: parsed.warnings,
+  };
+}
+
 function getInitials(name: string) {
   return (
     name
@@ -652,6 +751,9 @@ export default function AdminQuestionBank() {
   const [importingExamKey, setImportingExamKey] = useState<string | null>(null);
   const [exportingSubjectId, setExportingSubjectId] = useState<number | null>(null);
   const [importingSubjectId, setImportingSubjectId] = useState<number | null>(null);
+  const [wordImportTarget, setWordImportTarget] = useState<WordImportTarget | null>(null);
+  const [wordImportText, setWordImportText] = useState("");
+  const [wordImportSubmitting, setWordImportSubmitting] = useState(false);
   const [moveTargetByQuestion, setMoveTargetByQuestion] = useState<Record<number, string>>({});
   const [focusedFiltersOpen, setFocusedFiltersOpen] = useState(false);
   const [focusedMarksFilter, setFocusedMarksFilter] = useState<"all" | string>("all");
@@ -1334,42 +1436,52 @@ export default function AdminQuestionBank() {
     }
   };
 
+  const submitExamImportBundle = async (parsedImport: {
+    bundle: QuestionBankExamTransferBundle;
+    sourceLabel: "JSON" | "Document";
+    warnings: string[];
+  }) => {
+    if (!selectedExamKey) return;
+
+    const parsed = parsedImport.bundle;
+    const rawSubjects = Array.isArray(parsed.subjects) ? parsed.subjects : [];
+    if (rawSubjects.length === 0) {
+      throw new Error(`No subjects were found in the ${parsedImport.sourceLabel.toLowerCase()} import.`);
+    }
+
+    const response = await fetch(`${BASE}/api/question-bank/exams/${selectedExamKey}/import`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjects: rawSubjects }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error((payload as { error?: string }).error ?? "Failed to import question bank bundle");
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["admin-question-bank", selectedExamKey] });
+    queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
+
+    const result = payload as {
+      importedCount?: number;
+      skippedSubjectCount?: number;
+      skippedChapterCount?: number;
+      skippedDuplicateCount?: number;
+      invalidQuestionCount?: number;
+    };
+    toast({
+      title: "Question bank imported",
+      description: `Imported ${result.importedCount ?? 0} questions from ${parsedImport.sourceLabel}${result.skippedDuplicateCount ? `, ${result.skippedDuplicateCount} duplicates skipped` : ""}${result.invalidQuestionCount ? `, ${result.invalidQuestionCount} invalid rows skipped` : ""}${(result.skippedSubjectCount ?? 0) || (result.skippedChapterCount ?? 0) ? `, skipped ${result.skippedSubjectCount ?? 0} subject and ${result.skippedChapterCount ?? 0} chapter mappings` : ""}${parsedImport.warnings.length ? `, ${parsedImport.warnings.length} formatting note${parsedImport.warnings.length === 1 ? "" : "s"}` : ""}.`,
+    });
+  };
+
   const handleExamImport = async (file?: File | null) => {
     if (!file || !selectedExamKey) return;
     setImportingExamKey(selectedExamKey);
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as QuestionBankExamTransferBundle;
-      const rawSubjects = Array.isArray(parsed.subjects) ? parsed.subjects : [];
-      if (rawSubjects.length === 0) {
-        throw new Error("No subjects were found in the JSON bundle.");
-      }
-
-      const response = await fetch(`${BASE}/api/question-bank/exams/${selectedExamKey}/import`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subjects: rawSubjects }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error((payload as { error?: string }).error ?? "Failed to import question bank bundle");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank", selectedExamKey] });
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
-
-      const result = payload as {
-        importedCount?: number;
-        skippedSubjectCount?: number;
-        skippedChapterCount?: number;
-        skippedDuplicateCount?: number;
-        invalidQuestionCount?: number;
-      };
-      toast({
-        title: "Question bank imported",
-        description: `Imported ${result.importedCount ?? 0} questions${result.skippedDuplicateCount ? `, ${result.skippedDuplicateCount} duplicates skipped` : ""}${result.invalidQuestionCount ? `, ${result.invalidQuestionCount} invalid rows skipped` : ""}${(result.skippedSubjectCount ?? 0) || (result.skippedChapterCount ?? 0) ? `, skipped ${result.skippedSubjectCount ?? 0} subject and ${result.skippedChapterCount ?? 0} chapter mappings` : ""}.`,
-      });
+      const parsedImport = await parseExamImportBundle(file);
+      await submitExamImportBundle(parsedImport);
     } catch (error) {
       toast({
         title: "Import failed",
@@ -1408,41 +1520,52 @@ export default function AdminQuestionBank() {
     }
   };
 
+  const submitSubjectImportBundle = async (
+    subject: SubjectItem,
+    parsedImport: {
+      bundle: QuestionBankSubjectTransferBundle;
+      sourceLabel: "JSON" | "Document";
+      warnings: string[];
+    },
+  ) => {
+    const parsed = parsedImport.bundle;
+    const rawChapters = Array.isArray(parsed.chapters) ? parsed.chapters : [];
+    if (rawChapters.length === 0) {
+      throw new Error(`No chapters were found in the ${parsedImport.sourceLabel.toLowerCase()} import.`);
+    }
+
+    const response = await fetch(`${BASE}/api/question-bank/subjects/${subject.id}/import`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chapters: rawChapters }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error((payload as { error?: string }).error ?? "Failed to import subject bundle");
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["admin-question-bank", selectedExamKey] });
+    queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
+
+    const result = payload as {
+      importedCount?: number;
+      skippedChapterCount?: number;
+      skippedDuplicateCount?: number;
+      invalidQuestionCount?: number;
+    };
+    toast({
+      title: "Subject imported",
+      description: `Imported ${result.importedCount ?? 0} questions from ${parsedImport.sourceLabel}${result.skippedDuplicateCount ? `, ${result.skippedDuplicateCount} duplicates skipped` : ""}${result.invalidQuestionCount ? `, ${result.invalidQuestionCount} invalid rows skipped` : ""}${result.skippedChapterCount ? `, ${result.skippedChapterCount} chapter mappings skipped` : ""}${parsedImport.warnings.length ? `, ${parsedImport.warnings.length} formatting note${parsedImport.warnings.length === 1 ? "" : "s"}` : ""} in ${subject.title}.`,
+    });
+  };
+
   const handleSubjectImport = async (subject: SubjectItem, file?: File | null) => {
     if (!file) return;
     setImportingSubjectId(subject.id);
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as QuestionBankSubjectTransferBundle;
-      const rawChapters = Array.isArray(parsed.chapters) ? parsed.chapters : [];
-      if (rawChapters.length === 0) {
-        throw new Error("No chapters were found in the JSON bundle.");
-      }
-
-      const response = await fetch(`${BASE}/api/question-bank/subjects/${subject.id}/import`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapters: rawChapters }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error((payload as { error?: string }).error ?? "Failed to import subject bundle");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank", selectedExamKey] });
-      queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
-
-      const result = payload as {
-        importedCount?: number;
-        skippedChapterCount?: number;
-        skippedDuplicateCount?: number;
-        invalidQuestionCount?: number;
-      };
-      toast({
-        title: "Subject imported",
-        description: `Imported ${result.importedCount ?? 0} questions${result.skippedDuplicateCount ? `, ${result.skippedDuplicateCount} duplicates skipped` : ""}${result.invalidQuestionCount ? `, ${result.invalidQuestionCount} invalid rows skipped` : ""}${result.skippedChapterCount ? `, ${result.skippedChapterCount} chapter mappings skipped` : ""} in ${subject.title}.`,
-      });
+      const parsedImport = await parseSubjectImportBundle(file);
+      await submitSubjectImportBundle(subject, parsedImport);
     } catch (error) {
       toast({
         title: "Import failed",
@@ -1451,6 +1574,53 @@ export default function AdminQuestionBank() {
       });
     } finally {
       setImportingSubjectId(null);
+    }
+  };
+
+  const openWordImportSetup = (subject?: SubjectItem | null) => {
+    const selectedSubject = subject ?? activeSubject ?? null;
+    const selectedChapter = selectedSubject?.chapters[0] ?? null;
+    setWordImportTarget(
+      selectedSubject
+        ? { mode: "subject", subject: selectedSubject }
+        : { mode: "exam", examKey: selectedExamKey },
+    );
+    setWordImportText(
+      buildQuestionBankWordTemplateText({
+        examLabel: activeQuestionBank?.exam.label ?? "RankPulse Question Bank",
+        subjectTitle: selectedSubject?.title ?? "Sample Subject",
+        chapterTitle: selectedChapter?.title ?? "Sample Chapter",
+      }),
+    );
+  };
+
+  const closeWordImportSetup = () => {
+    if (wordImportSubmitting) return;
+    setWordImportTarget(null);
+    setWordImportText("");
+  };
+
+  const handleWordImportSubmit = async () => {
+    if (!wordImportTarget) return;
+    setWordImportSubmitting(true);
+    try {
+      if (wordImportTarget.mode === "subject") {
+        const parsedImport = buildSubjectImportBundleFromWordText(wordImportText, wordImportTarget.subject);
+        await submitSubjectImportBundle(wordImportTarget.subject, parsedImport);
+      } else {
+        const parsedImport = buildExamImportBundleFromWordText(wordImportText);
+        await submitExamImportBundle(parsedImport);
+      }
+      setWordImportTarget(null);
+      setWordImportText("");
+    } catch (error) {
+      toast({
+        title: "Word setup import failed",
+        description: error instanceof Error ? error.message : "Could not import the typed questions",
+        variant: "destructive",
+      });
+    } finally {
+      setWordImportSubmitting(false);
     }
   };
 
@@ -2624,6 +2794,16 @@ export default function AdminQuestionBank() {
                 All Questions
               </button>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-2 border-[#e7dbca] bg-white hover:bg-[#fff7ed]"
+              onClick={() => openWordImportSetup(activeSubject)}
+            >
+              <FileText className="h-4 w-4" />
+              Word Setup
+            </Button>
             {showChapterTargetMeta ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">
                 <Target className="h-3.5 w-3.5" />
@@ -3160,7 +3340,7 @@ export default function AdminQuestionBank() {
                   <input
                     ref={subjectImportInputRef}
                     type="file"
-                    accept=".json"
+                    accept={QUESTION_BANK_JSON_IMPORT_ACCEPT}
                     className="hidden"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
@@ -3173,7 +3353,7 @@ export default function AdminQuestionBank() {
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="font-semibold">{activeSubject?.title} Upload Queue</h3>
-                      <p className="text-sm text-muted-foreground">Prioritized chapters with targets and due dates.</p>
+                      <p className="text-sm text-muted-foreground">Prioritized chapters with direct Word setup and JSON import for this subject.</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge className="w-fit bg-[#EFF2FF] text-[#102147] hover:bg-[#EFF2FF]">
@@ -3197,11 +3377,21 @@ export default function AdminQuestionBank() {
                             type="button"
                             size="sm"
                             variant="outline"
+                            className="gap-2 border-[#D1D5DB] hover:bg-[#FFF7ED]"
+                            onClick={() => openWordImportSetup(activeSubject)}
+                          >
+                            <FileText className="h-4 w-4" />
+                            Word Setup
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
                             className="h-9 w-9 border-[#D1D5DB] p-0 hover:bg-[#FFF7ED]"
                             onClick={() => subjectImportInputRef.current?.click()}
                             disabled={importingSubjectId === activeSubject.id}
-                            title={importingSubjectId === activeSubject.id ? "Importing subject" : "Import subject"}
-                            aria-label={importingSubjectId === activeSubject.id ? "Importing subject" : "Import subject"}
+                            title={importingSubjectId === activeSubject.id ? "Importing subject" : "Import JSON"}
+                            aria-label={importingSubjectId === activeSubject.id ? "Importing subject" : "Import JSON"}
                           >
                             <Upload className={`h-4 w-4 ${importingSubjectId === activeSubject.id ? "animate-pulse" : ""}`} />
                           </Button>
@@ -3385,13 +3575,13 @@ export default function AdminQuestionBank() {
             <Card className="border-[#E5E7EB] bg-white/95 hover:shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base">Question Bank Transfer</CardTitle>
-                <CardDescription>Export the full exam workspace or merge a JSON bundle back in.</CardDescription>
+                <CardDescription>Export the full exam workspace or import a JSON or Word bundle back in.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <input
                   ref={examImportInputRef}
                   type="file"
-                  accept=".json"
+                  accept={QUESTION_BANK_JSON_IMPORT_ACCEPT}
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -3423,18 +3613,143 @@ export default function AdminQuestionBank() {
                   type="button"
                   variant="outline"
                   className="w-full justify-center border-[#D1D5DB] hover:bg-[#FFF7ED]"
+                  onClick={() => openWordImportSetup()}
+                >
+                  <FileText size={14} className="mr-2" />
+                  Open Word Setup
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-center border-[#D1D5DB] hover:bg-[#FFF7ED]"
                   onClick={() => examImportInputRef.current?.click()}
                   disabled={importingExamKey === selectedExamKey}
                 >
                   <Upload size={14} className="mr-2" />
-                  {importingExamKey === selectedExamKey ? "Importing..." : "Import Question Bank"}
+                  {importingExamKey === selectedExamKey ? "Importing..." : "Import JSON"}
                 </Button>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Import matches super-admin-owned subject and chapter cards. PDF export includes only numbered questions and question images.
+                  Use Open Word Setup to type directly in-app. JSON import still works for existing bundles and matches super-admin-owned subject and chapter cards.
                 </p>
               </CardContent>
             </Card>
           </div>
+
+          <Dialog open={Boolean(wordImportTarget)} onOpenChange={(open) => { if (!open) closeWordImportSetup(); }}>
+            <DialogContent className="max-w-6xl gap-0 overflow-hidden border-[#E5E7EB] bg-[#fcfaf5] p-0">
+              <DialogHeader className="border-b border-[#E5E7EB] bg-white px-6 py-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge className="bg-[#fff1df] text-[#b45309] hover:bg-[#fff1df]">Word Setup</Badge>
+                  {wordImportTarget?.mode === "subject" ? (
+                    <Badge variant="outline">{wordImportTarget.subject.title}</Badge>
+                  ) : activeQuestionBank?.exam.label ? (
+                    <Badge variant="outline">{activeQuestionBank.exam.label}</Badge>
+                  ) : null}
+                </div>
+                <DialogTitle className="text-2xl font-semibold text-slate-900">
+                  {wordImportTarget?.mode === "subject" ? "Type subject questions" : "Type full exam question bank"}
+                </DialogTitle>
+                <DialogDescription className="text-sm text-slate-600">
+                  Yahin document-style setup me type karo. Subject, Chapter, Question, Type, Option, Answer aur Explanation labels use karke direct import ho jayega.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
+                <div className="border-b border-[#E5E7EB] bg-[#fff8ee] p-5 lg:border-b-0 lg:border-r">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#b45309]">Format</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        Question blocks ko `---` se separate karo. MCQ ke liye `Answer: B`, multi ke liye `Answer: A,C`, integer ke liye `Answer:` ya `Answer Min/Max:` use karo.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-[#f5d7ae] bg-white p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Quick labels</p>
+                      <div className="mt-3 space-y-2 text-sm text-slate-700">
+                        <p>`Subject:`</p>
+                        <p>`Chapter:`</p>
+                        <p>`Question:`</p>
+                        <p>`Type: mcq / multi / integer`</p>
+                        <p>`Option A:`</p>
+                        <p>`Answer:`</p>
+                        <p>`Explanation:`</p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full border-[#e2c8a2] bg-white hover:bg-[#fff7ed]"
+                      onClick={() => {
+                        const selectedSubject = wordImportTarget?.mode === "subject" ? wordImportTarget.subject : activeSubject ?? activeQuestionBank?.subjects[0] ?? null;
+                        const selectedChapter = selectedSubject?.chapters[0] ?? null;
+                        setWordImportText(
+                          buildQuestionBankWordTemplateText({
+                            examLabel: activeQuestionBank?.exam.label ?? "RankPulse Question Bank",
+                            subjectTitle: selectedSubject?.title ?? "Sample Subject",
+                            chapterTitle: selectedChapter?.title ?? "Sample Chapter",
+                          }),
+                        );
+                      }}
+                    >
+                      Reset Sample Template
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="bg-[#f7f2e8] p-4 sm:p-6">
+                  <div className="mx-auto max-w-3xl rounded-[32px] border border-[#eadfcd] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+                    <div className="flex items-center justify-between border-b border-[#f1eadb] px-6 py-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Document</p>
+                        <p className="mt-1 text-sm font-medium text-slate-700">
+                          {wordImportTarget?.mode === "subject"
+                            ? `${wordImportTarget.subject.title} question import`
+                            : `${activeQuestionBank?.exam.label ?? "Exam"} question bank import`}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-slate-500 hover:bg-slate-100"
+                        onClick={() => setWordImportText("")}
+                        disabled={wordImportSubmitting}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div className="p-4 sm:p-6">
+                      <Textarea
+                        value={wordImportText}
+                        onChange={(event) => setWordImportText(event.target.value)}
+                        placeholder="Type Subject, Chapter, Question, Type, options, Answer, and Explanation here..."
+                        className="min-h-[560px] resize-none border-0 bg-transparent p-0 font-mono text-[13px] leading-7 text-slate-800 shadow-none focus-visible:ring-0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="border-t border-[#E5E7EB] bg-white px-6 py-4 sm:justify-between sm:space-x-0">
+                <p className="text-xs text-slate-500">
+                  Subject and chapter names should match your current question bank cards.
+                </p>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+                  <Button type="button" variant="ghost" onClick={() => closeWordImportSetup()} disabled={wordImportSubmitting}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-[#f97316] text-white hover:bg-[#ea580c]"
+                    onClick={() => void handleWordImportSubmit()}
+                    disabled={!wordImportText.trim() || wordImportSubmitting}
+                  >
+                    {wordImportSubmitting ? "Importing..." : "Import From Word Setup"}
+                  </Button>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {reports.length > 0 && (
             <Card className="border-[#E5E7EB] bg-white/95 hover:shadow-sm">

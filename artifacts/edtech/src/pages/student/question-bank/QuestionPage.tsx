@@ -414,14 +414,18 @@ export default function StudentQuestionBankQuestionPage() {
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:flex sm:items-center sm:justify-between">
+      <div className="h-[calc(4.75rem+env(safe-area-inset-bottom)+1.5rem)] sm:hidden" />
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-[rgba(248,250,252,0.98)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.85rem)] pt-3 shadow-[0_-10px_24px_rgba(15,23,42,0.06)] backdrop-blur sm:static sm:inset-x-auto sm:bottom-auto sm:z-auto sm:border-t-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:shadow-none sm:backdrop-blur-0">
+        <div className={`grid gap-3 ${revealed ? "grid-cols-[56px_minmax(0,1fr)]" : "grid-cols-[56px_minmax(0,1fr)_56px]"} sm:flex sm:items-center sm:justify-between`}>
         <button
           onClick={() => prevQuestion && navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${prevQuestion.id}`)}
           disabled={!prevQuestion}
-          className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
+          className="flex min-h-12 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
+          aria-label="Previous question"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Previous
+          <ArrowLeft className="h-4 w-4 shrink-0 sm:h-3.5 sm:w-3.5" />
+          <span className="hidden sm:inline">Previous</span>
         </button>
 
         {!revealed ? (
@@ -431,7 +435,7 @@ export default function StudentQuestionBankQuestionPage() {
               attemptMutation.isPending ||
               (questionType === "integer" ? integerAnswer.trim() === "" : questionType === "multi" ? selectedMulti.length === 0 : selected === null)
             }
-            className="min-h-12 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
+            className="min-h-12 w-full whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
           >
             {attemptMutation.isPending ? "Submitting..." : "Submit Answer"}
           </button>
@@ -442,7 +446,7 @@ export default function StudentQuestionBankQuestionPage() {
                 ? navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${nextQuestion.id}`)
                 : navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}`)
             }
-            className="min-h-12 rounded-xl bg-primary px-8 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 sm:min-h-0"
+            className="min-h-12 w-full whitespace-nowrap rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:opacity-90 sm:min-h-0"
           >
             {nextQuestion ? "Next Question" : "Finish Chapter"}
           </button>
@@ -452,12 +456,14 @@ export default function StudentQuestionBankQuestionPage() {
           <button
             onClick={() => nextQuestion && navigate(`/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${nextQuestion.id}`)}
             disabled={!nextQuestion}
-            className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
+            className="flex min-h-12 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
+            aria-label="Next question"
           >
-            Next
-            <ArrowRight className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Next</span>
+            <ArrowRight className="h-4 w-4 shrink-0 sm:h-3.5 sm:w-3.5" />
           </button>
         ) : null}
+        </div>
       </div>
     </div>
   );

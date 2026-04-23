@@ -4,9 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { api } from "@/lib/api";
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
+import StudentPreviewLockBanner from "@/components/student/StudentPreviewLockBanner";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
-import { isStudentPendingVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
 import { applyPendingPreviewLocksToExamSummaries, useStudentQuestionBankExams } from "@/pages/student/question-bank/api";
 
 type QuestionBankProgressSummary = {
@@ -26,39 +27,16 @@ function PendingQuestionBankPreview() {
   return (
     <>
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">My Question Banks</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Preview mode is active until verification is approved.</p>
-          </div>
-
-          <Button
-            variant="outline"
-            className="w-full self-start rounded-full border-[#D9D6FE] bg-white px-5 py-3 text-sm font-semibold text-[#5B4DFF] hover:bg-[#EEF2FF] sm:w-auto md:self-auto"
-            onClick={() => setLocation("/student/pending-approval")}
-          >
-            Check verification
-          </Button>
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">My Question Banks</h1>
         </div>
 
-        <div className="rounded-[28px] border border-[#D9D6FE] bg-[linear-gradient(135deg,#F5F3FF_0%,#F8FAFC_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(91,77,255,0.08)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Verification pending</p>
-              <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">GATE preview unlocked</h2>
-              <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
-                The GATE preview stays synced with the live super admin question bank. Only one subject and one chapter remain open in review mode.
-              </p>
-            </div>
-            <Button
-              type="button"
-              className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
-              onClick={() => setDialogOpen(true)}
-            >
-              Open locked features
-            </Button>
-          </div>
-        </div>
+        <StudentPreviewLockBanner
+          title="Question bank preview locked"
+          description="Preview only for now. Full question bank unlocks after approval."
+          onCheckStatus={() => setLocation("/student/pending-approval")}
+          onOpenLocked={() => setDialogOpen(true)}
+        />
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Active Exams" value={totalExams} icon={<BookOpen className="h-4 w-4" />} color="text-primary" bg="bg-primary/10" />
@@ -155,11 +133,55 @@ function PendingQuestionBankPreview() {
   );
 }
 
-function ApprovedQuestionBankDashboard() {
-  const { data: exams = [], isLoading } = useStudentQuestionBankExams();
+function LockedQuestionBankDashboard() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  return (
+    <>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">My Question Banks</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Question bank access is currently locked for this student account.</p>
+        </div>
+
+        <div className="rounded-[28px] border border-[#F5D0A5] bg-[linear-gradient(135deg,#FFF7ED_0%,#FFFFFF_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(249,115,22,0.08)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#DC2626]">Access locked</p>
+              <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Question bank locked</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
+                This section is locked for your account right now. Contact admin to unlock question bank access.
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
+              onClick={() => setDialogOpen(true)}
+            >
+              Contact admin
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <PendingVerificationDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title="Question Bank Locked"
+        description="Your question bank access is locked for now. Please contact admin to unlock this section."
+        emailSubject="Question bank access locked"
+        emailBody="Hi Admin,\n\nMy question bank section is locked. Please review and unlock my question bank access.\n"
+      />
+    </>
+  );
+}
+
+function ApprovedQuestionBankDashboard({ enabled = true }: { enabled?: boolean }) {
+  const { data: exams = [], isLoading } = useStudentQuestionBankExams(enabled);
   const { data: progress } = useQuery<QuestionBankProgressSummary>({
     queryKey: ["dashboard-question-bank-progress"],
     queryFn: () => api.get("/question-bank/progress/summary"),
+    enabled,
     staleTime: 30_000,
   });
   const totalExams = exams.length;
@@ -250,12 +272,17 @@ function ApprovedQuestionBankDashboard() {
 
 export default function StudentQuestionBankDashboard() {
   const { user } = useAuth();
+  const isQuestionBankAccessLocked = isStudentFeatureLocked(user, "question-bank");
 
   if (isStudentPendingVerification(user)) {
     return <PendingQuestionBankPreview />;
   }
 
-  return <ApprovedQuestionBankDashboard />;
+  if (isQuestionBankAccessLocked) {
+    return <LockedQuestionBankDashboard />;
+  }
+
+  return <ApprovedQuestionBankDashboard enabled={!isQuestionBankAccessLocked} />;
 }
 
 function StatCard({

@@ -152,7 +152,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [shellWidgetsReady, setShellWidgetsReady] = useState(false);
+  const [topBarWidgetsReady, setTopBarWidgetsReady] = useState(false);
+  const [commandPaletteReady, setCommandPaletteReady] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("sidebar-collapsed") === "true"; } catch { return false; }
   });
@@ -173,7 +174,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setShellWidgetsReady(true);
+        setCommandPaletteReady(true);
         setCmdOpen((o) => !o);
       }
     };
@@ -184,7 +185,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     const loadWidgets = () => {
-      if (!cancelled) setShellWidgetsReady(true);
+      if (!cancelled) setTopBarWidgetsReady(true);
     };
 
     if (typeof window !== "undefined" && "requestIdleCallback" in window) {
@@ -378,28 +379,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-30 flex w-[min(20rem,calc(100vw-2.5rem))] flex-col border-r border-[#E5E7EB] bg-white transition-transform duration-200 lg:hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-30 flex w-[min(18rem,calc(100vw-1.5rem))] flex-col border-r border-[#E5E7EB] bg-white transition-transform duration-200 lg:hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <SidebarContent />
       </aside>
 
       {/* Main content */}
       <div className="relative z-10 flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile topbar */}
-        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-[#E5E7EB] bg-white/95 px-3 py-3 backdrop-blur lg:hidden">
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="p-1 text-[#6B7280] hover:text-[#111827]" data-testid="button-menu">
+        <header className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-[#E5E7EB] bg-white/95 px-2.5 py-2.5 backdrop-blur lg:hidden">
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="rounded-lg p-1 text-[#6B7280] transition hover:bg-[#F3F5F9] hover:text-[#111827]" data-testid="button-menu">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <div className="flex min-w-0 flex-1 items-center">
-            <BrandLogo className="min-w-0" imageClassName="h-8" />
+            <BrandLogo className="min-w-0" imageClassName="h-7 w-7" />
           </div>
           {showLeaderboardShortcut && (
             <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
-              {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+              {topBarWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           )}
           {showNotifications ? (
             <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
-              {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+              {topBarWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           ) : null}
         </header>
@@ -408,28 +409,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <header className="hidden shrink-0 items-center justify-end gap-2 border-b border-[#E5E7EB] bg-white px-6 py-2.5 lg:flex">
           {showLeaderboardShortcut && (
             <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
-              {shellWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+              {topBarWidgetsReady ? <LeaderboardPanel showLabel={false} /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           )}
           {showNotifications ? (
             <Suspense fallback={<div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}>
-              {shellWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
+              {topBarWidgetsReady ? <NotificationBell /> : <div className="h-9 w-9 rounded-lg bg-[#F3F4F6]" />}
             </Suspense>
           ) : null}
         </header>
 
-        <main className="flex-1 overflow-x-hidden overflow-y-auto px-3 py-3 sm:p-4 lg:p-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:p-4 sm:pb-4 lg:p-6">
           {children}
         </main>
       </div>
 
       {/* Command Palette */}
       <Suspense fallback={null}>
-        {shellWidgetsReady ? <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} role={user.role} /> : null}
+        {commandPaletteReady ? <CommandPalette isOpen={cmdOpen} onClose={() => setCmdOpen(false)} role={user.role} /> : null}
       </Suspense>
 
       <Suspense fallback={null}>
-        {shellWidgetsReady ? (
+        {showQuestionBankPopup ? (
           <QuestionBankTargetPopup
             open={showQuestionBankPopup}
             alerts={questionBankAlerts}

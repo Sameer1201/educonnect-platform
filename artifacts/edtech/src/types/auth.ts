@@ -29,6 +29,15 @@ export interface StudentProfileDetails {
   dashboard?: {
     dailyQuestionGoal?: number;
   };
+  featureAccess?: {
+    testsLocked?: boolean;
+    questionBankLocked?: boolean;
+  };
+}
+
+export interface StudentFeatureAccess {
+  testsLocked?: boolean;
+  questionBankLocked?: boolean;
 }
 
 export interface AuthUser extends ApiUser {
@@ -36,4 +45,5 @@ export interface AuthUser extends ApiUser {
   onboardingDraftStep?: number | null;
   profileDetails?: StudentProfileDetails | null;
   rejectionReason?: string | null;
+  studentFeatureAccess?: StudentFeatureAccess | null;
 }

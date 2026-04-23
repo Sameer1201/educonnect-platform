@@ -26,6 +26,7 @@ import {
 } from "../lib/brevo";
 import { logger } from "../lib/logger";
 import { pushNotificationToMany } from "../lib/pushNotification";
+import { ensureStudentFeatureUnlocked } from "../lib/studentFeatureAccess";
 import { eq, and, inArray, isNull, or, asc, desc, sql } from "drizzle-orm";
 
 const router = Router();
@@ -1684,6 +1685,7 @@ router.get("/tests", requireAuth, async (req, res) => {
     }
 
     // Student
+    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
     const [enrolledClassIds, submissions] = await Promise.all([
       getStudentEnrolledClassIds(userId),
       db.select({ testId: testSubmissionsTable.testId })
@@ -1728,6 +1730,7 @@ router.get("/tests/review-bucket", requireAuth, async (req, res) => {
     const user = await getUser(userId);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "student") return res.status(403).json({ error: "Forbidden" });
+    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
     const dismissedQuestionIds = new Set(
       (user.reviewBucketDismissedQuestionIds ?? [])
         .map((value) => Number(value))
@@ -1922,6 +1925,7 @@ router.post("/tests/review-bucket/:questionId/remove", requireAuth, async (req, 
     const user = await getUser(userId);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "student") return res.status(403).json({ error: "Forbidden" });
+    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
 
     const nextDismissedIds = Array.from(
       new Set(
@@ -1954,6 +1958,7 @@ router.post("/tests/questions/:questionId/report", requireAuth, async (req, res)
     const user = await getUser(userId);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "student") return res.status(403).json({ error: "Only students can report questions" });
+    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
 
     const [questionRow] = await db
       .select({
@@ -2236,6 +2241,7 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
     const isAdmin = user.role === "admin" || user.role === "super_admin";
     let submission: typeof testSubmissionsTable.$inferSelect | null = null;
     if (user.role === "student") {
+      if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
       const [sub] = await db.select().from(testSubmissionsTable)
         .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)))
         .orderBy(desc(testSubmissionsTable.submittedAt), desc(testSubmissionsTable.id))
@@ -3613,6 +3619,7 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
     const userId = parseInt(req.cookies.userId, 10);
     const user = await getUser(userId);
     if (!user || user.role !== "student") return res.status(403).json({ error: "Students only" });
+    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
 
     const [test] = await db.select({
       id: testsTable.id,
@@ -4208,6 +4215,7 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
     const userId = parseInt(req.cookies.userId, 10);
     const user = await getUser(userId);
     if (!user || user.role !== "student") return res.status(403).json({ error: "Forbidden" });
+    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
 
     const [test] = await db.select({
       id: testsTable.id, title: testsTable.title, description: testsTable.description,
@@ -4486,6 +4494,7 @@ router.get("/tests/:id/solutions", requireAuth, async (req, res) => {
 
     const isAdmin = user.role === "admin" || user.role === "super_admin";
     if (!isAdmin) {
+      if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
       const [submission] = await db.select({ id: testSubmissionsTable.id })
         .from(testSubmissionsTable)
         .where(and(eq(testSubmissionsTable.testId, testId), eq(testSubmissionsTable.studentId, userId)))

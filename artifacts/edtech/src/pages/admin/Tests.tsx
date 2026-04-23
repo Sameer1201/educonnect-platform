@@ -7,17 +7,18 @@ import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { looksLikeRichHtmlContent, sanitizeRichHtml, stripRichHtmlToText } from "@/lib/richContent";
+import { buildTestWordTemplateText, parseTestWordText } from "@/lib/testWordImport";
 import {
   ClipboardList, Plus, Trash2, CheckCircle2, ChevronDown,
   ToggleLeft, ToggleRight, Clock, Hash,
   Calculator, Flag,
-  TrendingUp, PencilLine, Download, Upload, FileText, X
+  TrendingUp, PencilLine, Download, Upload, FileText, X, ImagePlus
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -27,6 +28,14 @@ type QuestionType = "mcq" | "multi" | "integer";
 type ExamType = string;
 type QuestionBulkImportMode = "metadata" | "answers";
 type TestCategory = "mock" | "subject-wise" | "multi-subject";
+type WordSetupImageTarget = "question" | "explanation" | "option-a" | "option-b" | "option-c" | "option-d";
+
+interface WordSetupImageAsset {
+  id: string;
+  fileName: string;
+  dataUrl: string;
+  target: WordSetupImageTarget;
+}
 
 function getDefaultTemplateInstructions(templateName: string, durationMinutes: number) {
   const safeName = templateName.trim() || "the examination";
@@ -41,6 +50,39 @@ function getDefaultTemplateInstructions(templateName: string, durationMinutes: n
     "Use Clear Response to remove the selected answer from the current question.",
     "MCQ uses single selection, MSQ uses multiple selections, and integer questions require a numeric answer.",
   ].join("\n");
+}
+
+function getWordSetupImageFieldLabel(target: WordSetupImageTarget) {
+  if (target === "question") return "Question Image";
+  if (target === "explanation") return "Explanation Image";
+  if (target === "option-a") return "Option A Image";
+  if (target === "option-b") return "Option B Image";
+  if (target === "option-c") return "Option C Image";
+  return "Option D Image";
+}
+
+function getWordSetupImageTargetLabel(target: WordSetupImageTarget) {
+  if (target === "question") return "Question";
+  if (target === "explanation") return "Explanation";
+  if (target === "option-a") return "Option A";
+  if (target === "option-b") return "Option B";
+  if (target === "option-c") return "Option C";
+  return "Option D";
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Image could not be read."));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Image could not be read."));
+    reader.readAsDataURL(file);
+  });
 }
 
 interface SectionDraft {
@@ -942,6 +984,13 @@ export default function AdminTests() {
   const [importFilename, setImportFilename] = useState("");
   const [importExamType, setImportExamType] = useState("");
   const [importScheduled, setImportScheduled] = useState("");
+  const [wordSetupOpen, setWordSetupOpen] = useState(false);
+  const [wordSetupText, setWordSetupText] = useState(buildTestWordTemplateText());
+  const [wordSetupExamType, setWordSetupExamType] = useState("");
+  const [wordSetupScheduled, setWordSetupScheduled] = useState("");
+  const [wordSetupImageTarget, setWordSetupImageTarget] = useState<WordSetupImageTarget>("question");
+  const [wordSetupImages, setWordSetupImages] = useState<WordSetupImageAsset[]>([]);
+  const [wordSetupDragActive, setWordSetupDragActive] = useState(false);
   const [metadataImportOpen, setMetadataImportOpen] = useState(false);
   const [metadataImportMode, setMetadataImportMode] = useState<QuestionBulkImportMode>("metadata");
   const [metadataImportTestId, setMetadataImportTestId] = useState<number | null>(null);
@@ -954,6 +1003,8 @@ export default function AdminTests() {
   const [exportingTestId, setExportingTestId] = useState<number | null>(null);
   const [exportingTestPdfId, setExportingTestPdfId] = useState<number | null>(null);
   const importTestInputRef = useRef<HTMLInputElement>(null);
+  const wordSetupImageInputRef = useRef<HTMLInputElement>(null);
+  const wordSetupTextareaRef = useRef<HTMLTextAreaElement>(null);
   const metadataImportInputRef = useRef<HTMLInputElement>(null);
 
   const { data: tests = [], isLoading } = useQuery<Test[]>({
@@ -1098,6 +1149,16 @@ export default function AdminTests() {
     setImportScheduled("");
   };
 
+  const resetWordSetupDialog = () => {
+    setWordSetupOpen(false);
+    setWordSetupText(buildTestWordTemplateText());
+    setWordSetupExamType("");
+    setWordSetupScheduled("");
+    setWordSetupImageTarget("question");
+    setWordSetupImages([]);
+    setWordSetupDragActive(false);
+  };
+
   const resetMetadataImportDialog = () => {
     setMetadataImportOpen(false);
     setMetadataImportMode("metadata");
@@ -1219,6 +1280,7 @@ export default function AdminTests() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
       resetImportDialog();
+      if (wordSetupOpen) resetWordSetupDialog();
       toast({
         title: "Test imported",
         description: data.pendingReviewCount > 0
@@ -1506,6 +1568,114 @@ export default function AdminTests() {
     }
   };
 
+  const insertWordSetupSnippet = (snippet: string) => {
+    const textarea = wordSetupTextareaRef.current;
+    if (!textarea) {
+      setWordSetupText((current) => `${current.trimEnd()}\n${snippet}\n`);
+      return;
+    }
+
+    const start = textarea.selectionStart ?? wordSetupText.length;
+    const end = textarea.selectionEnd ?? wordSetupText.length;
+    const before = wordSetupText.slice(0, start);
+    const after = wordSetupText.slice(end);
+    const prefix = before && !before.endsWith("\n") ? "\n" : "";
+    const suffix = after && !after.startsWith("\n") ? "\n" : "";
+    const nextText = `${before}${prefix}${snippet}${suffix}${after}`;
+    const nextCaret = (before + prefix + snippet).length;
+
+    setWordSetupText(nextText);
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const handleWordSetupImageFiles = async (fileList?: FileList | File[] | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
+    if (files.length === 0) {
+      toast({
+        title: "Only images supported",
+        description: "Please drop or select image files only.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const createdAssets = await Promise.all(
+        files.map(async (file, index) => {
+          const id = `img-${Date.now()}-${index + 1}-${Math.random().toString(36).slice(2, 7)}`;
+          return {
+            id,
+            fileName: file.name,
+            dataUrl: await readFileAsDataUrl(file),
+            target: wordSetupImageTarget,
+          } satisfies WordSetupImageAsset;
+        }),
+      );
+
+      setWordSetupImages((current) => [...current, ...createdAssets]);
+      insertWordSetupSnippet(
+        createdAssets.map((asset) => `${getWordSetupImageFieldLabel(asset.target)}: [[image:${asset.id}]]`).join("\n"),
+      );
+      toast({
+        title: "Image added",
+        description: `${createdAssets.length} image${createdAssets.length === 1 ? "" : "s"} inserted into the editor.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Image add failed",
+        description: error instanceof Error ? error.message : "The selected image could not be added.",
+        variant: "destructive",
+      });
+    } finally {
+      if (wordSetupImageInputRef.current) {
+        wordSetupImageInputRef.current.value = "";
+      }
+      setWordSetupDragActive(false);
+    }
+  };
+
+  const removeWordSetupImageAsset = (assetId: string) => {
+    setWordSetupImages((current) => current.filter((asset) => asset.id !== assetId));
+    setWordSetupText((current) =>
+      current
+        .replaceAll(`[[image:${assetId}]]`, "")
+        .replace(/\n{3,}/g, "\n\n"),
+    );
+  };
+
+  const handleWordSetupImport = () => {
+    if (!wordSetupExamType.trim()) {
+      toast({
+        title: "Select exam stream",
+        description: "Choose which exam this typed test belongs to before importing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const bundle = parseTestWordText(
+        wordSetupText,
+        Object.fromEntries(wordSetupImages.map((asset) => [asset.id, asset.dataUrl])),
+      ) as ExportedTestBundle;
+      importTestMutation.mutate({
+        bundle,
+        examType: wordSetupExamType,
+        scheduledAt: wordSetupScheduled,
+      });
+    } catch (error) {
+      toast({
+        title: "Word setup invalid",
+        description: error instanceof Error ? error.message : "The typed test could not be parsed.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const loadTestSummary = async (testId: number) => {
     if (questionsMap[testId] && sectionsMap[testId]) return;
     const r = await fetch(`${BASE}/api/tests/${testId}`, { credentials: "include" });
@@ -1541,6 +1711,19 @@ export default function AdminTests() {
               <p className="mt-1 text-sm text-slate-500">Build, manage, and publish your exam papers.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 gap-2 border-[#eadfcd] bg-white text-sm text-slate-700 hover:border-[#f4c98b] hover:bg-[#fff7ea]"
+                disabled={importTestMutation.isPending}
+                onClick={() => {
+                  setWordSetupExamType((current) => current || newExamType || examTemplates[0]?.key || "");
+                  setWordSetupOpen(true);
+                }}
+              >
+                <FileText className="h-4 w-4" />
+                Word Setup
+              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -1952,6 +2135,217 @@ export default function AdminTests() {
               <Button disabled={!newTitle.trim() || !sectionDrafts.some((section) => section.subjectLabel.trim() || section.title.trim()) || createMutation.isPending} onClick={() => createMutation.mutate()} data-testid="button-confirm-create-test">
                 {createMutation.isPending ? "Creating..." : "Create Test"}
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={wordSetupOpen}
+        onOpenChange={(open) => {
+          if (!importTestMutation.isPending) {
+            if (!open) {
+              resetWordSetupDialog();
+            } else {
+              setWordSetupOpen(true);
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-6xl overflow-hidden p-0">
+          <div className="grid max-h-[88vh] lg:grid-cols-[330px_minmax(0,1fr)]">
+            <div className="overflow-y-auto border-b border-[#eadfcd] bg-[#fffaf1] p-5 lg:border-b-0 lg:border-r">
+              <DialogHeader className="space-y-2 text-left">
+                <DialogTitle className="text-xl">Word Setup</DialogTitle>
+                <DialogDescription className="text-sm text-slate-600">
+                  Type the full test here and import it directly. No file upload needed.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-5 space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Part Of Exam</Label>
+                  <Select value={wordSetupExamType} onValueChange={setWordSetupExamType}>
+                    <SelectTrigger className="h-11 rounded-xl border-[#eadfcd] bg-white">
+                      <SelectValue placeholder="Select exam" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {examTemplates.map((template) => (
+                        <SelectItem key={template.id} value={template.key}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Schedule Date</Label>
+                  <Input
+                    type="datetime-local"
+                    value={wordSetupScheduled}
+                    onChange={(event) => setWordSetupScheduled(event.target.value)}
+                    className="h-11 rounded-xl border-[#eadfcd] bg-white"
+                  />
+                  <p className="text-xs text-slate-500">Optional. Leave empty to keep it as a draft.</p>
+                </div>
+
+                <div className="rounded-2xl border border-[#eadfcd] bg-white px-4 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Format</p>
+                  <div className="mt-3 space-y-2 text-sm text-slate-700">
+                    <p>Use fields like `Title`, `Section`, `Question`, `Type`, `Option A-D`, `Answer`, `Explanation`.</p>
+                    <p>Use `---` between questions.</p>
+                    <p>`Type` supports `mcq`, `multi`, and `integer`.</p>
+                    <p>Images use `Question Image`, `Option A Image`, or `Explanation Image` tokens.</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-[#d7dbff] bg-white px-4 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Quick Actions</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 gap-2 border-[#d7dbff] bg-white text-sm text-slate-700 hover:bg-[#f6f7ff]"
+                      onClick={() => setWordSetupText(buildTestWordTemplateText())}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Load Sample
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 gap-2 border-[#d7dbff] bg-white text-sm text-slate-700 hover:bg-[#f6f7ff]"
+                      onClick={() => navigator.clipboard?.writeText(buildTestWordTemplateText())}
+                    >
+                      <Download className="h-4 w-4" />
+                      Copy Sample
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-col overflow-hidden bg-white">
+              <div className="border-b border-[#eadfcd] px-6 py-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Document Editor</p>
+                <p className="mt-2 text-sm text-slate-500">Paste or type your complete test in this editor.</p>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <div className="min-w-[180px] flex-1 sm:flex-none">
+                    <Select value={wordSetupImageTarget} onValueChange={(value) => setWordSetupImageTarget(value as WordSetupImageTarget)}>
+                      <SelectTrigger className="h-10 rounded-xl border-[#eadfcd] bg-white text-sm">
+                        <SelectValue placeholder="Choose image target" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="question">Question</SelectItem>
+                        <SelectItem value="explanation">Explanation</SelectItem>
+                        <SelectItem value="option-a">Option A</SelectItem>
+                        <SelectItem value="option-b">Option B</SelectItem>
+                        <SelectItem value="option-c">Option C</SelectItem>
+                        <SelectItem value="option-d">Option D</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 gap-2 border-[#d7dbff] bg-white text-sm text-slate-700 hover:bg-[#f6f7ff]"
+                    onClick={() => wordSetupImageInputRef.current?.click()}
+                  >
+                    <ImagePlus className="h-4 w-4" />
+                    Add Image
+                  </Button>
+                  <p className="text-xs text-slate-500">
+                    Images insert directly at the cursor as <span className="font-medium text-slate-700">{getWordSetupImageFieldLabel(wordSetupImageTarget)}</span>.
+                  </p>
+                </div>
+                <input
+                  ref={wordSetupImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => void handleWordSetupImageFiles(event.target.files)}
+                />
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div
+                  className={`rounded-[28px] border bg-[#fcfcff] p-4 shadow-[0_18px_40px_rgba(99,102,241,0.08)] transition ${wordSetupDragActive ? "border-[#6d63ff]" : "border-[#d9dcff]"}`}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setWordSetupDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                    setWordSetupDragActive(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    void handleWordSetupImageFiles(event.dataTransfer.files);
+                  }}
+                >
+                  <Textarea
+                    ref={wordSetupTextareaRef}
+                    value={wordSetupText}
+                    onChange={(event) => setWordSetupText(event.target.value)}
+                    placeholder={buildTestWordTemplateText()}
+                    className="min-h-[480px] rounded-[24px] border-[#d2d8ff] bg-white px-5 py-4 font-mono text-[13px] leading-6 text-slate-800 shadow-none focus-visible:ring-[#6d63ff]"
+                  />
+                  {wordSetupImages.length > 0 ? (
+                    <div className="mt-4 border-t border-[#ebeefe] pt-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Images inside this document</p>
+                      <div className="space-y-3">
+                        {wordSetupImages.map((asset) => (
+                          <div key={asset.id} className="rounded-2xl border border-[#e6e7ff] bg-white p-3">
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#b45309]">
+                                  {getWordSetupImageFieldLabel(asset.target)}
+                                </p>
+                                <p className="truncate text-xs text-slate-500">{asset.fileName}</p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 rounded-full text-slate-500 hover:bg-[#f8fafc]"
+                                onClick={() => removeWordSetupImageAsset(asset.id)}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            <div className="overflow-hidden rounded-2xl border border-[#e6e7ff] bg-[#f8fafc] p-2">
+                              <img src={asset.dataUrl} alt={asset.fileName} className="max-h-56 w-full rounded-xl object-contain" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <DialogFooter className="border-t border-[#eadfcd] px-6 py-4 sm:justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={importTestMutation.isPending}
+                  onClick={() => resetWordSetupDialog()}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="h-10 gap-2 bg-[#f97316] text-white hover:bg-[#ea580c]"
+                  disabled={!wordSetupText.trim() || !wordSetupExamType.trim() || importTestMutation.isPending}
+                  onClick={() => handleWordSetupImport()}
+                >
+                  <FileText className="h-4 w-4" />
+                  {importTestMutation.isPending ? "Importing..." : "Import From Word Setup"}
+                </Button>
+              </DialogFooter>
             </div>
           </div>
         </DialogContent>

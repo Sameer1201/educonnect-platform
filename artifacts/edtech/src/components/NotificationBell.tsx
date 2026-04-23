@@ -86,8 +86,9 @@ export default function NotificationBell() {
   const { data: countData, refetch: refetchCount } = useQuery<{ count: number }>({
     queryKey: ["notif-count"],
     queryFn: () => api.get("/notifications/unread-count"),
-    refetchInterval: 60_000, // Fallback poll every 60s; SSE handles real-time
-    staleTime: 30_000,
+    refetchInterval: 5 * 60_000, // Light fallback poll; SSE handles real-time updates.
+    staleTime: 2 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   /* ── Notification list (loaded only when panel opens) ── */
@@ -95,7 +96,8 @@ export default function NotificationBell() {
     queryKey: ["notifications-bell"],
     queryFn: () => api.get("/notifications?limit=20"),
     enabled: open,
-    staleTime: 5000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
   const notifications = notifPage.notifications ?? [];
 

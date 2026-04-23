@@ -54,9 +54,10 @@ interface StudentVerificationReviewDialogProps {
   secondaryActionLabel?: string;
   primaryActionDisabled?: boolean;
   secondaryActionDisabled?: boolean;
+  settingsContent?: React.ReactNode;
 }
 
-type VerificationTab = "overview" | "details";
+type VerificationTab = "overview" | "details" | "settings";
 
 function getInitials(name: string) {
   return name
@@ -165,6 +166,7 @@ export function StudentVerificationReviewDialog({
   secondaryActionLabel = "Reject",
   primaryActionDisabled = false,
   secondaryActionDisabled = false,
+  settingsContent,
 }: StudentVerificationReviewDialogProps) {
   const [activeTab, setActiveTab] = useState<VerificationTab>("overview");
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
@@ -294,6 +296,11 @@ export function StudentVerificationReviewDialog({
   }, [insights]);
 
   const showActionButtons = Boolean(onPrimaryAction || onSecondaryAction);
+  const tabs: Array<{ id: VerificationTab; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "details", label: "Full Details" },
+    ...(settingsContent ? [{ id: "settings" as VerificationTab, label: "Settings" }] : []),
+  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -386,10 +393,7 @@ export function StudentVerificationReviewDialog({
           </div>
 
           <div className="flex gap-1 border-b border-slate-100 px-8 pt-4">
-            {[
-              { id: "overview", label: "Overview" },
-              { id: "details", label: "Full Details" },
-            ].map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -418,6 +422,10 @@ export function StudentVerificationReviewDialog({
             ) : errorMessage ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700">
                 {errorMessage}
+              </div>
+            ) : activeTab === "settings" ? (
+              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+                {settingsContent}
               </div>
             ) : !insights ? null : activeTab === "overview" ? (
               <div className="grid gap-6 lg:grid-cols-5">

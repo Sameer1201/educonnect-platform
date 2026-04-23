@@ -14,6 +14,7 @@ import {
   enrollmentsTable,
 } from "@workspace/db/schema";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { ensureStudentFeatureUnlocked } from "../lib/studentFeatureAccess";
 
 const router = Router();
 
@@ -870,6 +871,10 @@ router.get("/question-bank/exams", async (req, res) => {
   if (!["admin", "super_admin", "student"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
+  if (auth.role === "student") {
+    const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
+    if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
+  }
 
   const classes = await getAccessibleQuestionBankClasses(auth);
   const studentExamKeys = auth.role === "student" ? await getStudentExamKeys(auth.userId) : null;
@@ -957,6 +962,8 @@ router.get("/question-bank/progress/summary", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
   if (auth.role !== "student") return res.status(403).json({ error: "Only students can view question bank progress" });
+  const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
+  if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
 
   const classes = await getAccessibleQuestionBankClasses(auth);
   const studentExamKeys = await getStudentExamKeys(auth.userId);
@@ -1008,6 +1015,10 @@ router.get("/question-bank/exams/:examKey", async (req, res) => {
   if (!auth) return;
   if (!["admin", "super_admin", "student"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
+  }
+  if (auth.role === "student") {
+    const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
+    if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
   }
 
   const examKey = normalizeExamKey(req.params.examKey);
@@ -2433,6 +2444,8 @@ router.post("/question-bank-questions/:id/attempt", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
   if (auth.role !== "student") return res.status(403).json({ error: "Only students can attempt question bank questions" });
+  const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
+  if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
 
   const questionId = parseInt(req.params.id, 10);
   if (Number.isNaN(questionId)) return res.status(400).json({ error: "Invalid question id" });
@@ -2509,6 +2522,8 @@ router.post("/question-bank-questions/:id/report", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
   if (auth.role !== "student") return res.status(403).json({ error: "Only students can report questions" });
+  const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
+  if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
 
   const questionId = parseInt(req.params.id, 10);
   if (Number.isNaN(questionId)) return res.status(400).json({ error: "Invalid question id" });
@@ -2558,6 +2573,8 @@ router.post("/question-bank-questions/:id/save", async (req, res) => {
   const auth = getAuth(req, res);
   if (!auth) return;
   if (auth.role !== "student") return res.status(403).json({ error: "Only students can save questions" });
+  const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
+  if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
 
   const questionId = parseInt(req.params.id, 10);
   if (Number.isNaN(questionId)) return res.status(400).json({ error: "Invalid question id" });

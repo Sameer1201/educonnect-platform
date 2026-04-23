@@ -50,13 +50,19 @@ import { hasBrevoAccounts, queueStudentApprovedEmail, queueStudentRejectedEmail,
 import { createFirebaseEmailUser, deleteFirebaseUser, deleteFirebaseUserByEmail, ensureFirebaseEmailUser, generateFirebasePasswordResetLink, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
 import { logger } from "../lib/logger";
 import { buildCustomPasswordResetUrl } from "../lib/passwordReset";
+import { getStudentFeatureAccess, mergeStudentFeatureAccess } from "../lib/studentFeatureAccess";
 
 const router: IRouter = Router();
 
 function serializeUser(user: typeof usersTable.$inferSelect) {
   const { passwordHash, ...rest } = user;
   void passwordHash;
-  return rest;
+  const parsedProfileDetails = parseStudentProfileData(user.studentProfileData ?? null);
+  return {
+    ...rest,
+    profileDetails: parsedProfileDetails,
+    studentFeatureAccess: getStudentFeatureAccess(parsedProfileDetails),
+  };
 }
 
 function parseStudentProfileData(raw: string | null) {
@@ -230,6 +236,55 @@ router.get("/users/:id", async (req, res): Promise<void> => {
   }
 
   res.json(serializeUser(user));
+});
+
+router.patch("/users/:id/student-feature-access", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["super_admin"]);
+  if (!callerRole) return;
+
+  const params = GetUserParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.id, params.data.id));
+
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  if (user.role !== "student") {
+    res.status(400).json({ error: "Only student access can be locked from this panel" });
+    return;
+  }
+
+  const testsLockedRaw = req.body?.testsLocked;
+  const questionBankLockedRaw = req.body?.questionBankLocked;
+  const updates: Record<string, boolean> = {};
+
+  if (typeof testsLockedRaw === "boolean") updates.testsLocked = testsLockedRaw;
+  if (typeof questionBankLockedRaw === "boolean") updates.questionBankLocked = questionBankLockedRaw;
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No valid student feature access updates were provided" });
+    return;
+  }
+
+  const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
+  const nextProfileData = mergeStudentFeatureAccess(existingProfileData, updates);
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ studentProfileData: JSON.stringify(nextProfileData) })
+    .where(eq(usersTable.id, user.id))
+    .returning();
+
+  res.json(serializeUser(updated));
 });
 
 router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {

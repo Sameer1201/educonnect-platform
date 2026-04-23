@@ -6,42 +6,56 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityTracker } from "@/hooks/useActivityTracker";
-import { isStudentPendingVerification, isStudentRejectedVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification, isStudentRejectedVerification } from "@/lib/student-access";
 
-const Layout = lazy(() => import("@/components/Layout"));
+const importLayout = () => import("@/components/Layout");
+const importSuperAdminDashboard = () => import("@/pages/super-admin/Dashboard");
+const importSuperAdminManagement = () => import("@/pages/super-admin/Management");
+const importSendNotification = () => import("@/pages/super-admin/SendNotification");
+const importPlannerExamTemplates = () => import("@/pages/planner/ExamTemplates");
+const importPlannerQuestionBank = () => import("@/pages/planner/QuestionBank");
+const importAdminStudents = () => import("@/pages/admin/Students");
+const importAdminQuestionBank = () => import("@/pages/admin/QuestionBank");
+const importAdminTests = () => import("@/pages/admin/Tests");
+const importStudentDashboard = () => import("@/pages/student/Dashboard");
+const importStudentTests = () => import("@/pages/student/Tests");
+const importStudentQuestionBankDashboard = () => import("@/pages/student/question-bank/Dashboard");
+const importStudentProfile = () => import("@/pages/student/Profile");
+
+const Layout = lazy(importLayout);
 const NotFound = lazy(() => import("@/pages/not-found"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const RegisterPage = lazy(() => import("@/pages/RegisterPage"));
 const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
-const SuperAdminDashboard = lazy(() => import("@/pages/super-admin/Dashboard"));
-const SuperAdminManagement = lazy(() => import("@/pages/super-admin/Management"));
-const SendNotification = lazy(() => import("@/pages/super-admin/SendNotification"));
+const SuperAdminDashboard = lazy(importSuperAdminDashboard);
+const SuperAdminManagement = lazy(importSuperAdminManagement);
+const SendNotification = lazy(importSendNotification);
 const TeacherPerformance = lazy(() => import("@/pages/super-admin/TeacherPerformance"));
 const SuperAdminTests = lazy(() => import("@/pages/super-admin/Tests"));
 const SuperAdminActivity = lazy(() => import("@/pages/super-admin/Activity"));
-const AdminStudents = lazy(() => import("@/pages/admin/Students"));
+const AdminStudents = lazy(importAdminStudents);
 const AdminProfile = lazy(() => import("@/pages/admin/Profile"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/Analytics"));
-const AdminQuestionBank = lazy(() => import("@/pages/admin/QuestionBank"));
-const AdminTests = lazy(() => import("@/pages/admin/Tests"));
+const AdminQuestionBank = lazy(importAdminQuestionBank);
+const AdminTests = lazy(importAdminTests);
 const AdminTestBuilder = lazy(() => import("@/pages/admin/TestBuilder"));
 const TestAnalytics = lazy(() => import("@/pages/admin/TestAnalytics"));
-const PlannerExamTemplates = lazy(() => import("@/pages/planner/ExamTemplates"));
-const PlannerQuestionBank = lazy(() => import("@/pages/planner/QuestionBank"));
+const PlannerExamTemplates = lazy(importPlannerExamTemplates);
+const PlannerQuestionBank = lazy(importPlannerQuestionBank);
 const PlannerQuestionBankDetail = lazy(() => import("@/pages/planner/QuestionBankDetail"));
-const StudentDashboard = lazy(() => import("@/pages/student/Dashboard"));
+const StudentDashboard = lazy(importStudentDashboard);
 const StudentTestAnalysis = lazy(() => import("@/pages/student/TestAnalysis"));
 const StudentTestSolutions = lazy(() => import("@/pages/student/TestSolutions"));
-const StudentQuestionBankDashboard = lazy(() => import("@/pages/student/question-bank/Dashboard"));
+const StudentQuestionBankDashboard = lazy(importStudentQuestionBankDashboard);
 const StudentQuestionBankExamPage = lazy(() => import("@/pages/student/question-bank/ExamPage"));
 const StudentQuestionBankSubjectPage = lazy(() => import("@/pages/student/question-bank/SubjectPage"));
 const StudentQuestionBankChapterPage = lazy(() => import("@/pages/student/question-bank/ChapterPage"));
 const StudentQuestionBankQuestionPage = lazy(() => import("@/pages/student/question-bank/QuestionPage"));
 const StudentReviewBucket = lazy(() => import("@/pages/student/ReviewBucket"));
-const StudentProfile = lazy(() => import("@/pages/student/Profile"));
+const StudentProfile = lazy(importStudentProfile);
 const StudentPendingApproval = lazy(() => import("@/pages/student/PendingApproval"));
-const StudentTests = lazy(() => import("@/pages/student/Tests"));
+const StudentTests = lazy(importStudentTests);
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
 const ActivityFeed = lazy(() => import("@/pages/ActivityFeed"));
 
@@ -49,7 +63,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 30 * 1000,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: false,
     },
   },
 });
@@ -83,6 +101,10 @@ function extractIndexScriptPath(html: string) {
 function useDeployRefresh() {
   const currentScriptPathRef = useRef<string | null>(null);
   const reloadTriggeredRef = useRef(false);
+
+  if (import.meta.env.DEV) {
+    return;
+  }
 
   useEffect(() => {
     currentScriptPathRef.current = getCurrentIndexScriptPath();
@@ -125,7 +147,7 @@ function useDeployRefresh() {
       if (document.visibilityState === "visible") {
         void checkForNewDeploy();
       }
-    }, 60_000);
+    }, 5 * 60_000);
 
     return () => {
       cancelled = true;
@@ -133,6 +155,50 @@ function useDeployRefresh() {
       window.clearInterval(intervalId);
     };
   }, []);
+}
+
+function scheduleIdlePrefetch(work: () => void) {
+  if (typeof window === "undefined") return () => {};
+
+  if ("requestIdleCallback" in window) {
+    const idleId = (window as Window & {
+      requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number;
+    }).requestIdleCallback(work, { timeout: 1800 });
+
+    return () => {
+      if ("cancelIdleCallback" in window) {
+        (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId);
+      }
+    };
+  }
+
+  const timeoutId = globalThis.setTimeout(work, 900);
+  return () => globalThis.clearTimeout(timeoutId);
+}
+
+function warmLikelyRouteChunks(role: string) {
+  void importLayout();
+
+  if (role === "super_admin") {
+    void importSuperAdminDashboard();
+    void importSuperAdminManagement();
+    void importPlannerQuestionBank();
+    void importPlannerExamTemplates();
+    void importSendNotification();
+    return;
+  }
+
+  if (role === "admin") {
+    void importAdminQuestionBank();
+    void importAdminStudents();
+    void importAdminTests();
+    return;
+  }
+
+  void importStudentDashboard();
+  void importStudentTests();
+  void importStudentQuestionBankDashboard();
+  void importStudentProfile();
 }
 
 function AppLoader() {
@@ -151,6 +217,23 @@ function studentNeedsOnboarding(user: { role: string; onboardingComplete?: boole
 
 function isPendingStudentPreviewAnalysisPath(location: string) {
   return /^\/student\/tests\/-\d+\/analysis$/.test(location);
+}
+
+function getLockedStudentRedirect(
+  user: { role?: string | null; studentFeatureAccess?: { testsLocked?: boolean | null; questionBankLocked?: boolean | null } | null } | null | undefined,
+  location: string,
+) {
+  if (user?.role !== "student") return null;
+
+  if (isStudentFeatureLocked(user, "tests") && location.startsWith("/student/tests") && location !== "/student/tests") {
+    return "/student/tests";
+  }
+
+  if (isStudentFeatureLocked(user, "question-bank") && location.startsWith("/student/question-bank") && location !== "/student/question-bank") {
+    return "/student/question-bank";
+  }
+
+  return null;
 }
 
 function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
@@ -172,6 +255,12 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
   }
 
   if (user.role === "student") {
+    const lockedRedirect = getLockedStudentRedirect(user, location);
+    if (lockedRedirect) {
+      setLocation(lockedRedirect);
+      return null;
+    }
+
     if (studentNeedsOnboarding(user) && location !== "/student/profile") {
       setLocation("/student/profile");
       return null;
@@ -228,6 +317,13 @@ function RedirectTo({ href }: { href: string }) {
 function AppRouter() {
   const { user, isLoading } = useAuth();
   useActivityTracker(!!user);
+
+  useEffect(() => {
+    if (isLoading || !user) return;
+    return scheduleIdlePrefetch(() => {
+      warmLikelyRouteChunks(user.role);
+    });
+  }, [isLoading, user]);
 
   return (
     <Switch>

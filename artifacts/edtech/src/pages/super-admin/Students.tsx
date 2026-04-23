@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  BarChart3,
   CheckCircle,
   Clock,
-  Eye,
+  Lock,
+  LockOpen,
   RotateCcw,
   ShieldCheck,
   ShieldOff,
@@ -20,7 +20,6 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import type { StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
-import { StudentProfileAnalysisPanel } from "@/components/student/StudentProfileAnalysisPanel";
 import { StudentVerificationReviewDialog } from "@/components/student/StudentVerificationReviewDialog";
 import { formatExamDisplayName } from "@/lib/exam-display";
 
@@ -38,6 +37,7 @@ interface User {
   approvedById?: number | null;
   approvedAt?: string | null;
   createdAt: string;
+  avatarUrl?: string | null;
   approverName?: string;
   rejectionReason?: string | null;
   profileDetails?: {
@@ -45,22 +45,47 @@ interface User {
       targetExam?: string | null;
     } | null;
   } | null;
-}
-
-function getStatusVariant(status: string): "default" | "outline" | "destructive" | "secondary" {
-  if (status === "approved" || status === "active") return "default";
-  if (status === "pending") return "outline";
-  return "destructive";
-}
-
-function getStatusIcon(status: string) {
-  if (status === "approved" || status === "active") return <CheckCircle size={14} className="text-green-500" />;
-  if (status === "pending") return <Clock size={14} className="text-yellow-500" />;
-  return <XCircle size={14} className="text-red-500" />;
+  studentFeatureAccess?: {
+    testsLocked?: boolean;
+    questionBankLocked?: boolean;
+  } | null;
 }
 
 function getStudentTargetExam(student: User) {
   return formatExamDisplayName(student.profileDetails?.preparation?.targetExam?.trim() || student.subject?.trim()) || "";
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function getStatusMarker(status: string) {
+  if (status === "approved" || status === "active") {
+    return (
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+        <CheckCircle size={15} />
+      </span>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+        <Clock size={15} />
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-50 text-rose-600">
+      <XCircle size={15} />
+    </span>
+  );
 }
 
 async function fetchStudentInsights(studentId: number) {
@@ -76,7 +101,6 @@ export default function SuperAdminStudents() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [selectedStudent, setSelectedStudent] = useState<User | null>(null);
-  const [analysisStudent, setAnalysisStudent] = useState<User | null>(null);
   const [rejectionDialog, setRejectionDialog] = useState<User | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
@@ -102,20 +126,6 @@ export default function SuperAdminStudents() {
     queryKey: ["sa-student-insights", selectedStudent?.id],
     enabled: !!selectedStudent,
     queryFn: () => fetchStudentInsights(selectedStudent!.id),
-    staleTime: 30_000,
-  });
-
-  const studentAnalysisQuery = useQuery<StudentProfileInsights>({
-    queryKey: ["sa-student-analysis", analysisStudent?.id],
-    enabled: !!analysisStudent,
-    queryFn: async () => {
-      const response = await fetch(`${BASE}/api/users/${analysisStudent?.id}/profile-insights`, { credentials: "include" });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? "Failed to load student profile analysis");
-      }
-      return response.json();
-    },
     staleTime: 30_000,
   });
 
@@ -173,6 +183,51 @@ export default function SuperAdminStudents() {
     },
     onError: (error: Error) => {
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const featureAccessMutation = useMutation({
+    mutationFn: async ({
+      id,
+      testsLocked,
+      questionBankLocked,
+    }: {
+      id: number;
+      testsLocked?: boolean;
+      questionBankLocked?: boolean;
+    }) => {
+      const response = await fetch(`${BASE}/api/users/${id}/student-feature-access`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(testsLocked !== undefined ? { testsLocked } : {}),
+          ...(questionBankLocked !== undefined ? { questionBankLocked } : {}),
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to update student access");
+      }
+      return response.json() as Promise<User>;
+    },
+    onSuccess: (updatedStudent, variables) => {
+      refreshStudents();
+      if (selectedStudent?.id === updatedStudent.id) setSelectedStudent(updatedStudent);
+      toast({
+        title: "Student access updated",
+        description:
+          variables.testsLocked !== undefined
+            ? variables.testsLocked
+              ? "Tests are now locked for this student."
+              : "Tests are unlocked again for this student."
+            : variables.questionBankLocked
+              ? "Question bank is now locked for this student."
+              : "Question bank is unlocked again for this student.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not update access", description: error.message, variant: "destructive" });
     },
   });
 
@@ -264,66 +319,48 @@ export default function SuperAdminStudents() {
                   className="flex flex-col gap-3 rounded-lg border border-border p-4 xl:flex-row xl:items-start xl:justify-between"
                   data-testid={`student-row-${student.id}`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium">{student.fullName}</p>
-                      <Badge variant={getStatusVariant(student.status)} className="flex items-center gap-1.5 capitalize">
-                        {getStatusIcon(student.status)}
-                        {student.status}
-                      </Badge>
-                      {getStudentTargetExam(student) && (
-                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-                          {getStudentTargetExam(student)}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      @{student.username} · {student.email}{student.phone ? ` · ${student.phone}` : ""}
-                    </p>
-                    {student.rejectionReason && (
-                      <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                        Reason: {student.rejectionReason}
-                      </p>
-                    )}
-                    {student.status === "approved" && student.approverName && (
-                      <p className="mt-1 flex items-center gap-1 text-xs text-green-700" data-testid={`approver-${student.id}`}>
-                        <ShieldCheck size={11} />
-                        Approved by <strong>{student.approverName}</strong>
-                        {student.approvedAt && (
-                          <span className="font-normal text-muted-foreground">
-                            · {format(new Date(student.approvedAt), "MMM d, yyyy")}
-                          </span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full transition hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-amber-300"
                       onMouseEnter={() => prefetchStudentInsights(student.id)}
                       onFocus={() => prefetchStudentInsights(student.id)}
                       onClick={() => openStudentReview(student)}
+                      aria-label={`Open ${student.fullName} profile`}
                     >
-                      <Eye size={14} className="mr-1" />
-                      View Profile
-                    </Button>
+                      <Avatar className="h-12 w-12 border border-amber-200 ring-2 ring-amber-50">
+                        <AvatarImage src={student.avatarUrl ?? undefined} alt={student.fullName} />
+                        <AvatarFallback className="bg-gradient-to-br from-amber-500 to-orange-600 text-sm font-bold text-white">
+                          {getInitials(student.fullName)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
 
-                    {student.status === "approved" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100"
-                        onClick={() => setAnalysisStudent(student)}
-                        data-testid={`button-analysis-${student.id}`}
-                      >
-                        <BarChart3 size={14} className="mr-1" />
-                        Profile Analysis
-                      </Button>
-                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{student.fullName}</p>
+                        {getStatusMarker(student.status)}
+                      </div>
+                      {student.rejectionReason && (
+                        <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                          Reason: {student.rejectionReason}
+                        </p>
+                      )}
+                      {student.status === "approved" && student.approverName && (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-green-700" data-testid={`approver-${student.id}`}>
+                          <ShieldCheck size={11} />
+                          Approved by <strong>{student.approverName}</strong>
+                          {student.approvedAt && (
+                            <span className="font-normal text-muted-foreground">
+                              · {format(new Date(student.approvedAt), "MMM d, yyyy")}
+                            </span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
 
+                  <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                     {student.status === "approved" && (
                       <Button
                         size="sm"
@@ -341,31 +378,6 @@ export default function SuperAdminStudents() {
                       </Button>
                     )}
 
-                    {student.status === "rejected" && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-green-600 hover:bg-green-50 hover:text-green-700"
-                        onClick={() => restoreMutation.mutate(student.id)}
-                        disabled={restoreMutation.isPending}
-                        data-testid={`button-restore-${student.id}`}
-                      >
-                        <RotateCcw size={14} className="mr-1" />
-                        Restore
-                      </Button>
-                    )}
-
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => handleDelete(student)}
-                      disabled={deleteMutation.isPending}
-                      data-testid={`button-delete-${student.id}`}
-                    >
-                      <Trash2 size={14} className="mr-1" />
-                      Delete All Data
-                    </Button>
                   </div>
                 </div>
               ))}
@@ -451,35 +463,89 @@ export default function SuperAdminStudents() {
         secondaryActionLabel="Reject"
         primaryActionDisabled={restoreMutation.isPending}
         secondaryActionDisabled={revokeMutation.isPending}
-      />
+        settingsContent={
+          selectedStudent ? (
+            <div className="space-y-5">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Student Settings</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Manage student access and account-level actions from here.
+                </p>
+              </div>
 
-      <Dialog open={!!analysisStudent} onOpenChange={(open) => !open && setAnalysisStudent(null)}>
-        <DialogContent className="max-w-[min(98vw,96rem)] overflow-hidden p-0">
-          <div className="max-h-[calc(100dvh-6rem)] overflow-y-auto">
-            {studentAnalysisQuery.isLoading ? (
-              <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-                <div className="h-40 animate-pulse rounded-3xl bg-muted" />
-                <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                  <div className="h-72 animate-pulse rounded-3xl bg-muted" />
-                  <div className="h-72 animate-pulse rounded-3xl bg-muted" />
-                  <div className="h-72 animate-pulse rounded-3xl bg-muted" />
-                </div>
-                <div className="h-96 animate-pulse rounded-3xl bg-muted" />
+              <div className="grid gap-3 md:grid-cols-2">
+                {selectedStudent.status === "approved" ? (
+                  <Button
+                    variant="outline"
+                    className={selectedStudent.studentFeatureAccess?.testsLocked
+                      ? "justify-between border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                      : "justify-between border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"}
+                    onClick={() => featureAccessMutation.mutate({
+                      id: selectedStudent.id,
+                      testsLocked: !Boolean(selectedStudent.studentFeatureAccess?.testsLocked),
+                    })}
+                    disabled={featureAccessMutation.isPending}
+                    data-testid={`button-lock-tests-${selectedStudent.id}`}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      {selectedStudent.studentFeatureAccess?.testsLocked ? <LockOpen size={15} /> : <Lock size={15} />}
+                      {selectedStudent.studentFeatureAccess?.testsLocked ? "Unlock Tests" : "Lock Tests"}
+                    </span>
+                  </Button>
+                ) : null}
+
+                {selectedStudent.status === "approved" ? (
+                  <Button
+                    variant="outline"
+                    className={selectedStudent.studentFeatureAccess?.questionBankLocked
+                      ? "justify-between border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                      : "justify-between border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"}
+                    onClick={() => featureAccessMutation.mutate({
+                      id: selectedStudent.id,
+                      questionBankLocked: !Boolean(selectedStudent.studentFeatureAccess?.questionBankLocked),
+                    })}
+                    disabled={featureAccessMutation.isPending}
+                    data-testid={`button-lock-question-bank-${selectedStudent.id}`}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      {selectedStudent.studentFeatureAccess?.questionBankLocked ? <LockOpen size={15} /> : <Lock size={15} />}
+                      {selectedStudent.studentFeatureAccess?.questionBankLocked ? "Unlock QBank" : "Lock QBank"}
+                    </span>
+                  </Button>
+                ) : null}
+
+                {selectedStudent.status === "rejected" ? (
+                  <Button
+                    variant="outline"
+                    className="justify-between border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                    onClick={() => restoreMutation.mutate(selectedStudent.id)}
+                    disabled={restoreMutation.isPending}
+                    data-testid={`button-restore-${selectedStudent.id}`}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <RotateCcw size={15} />
+                      Restore Access
+                    </span>
+                  </Button>
+                ) : null}
+
+                <Button
+                  variant="outline"
+                  className="justify-between border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                  onClick={() => handleDelete(selectedStudent)}
+                  disabled={deleteMutation.isPending}
+                  data-testid={`button-delete-${selectedStudent.id}`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Trash2 size={15} />
+                    Delete All Data
+                  </span>
+                </Button>
               </div>
-            ) : studentAnalysisQuery.isError ? (
-              <div className="px-4 py-4 sm:px-6 sm:py-6">
-                <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-sm text-muted-foreground">
-                  {studentAnalysisQuery.error instanceof Error
-                    ? studentAnalysisQuery.error.message
-                    : "Could not load student profile analysis."}
-                </div>
-              </div>
-            ) : studentAnalysisQuery.data ? (
-              <StudentProfileAnalysisPanel insights={studentAnalysisQuery.data} />
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
+            </div>
+          ) : null
+        }
+      />
     </div>
   );
 }

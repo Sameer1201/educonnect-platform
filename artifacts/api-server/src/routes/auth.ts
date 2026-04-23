@@ -25,6 +25,7 @@ import {
   isFirebaseAdminConfigured,
   verifyFirebaseIdToken,
 } from "../lib/firebaseAdmin";
+import { getStudentFeatureAccess } from "../lib/studentFeatureAccess";
 
 const router: IRouter = Router();
 const STUDENT_ONBOARDING_TOTAL_STEPS = 5;
@@ -356,12 +357,14 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
   void passwordHash;
   const onboardingComplete = user.onboardingComplete || (user.role === "student" && Boolean(user.subject?.trim()));
   const parsedProfileDetails = parseStudentProfileData(user.studentProfileData ?? null);
+  const studentFeatureAccess = getStudentFeatureAccess(parsedProfileDetails);
   return {
     ...rest,
     additionalExams: user.additionalExams ?? [],
     onboardingComplete,
     onboardingDraftStep: onboardingComplete ? null : getStudentOnboardingDraftStep(parsedProfileDetails),
     profileDetails: stripStudentOnboardingDraftMeta(parsedProfileDetails),
+    studentFeatureAccess,
   };
 }
 

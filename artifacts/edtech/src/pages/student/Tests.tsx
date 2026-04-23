@@ -7,14 +7,15 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { TcsCalculator } from "@/components/student/TcsCalculator";
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
+import StudentPreviewLockBanner from "@/components/student/StudentPreviewLockBanner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { isStudentPendingVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
 import { filterReviewBucketEntries, getReviewBucketRemovedQuestionIds } from "@/lib/reviewBucket";
 import {
   ClipboardList, Clock, CheckCircle2, AlertCircle, BookOpen,
   Calculator, PanelRightOpen,
-  ChevronDown, ChevronRight, HelpCircle, Info, PlayCircle, X, Search, FileText
+  ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Info, PlayCircle, X, Search, FileText, Eraser, BookmarkPlus, ArrowRight
 } from "lucide-react";
 import { differenceInDays, format } from "date-fns";
 
@@ -887,41 +888,16 @@ function StudentTestsPreview() {
     <>
       <div className="space-y-7">
         <div className="mx-auto max-w-7xl space-y-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-[#0F172A]">My Tests</h1>
-              <p className="mt-1 text-sm font-medium text-[#64748B]">
-                Preview mode active. Sample test cards are visible until verification is approved.
-              </p>
-            </div>
+        <div>
+          <h1 className="text-2xl font-bold text-[#0F172A]">My Tests</h1>
+        </div>
 
-            <Button
-              variant="outline"
-              className="w-full self-start rounded-full border-[#D9D6FE] bg-white px-5 py-3 text-sm font-semibold text-[#5B4DFF] shadow-[0_8px_30px_rgba(15,23,42,0.04)] hover:bg-[#EEF2FF] sm:w-auto md:self-auto"
-              onClick={() => setLocation("/student/pending-approval")}
-            >
-              Check verification
-            </Button>
-          </div>
-
-          <div className="rounded-[28px] border border-[#D9D6FE] bg-[linear-gradient(135deg,#F5F3FF_0%,#F8FAFC_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(91,77,255,0.08)]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Verification pending</p>
-                <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Sample tests unlocked in preview mode</h2>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
-                  The Tests tab stays active, but only sample values are visible for now. Real tests, attempts, review bucket entries, and result actions will unlock after verification is approved.
-                </p>
-              </div>
-              <Button
-                type="button"
-                className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
-                onClick={() => setPendingDialogOpen(true)}
-              >
-                Open locked features
-              </Button>
-            </div>
-          </div>
+        <StudentPreviewLockBanner
+          title="Tests preview locked"
+          description="Preview only for now. Full test access unlocks after approval."
+          onCheckStatus={() => setLocation("/student/pending-approval")}
+          onOpenLocked={() => setPendingDialogOpen(true)}
+        />
 
           <StudentTestsStatsBar
             total={testStats.total}
@@ -1157,6 +1133,7 @@ function ApprovedStudentTests() {
   const integerInputRef = useRef<HTMLInputElement | null>(null);
   const sectionInfoCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sectionInfoAreaRef = useRef<HTMLDivElement | null>(null);
+  const mobileQuestionStripRef = useRef<HTMLDivElement | null>(null);
 
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
@@ -1663,6 +1640,9 @@ function ApprovedStudentTests() {
   });
 
   const totalQ = activeTest?.questions.length ?? 0;
+  const allQuestionEntries = activeTest
+    ? activeTest.questions.map((question, globalIndex) => ({ question, globalIndex }))
+    : [];
   const sectionGroups = activeTest
     ? ((activeTest.sections?.length
         ? activeTest.sections
@@ -1932,6 +1912,7 @@ function ApprovedStudentTests() {
   const examSubheading = activeTest?.examSubheader?.trim() || activeTest?.className || activeTest?.subjectName || activeTest?.chapterName || "Online Test";
   const candidateDisplayName = user?.fullName ?? user?.username ?? "John Smith";
   const isCompactMobileRunner = mobileViewport.isMobile;
+  const hideMobileExamHeader = isCompactMobileRunner && !showInstructions && !showSubmitReview;
   const questionWatermarkLines = useMemo(
     () => [user?.email?.trim(), user?.phone?.trim()].filter((value): value is string => Boolean(value)),
     [user?.email, user?.phone],
@@ -1940,6 +1921,24 @@ function ApprovedStudentTests() {
   const additionalInstructionItems = extractAdditionalInstructionItems(activeTest?.instructions, activeTest?.durationMinutes ?? 30);
   const calculatorEnabled = getCalculatorEnabledFromExamConfig(activeTest?.examConfig);
   const showRotateOverlay = Boolean(activeTest && mobileViewport.isMobile && mobileViewport.isPortrait && !allowPortraitTestView);
+
+  useEffect(() => {
+    if (!isCompactMobileRunner || !activeTest || showInstructions || showSubmitReview) return;
+    const strip = mobileQuestionStripRef.current;
+    if (!strip) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const activeButton = strip.querySelector<HTMLElement>('[data-mobile-strip-current="true"]');
+      activeButton?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [activeTest, currentQuestionIndex, isCompactMobileRunner, showInstructions, showSubmitReview]);
+
   const handleTimerTick = useCallback((seconds: number) => {
     timeLeftRef.current = seconds;
   }, []);
@@ -2323,41 +2322,43 @@ function ApprovedStudentTests() {
                     </div>
                   </div>
                 )}
+                {!hideMobileExamHeader && (
                   <div className="overflow-hidden border-b border-[#7f7f7f] bg-white text-black">
-                  <div className="flex items-start justify-between gap-2 border-b border-[#a76d1c] px-2 py-2 sm:items-center sm:px-4">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[9px] font-bold text-[#57438f] sm:h-10 sm:w-10 sm:text-[10px]">EC</div>
-                    <div className="min-w-0 flex-1 px-0.5 text-center leading-tight sm:px-4">
-                      <p className="line-clamp-2 break-words text-[12px] font-bold uppercase tracking-[-0.03em] text-[#6e4ca5] [overflow-wrap:anywhere] sm:truncate sm:text-xl sm:tracking-tight">{examHeading}</p>
-                      <p className="mt-0.5 line-clamp-2 break-words text-[10px] font-semibold uppercase text-[#3a8b2e] [overflow-wrap:anywhere] sm:truncate sm:text-xs">{examSubheading}</p>
-                    </div>
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[9px] font-bold text-[#d58a00] sm:h-10 sm:w-10 sm:text-[10px]">QB</div>
-                  </div>
-                  <div className="flex flex-col items-start gap-2 bg-[#d7edf6] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-                    <p className="min-w-0 max-w-full break-words text-[13px] font-bold leading-5 text-[#4d4d4d] [overflow-wrap:anywhere] sm:truncate sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
-                    {!showInstructions && (
-                      <div className="flex w-full flex-wrap items-center justify-between gap-2 md:hidden">
-                        {calculatorEnabled ? (
-                          <button
-                            type="button"
-                            onClick={openScientificCalculator}
-                            className="inline-flex min-w-0 items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
-                          >
-                            <Calculator size={13} />
-                            Calculator
-                          </button>
-                        ) : null}
-                        {isCompactMobileRunner ? (
-                          <LiveTimeIndicator
-                            initialSeconds={timerInitialSeconds}
-                            onTick={handleTimerTick}
-                            onExpire={handleTimerExpire}
-                            className="max-w-full shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
-                          />
-                        ) : null}
+                    <div className="flex items-start justify-between gap-2 border-b border-[#a76d1c] px-2 py-2 sm:items-center sm:px-4">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[9px] font-bold text-[#57438f] sm:h-10 sm:w-10 sm:text-[10px]">EC</div>
+                      <div className="min-w-0 flex-1 px-0.5 text-center leading-tight sm:px-4">
+                        <p className="line-clamp-2 break-words text-[12px] font-bold uppercase tracking-[-0.03em] text-[#6e4ca5] [overflow-wrap:anywhere] sm:truncate sm:text-xl sm:tracking-tight">{examHeading}</p>
+                        <p className="mt-0.5 line-clamp-2 break-words text-[10px] font-semibold uppercase text-[#3a8b2e] [overflow-wrap:anywhere] sm:truncate sm:text-xs">{examSubheading}</p>
                       </div>
-                    )}
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#7f7f7f] bg-[#f3f3f3] text-[9px] font-bold text-[#d58a00] sm:h-10 sm:w-10 sm:text-[10px]">QB</div>
+                    </div>
+                    <div className="flex flex-col items-start gap-2 bg-[#d7edf6] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                      <p className="min-w-0 max-w-full break-words text-[13px] font-bold leading-5 text-[#4d4d4d] [overflow-wrap:anywhere] sm:truncate sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
+                      {!showInstructions && (
+                        <div className="flex w-full flex-wrap items-center justify-between gap-2 md:hidden">
+                          {calculatorEnabled ? (
+                            <button
+                              type="button"
+                              onClick={openScientificCalculator}
+                              className="inline-flex min-w-0 items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
+                            >
+                              <Calculator size={13} />
+                              Calculator
+                            </button>
+                          ) : null}
+                          {isCompactMobileRunner ? (
+                            <LiveTimeIndicator
+                              initialSeconds={timerInitialSeconds}
+                              onTick={handleTimerTick}
+                              onExpire={handleTimerExpire}
+                              className="max-w-full shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
+                            />
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {showInstructions ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white text-black md:flex-row">
@@ -2512,6 +2513,63 @@ function ApprovedStudentTests() {
                   <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     <div className="flex min-h-0 flex-1 overflow-hidden">
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white md:border-r md:border-slate-300">
+                      <div className="border-b border-slate-300 bg-white md:hidden">
+                        <div className="flex items-center justify-between gap-3 px-2.5 py-2.5">
+                          <div className="min-w-0">
+                            <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6e4ca5]">
+                              {currentSection?.label ?? examSubheading}
+                            </p>
+                            <p className="mt-0.5 text-[12px] font-bold text-black">
+                              Question {currentQuestionIndex + 1}/{totalQ}
+                            </p>
+                          </div>
+                          <LiveTimeIndicator
+                            initialSeconds={timerInitialSeconds}
+                            onTick={handleTimerTick}
+                            onExpire={handleTimerExpire}
+                            className="shrink-0 rounded-md bg-[#eef3f8] px-2 py-1 font-mono text-[12px] font-bold text-[#1f2937]"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 border-t border-slate-200 px-2.5 py-2">
+                          {calculatorEnabled ? (
+                            <button
+                              type="button"
+                              onClick={openScientificCalculator}
+                              className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-[#334155] shadow-sm hover:bg-[#f8fafc]"
+                            >
+                              <Calculator className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                          <div ref={mobileQuestionStripRef} className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-0.5">
+                            {allQuestionEntries.map(({ question, globalIndex }) => {
+                              const status = getPaletteStatus(question);
+                              const isCurrent = currentQuestion?.id === question.id;
+                              return (
+                                <button
+                                  key={`mobile-strip-${question.id}`}
+                                  type="button"
+                                  onClick={() => goToQuestion(globalIndex)}
+                                  className={`shrink-0 rounded-md bg-transparent p-0.5 transition ${
+                                    isCurrent ? "ring-2 ring-[#2563eb] ring-offset-1 ring-offset-white" : ""
+                                  }`}
+                                  aria-current={isCurrent ? "true" : undefined}
+                                  data-mobile-strip-current={isCurrent ? "true" : "false"}
+                                >
+                                  {renderPaletteBadge(globalIndex + 1, status, "sm")}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setMobilePaletteOpen(true)}
+                            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-[#334155] shadow-sm hover:bg-[#f8fafc]"
+                          >
+                            <PanelRightOpen className="h-3.5 w-3.5" />
+                            Open Palette
+                          </button>
+                        </div>
+                      </div>
                       <div className="hidden border-b border-slate-300 bg-white px-1.5 py-1.5 md:block">
                         <div className="flex items-center justify-between gap-2 px-0.5">
                           <p className="text-[13px] font-bold text-[#5b5b5b]">Sections</p>
@@ -2777,19 +2835,47 @@ function ApprovedStudentTests() {
                       >
                         <div className="mx-auto max-w-full space-y-2 md:hidden">
                           <div className="grid min-w-0 grid-cols-2 gap-2">
-                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]" onClick={previousQuestion} disabled={currentQuestionIndex === 0}>
-                              Previous
+                            <Button
+                              variant="outline"
+                              className="h-10 min-w-0 touch-manipulation rounded-md border border-[#bdbdbd] bg-white px-2 py-2 text-[10px] font-semibold leading-tight text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]"
+                              onClick={previousQuestion}
+                              disabled={currentQuestionIndex === 0}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                                <span>Previous</span>
+                              </span>
                             </Button>
-                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={() => clearResponse(currentQuestion)}>
-                              Clear Response
+                            <Button
+                              variant="outline"
+                              className="h-10 min-w-0 touch-manipulation rounded-md border border-[#bdbdbd] bg-white px-2 py-2 text-[10px] font-semibold leading-tight text-black shadow-none hover:bg-[#f3f3f3]"
+                              onClick={() => clearResponse(currentQuestion)}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                <Eraser className="h-3.5 w-3.5" />
+                                <span>Clear</span>
+                              </span>
                             </Button>
                           </div>
-                          <div className="grid min-w-0 grid-cols-1 gap-2">
-                            <Button variant="outline" className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#bdbdbd] bg-white px-2 py-2 text-[11px] leading-tight text-black shadow-none hover:bg-[#f3f3f3]" onClick={markForReviewAndNext}>
-                              {currentQuestionIndex === totalQ - 1 ? "Mark for Review" : "Mark for Review & Next"}
+                          <div className="grid min-w-0 grid-cols-2 gap-2">
+                            <Button
+                              variant="outline"
+                              className="h-10 min-w-0 touch-manipulation rounded-md border border-[#bdbdbd] bg-white px-2 py-2 text-[10px] font-semibold leading-tight text-black shadow-none hover:bg-[#f3f3f3]"
+                              onClick={markForReviewAndNext}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                <BookmarkPlus className="h-3.5 w-3.5" />
+                                <span>{currentQuestionIndex === totalQ - 1 ? "Mark Review" : "Review & Next"}</span>
+                              </span>
                             </Button>
-                            <Button className="h-11 min-w-0 touch-manipulation whitespace-normal break-words rounded-lg border border-[#6d9cc8] bg-[#4a8ac5] px-2 py-2 text-[11px] leading-tight text-white shadow-none hover:bg-[#417bb1]" onClick={saveAndNext}>
-                              {currentQuestionIndex === totalQ - 1 ? "Save Response" : "Save & Next"}
+                            <Button
+                              className="h-10 min-w-0 touch-manipulation rounded-md border border-[#6d9cc8] bg-[#4a8ac5] px-2 py-2 text-[10px] font-semibold leading-tight text-white shadow-none hover:bg-[#417bb1]"
+                              onClick={saveAndNext}
+                            >
+                              <span className="inline-flex items-center gap-1.5">
+                                {currentQuestionIndex === totalQ - 1 ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                                <span>{currentQuestionIndex === totalQ - 1 ? "Save" : "Save & Next"}</span>
+                              </span>
                             </Button>
                           </div>
                         </div>
@@ -2840,7 +2926,10 @@ function ApprovedStudentTests() {
                                   <button
                                     key={question.id}
                                     type="button"
-                                    onClick={() => goToQuestion(globalIndex)}
+                                    onClick={() => {
+                                      goToQuestion(globalIndex);
+                                      setMobilePaletteOpen(false);
+                                    }}
                                     className="flex h-[56px] touch-manipulation items-center justify-center bg-transparent outline-none focus:outline-none focus-visible:outline-none"
                                     aria-current={isCurrent ? "true" : undefined}
                                   >
@@ -2984,10 +3073,62 @@ function ApprovedStudentTests() {
 
 export default function StudentTests() {
   const { user } = useAuth();
+  const isTestsAccessLocked = isStudentFeatureLocked(user, "tests");
 
   if (isStudentPendingVerification(user)) {
     return <StudentTestsPreview />;
   }
 
+  if (isTestsAccessLocked) {
+    return <LockedStudentTests />;
+  }
+
   return <ApprovedStudentTests />;
+}
+
+function LockedStudentTests() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  return (
+    <>
+      <div className="space-y-7">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-[#0F172A]">My Tests</h1>
+            <p className="mt-1 text-sm font-medium text-[#64748B]">
+              Tests access is currently locked for this student account.
+            </p>
+          </div>
+
+          <div className="rounded-[28px] border border-[#F5D0A5] bg-[linear-gradient(135deg,#FFF7ED_0%,#FFFFFF_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(249,115,22,0.08)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#DC2626]">Access locked</p>
+                <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Tests locked</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
+                  This section is locked for your account right now. Contact admin to unlock tests access.
+                </p>
+              </div>
+              <Button
+                type="button"
+                className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
+                onClick={() => setDialogOpen(true)}
+              >
+                Contact admin
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <PendingVerificationDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title="Tests Locked"
+        description="Your tests section is locked for now. Please contact admin to unlock test access."
+        emailSubject="Tests access locked"
+        emailBody="Hi Admin,\n\nMy tests section is locked. Please review and unlock my test access.\n"
+      />
+    </>
+  );
 }

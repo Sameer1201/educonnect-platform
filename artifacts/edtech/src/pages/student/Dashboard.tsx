@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
+import StudentPreviewLockBanner from "@/components/student/StudentPreviewLockBanner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatExamDisplayName } from "@/lib/exam-display";
-import { isStudentPendingVerification, STUDENT_VERIFICATION_CONTACT_EMAIL } from "@/lib/student-access";
+import { isStudentPendingVerification } from "@/lib/student-access";
 import {
   BrainCircuit,
   Target,
@@ -19,9 +20,6 @@ import {
   Pencil,
   Check,
   X,
-  LockKeyhole,
-  Mail,
-  ShieldAlert,
 } from "lucide-react";
 import {
   LineChart,
@@ -570,50 +568,14 @@ function PendingPreviewDashboard({
     <div className="space-y-6 animate-in fade-in duration-500 max-w-[1600px] mx-auto">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Preview mode active. Sample analytics visible until verification is approved.</p>
       </div>
 
-      <Card className="overflow-hidden border-[#D9D6FE] bg-[linear-gradient(135deg,#F8F7FF_0%,#EEF2FF_100%)] shadow-sm">
-        <CardContent className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-[#DC2626] text-white shadow-sm">
-              <ShieldAlert className="h-4 w-4 translate-y-[0.5px]" />
-            </div>
-            <div className="space-y-1.5">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#DC2626]">Verification Pending</p>
-                <h2 className="mt-1 text-lg font-bold text-[#111827] sm:text-xl">Preview unlocked</h2>
-              </div>
-              <p className="max-w-xl text-sm leading-5 text-[#6B7280]">
-                Sample metrics are visible for now. Tests and question bank unlock after approval.
-              </p>
-              <div className="flex items-center gap-2 text-sm font-semibold text-[#111827]">
-                <Mail className="h-4 w-4 text-[#5B4DFF]" />
-                <span>{STUDENT_VERIFICATION_CONTACT_EMAIL}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-10 whitespace-nowrap rounded-2xl border-[#D9D6FE] bg-white px-4 text-sm text-[#5B4DFF] hover:bg-[#EEF2FF]"
-              onClick={onOpenStatusPage}
-            >
-              Check status
-            </Button>
-            <Button
-              type="button"
-              className="h-10 whitespace-nowrap rounded-2xl bg-[#5B4DFF] px-4 text-sm text-white hover:bg-[#4C3FFD]"
-              onClick={onLockedAction}
-            >
-              <LockKeyhole className="mr-2 h-4 w-4" />
-              Open locked
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <StudentPreviewLockBanner
+        title="Dashboard preview locked"
+        description="Sample metrics are visible for now. Tests and question bank unlock after approval."
+        onCheckStatus={onOpenStatusPage}
+        onOpenLocked={onLockedAction}
+      />
 
       <DailyGoalTracker
         solved={preview.solvedToday}
