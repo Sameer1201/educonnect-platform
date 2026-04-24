@@ -21,7 +21,6 @@ import { differenceInDays, format } from "date-fns";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const TEST_DRAFT_PREFIX = "educonnect-test-draft";
-const ACTIVE_TEST_SESSION_KEY = "educonnect-active-test-id";
 
 type QuestionType = "mcq" | "multi" | "integer";
 type AnswerValue = number | number[] | string;
@@ -88,6 +87,14 @@ interface InteractionLogEntry {
   action: "open" | "answer" | "clear" | "review" | "save";
   answerSnapshot?: AnswerValue | null;
   reviewState?: "marked" | "removed";
+}
+interface SubmitAttemptPayload {
+  answers?: Record<number, AnswerValue>;
+  questionTimings?: Record<number, number>;
+  visitedQuestionIds?: number[];
+  reviewQuestionIds?: number[];
+  interactionLog?: InteractionLogEntry[];
+  isAuto?: boolean;
 }
 
 type TestPreviewAction = "result" | "resume" | "start";
@@ -817,7 +824,7 @@ function LiveTimeIndicator({
   useEffect(() => {
     setSecondsLeft(initialSeconds);
     onTick(initialSeconds);
-    didExpireRef.current = initialSeconds <= 0;
+    didExpireRef.current = false;
 
     const startedAt = Date.now();
     const seed = initialSeconds;
@@ -1139,31 +1146,55 @@ function ApprovedStudentTests() {
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
   const timeLeftRef = useRef(0);
   const autoSubmitTriggeredRef = useRef(false);
+  const activeTestRef = useRef<TestDetail | null>(null);
+  const answersRef = useRef<Record<number, AnswerValue>>({});
+  const savedAnswersRef = useRef<Record<number, AnswerValue>>({});
+  const currentQuestionIndexRef = useRef(0);
+  const visitedSetRef = useRef<Set<number>>(new Set());
+  const reviewSetRef = useRef<Set<number>>(new Set());
+  const questionTimingsRef = useRef<Record<number, number>>({});
+  const interactionLogRef = useRef<InteractionLogEntry[]>([]);
   const [interactionLog, setInteractionLog] = useState<InteractionLogEntry[]>([]);
   const [mobileViewport, setMobileViewport] = useState<MobileViewportState>(() => getMobileViewportState());
   const [allowPortraitTestView, setAllowPortraitTestView] = useState(true);
   const fullscreenRequestedRef = useRef(false);
-  const restoreAttemptRef = useRef(false);
+
+  useEffect(() => {
+    activeTestRef.current = activeTest;
+  }, [activeTest]);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    savedAnswersRef.current = savedAnswers;
+  }, [savedAnswers]);
+
+  useEffect(() => {
+    currentQuestionIndexRef.current = currentQuestionIndex;
+  }, [currentQuestionIndex]);
+
+  useEffect(() => {
+    visitedSetRef.current = visitedSet;
+  }, [visitedSet]);
+
+  useEffect(() => {
+    reviewSetRef.current = reviewSet;
+  }, [reviewSet]);
+
+  useEffect(() => {
+    questionTimingsRef.current = questionTimings;
+  }, [questionTimings]);
+
+  useEffect(() => {
+    interactionLogRef.current = interactionLog;
+  }, [interactionLog]);
 
   const getDraftKey = (testId: number) => `${TEST_DRAFT_PREFIX}-${testId}`;
   const clearDraft = (testId: number) => localStorage.removeItem(getDraftKey(testId));
   const saveDraft = (test: TestDetail, draft: SavedTestDraft) => {
     localStorage.setItem(getDraftKey(test.id), JSON.stringify(draft));
-  };
-  const setActiveAttemptId = (testId: number) => {
-    if (typeof window === "undefined") return;
-    sessionStorage.setItem(ACTIVE_TEST_SESSION_KEY, String(testId));
-  };
-  const clearActiveAttemptId = () => {
-    if (typeof window === "undefined") return;
-    sessionStorage.removeItem(ACTIVE_TEST_SESSION_KEY);
-  };
-  const getActiveAttemptId = () => {
-    if (typeof window === "undefined") return null;
-    const raw = sessionStorage.getItem(ACTIVE_TEST_SESSION_KEY);
-    if (!raw) return null;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : null;
   };
   const buildCurrentDraft = (overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
     answers: savedAnswers,
@@ -1439,7 +1470,6 @@ function ApprovedStudentTests() {
     const initialSavedAnswers = cloneAnswerRecord(shouldResume ? parsedDraft?.answers : undefined);
 
     setActiveTest(cleanTest);
-    setActiveAttemptId(cleanTest.id);
     setAnswers(initialSavedAnswers);
     setSavedAnswers(initialSavedAnswers);
     const initialSeconds = shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60;
@@ -1478,7 +1508,6 @@ function ApprovedStudentTests() {
     if (!r.ok) return;
     const data: TestDetail = await r.json();
     if (data.submission) {
-      clearActiveAttemptId();
       return;
     }
     if (draftMode === "resume") {
@@ -1491,7 +1520,6 @@ function ApprovedStudentTests() {
         const initialSavedAnswers = cloneAnswerRecord(parsedDraft.answers);
 
         setActiveTest(cleanTest);
-        setActiveAttemptId(cleanTest.id);
         setAnswers(initialSavedAnswers);
         setSavedAnswers(initialSavedAnswers);
         const initialSeconds = Math.max(parsedDraft.timeLeft ?? cleanTest.durationMinutes * 60, 0);
@@ -1523,26 +1551,6 @@ function ApprovedStudentTests() {
   }, [activeTest, savedAnswers, currentQuestionIndex, visitedSet, reviewSet, questionTimings, interactionLog, showInstructions]);
 
   useEffect(() => {
-    if (restoreAttemptRef.current || activeTest || isLoading) return;
-    const storedAttemptId = getActiveAttemptId();
-    if (!storedAttemptId) return;
-    const matchingTest = tests.find((test) => test.id === storedAttemptId);
-    if (!matchingTest) {
-      clearActiveAttemptId();
-      return;
-    }
-    if (!localStorage.getItem(getDraftKey(storedAttemptId))) {
-      clearActiveAttemptId();
-      return;
-    }
-    restoreAttemptRef.current = true;
-    void openTestWithMode(storedAttemptId, "resume").catch(() => {
-      clearActiveAttemptId();
-      restoreAttemptRef.current = false;
-    });
-  }, [activeTest, isLoading, tests]);
-
-  useEffect(() => {
     if (!activeTest || activeTest.submission) return;
     const intervalId = window.setInterval(() => {
       saveDraft(activeTest, buildCurrentDraft());
@@ -1572,11 +1580,13 @@ function ApprovedStudentTests() {
     if (active) {
       const elapsed = Math.round((Date.now() - active.startMs) / 1000);
       timingActiveRef.current = null;
-      const updated = { ...questionTimings, [active.qId]: (questionTimings[active.qId] ?? 0) + elapsed };
+      const latestTimings = questionTimingsRef.current;
+      const updated = { ...latestTimings, [active.qId]: (latestTimings[active.qId] ?? 0) + elapsed };
+      questionTimingsRef.current = updated;
       setQuestionTimings(updated);
       return updated;
     }
-    return questionTimings;
+    return questionTimingsRef.current;
   };
 
   const isAnswered = (question: Question, answer: AnswerValue | undefined) => {
@@ -1606,37 +1616,60 @@ function ApprovedStudentTests() {
       answeredReview: statuses.filter((status) => status === "answered-review").length,
     };
   };
+  const getCommittedAnswersSnapshot = () => {
+    const test = activeTestRef.current;
+    const current = test?.questions[currentQuestionIndexRef.current];
+    const nextSavedAnswers = { ...savedAnswersRef.current };
+
+    if (current) {
+      const nextAnswer = cloneAnswerValue(answersRef.current[current.id]);
+      if (isAnswered(current, nextAnswer)) {
+        nextSavedAnswers[current.id] = nextAnswer as AnswerValue;
+      } else {
+        delete nextSavedAnswers[current.id];
+      }
+    }
+
+    return nextSavedAnswers;
+  };
   const submitMutation = useMutation({
-    mutationFn: async () => {
-      if (!activeTest) throw new Error("No test");
-      const finalTimings = finalizeTimings();
-      const r = await fetch(`${BASE}/api/tests/${activeTest.id}/submit`, {
+    mutationFn: async (payload?: SubmitAttemptPayload) => {
+      const test = activeTestRef.current;
+      if (!test) throw new Error("No test");
+      const finalTimings = payload?.questionTimings ?? finalizeTimings();
+      const finalAnswers = payload?.answers ?? getCommittedAnswersSnapshot();
+      const finalVisitedQuestionIds = payload?.visitedQuestionIds ?? Array.from(visitedSetRef.current);
+      const finalReviewQuestionIds = payload?.reviewQuestionIds ?? Array.from(reviewSetRef.current);
+      const finalInteractionLog = payload?.interactionLog ?? interactionLogRef.current;
+      const r = await fetch(`${BASE}/api/tests/${test.id}/submit`, {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          answers: savedAnswers,
+          answers: finalAnswers,
           questionTimings: finalTimings,
           flaggedQuestions: [],
-          visitedQuestionIds: Array.from(visitedSet),
-          reviewQuestionIds: Array.from(reviewSet),
-          interactionLog,
+          visitedQuestionIds: finalVisitedQuestionIds,
+          reviewQuestionIds: finalReviewQuestionIds,
+          interactionLog: finalInteractionLog,
         }),
       });
       if (!r.ok) throw new Error("Failed to submit");
-      return r.json();
+      return { data: await r.json(), testId: test.id, isAuto: Boolean(payload?.isAuto) };
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ["student-tests"] });
       autoSubmitTriggeredRef.current = false;
-      clearDraft(activeTest!.id);
-      clearActiveAttemptId();
+      clearDraft(result.testId);
       setShowSubmitReview(false);
       setActiveTest(null);
       setMobilePaletteOpen(false);
       setPaletteCollapsed(false);
-      toast({ title: "Test submitted successfully" });
+      toast({ title: result.isAuto ? "Time is over. Test submitted automatically" : "Test submitted successfully" });
     },
-    onError: () => toast({ title: "Submission failed", variant: "destructive" }),
+    onError: () => {
+      autoSubmitTriggeredRef.current = false;
+      toast({ title: "Submission failed", variant: "destructive" });
+    },
   });
 
   const totalQ = activeTest?.questions.length ?? 0;
@@ -1899,7 +1932,6 @@ function ApprovedStudentTests() {
     const finalTimings = finalizeTimings();
     saveDraft(activeTest, buildCurrentDraft({ questionTimings: finalTimings }));
     autoSubmitTriggeredRef.current = false;
-    clearActiveAttemptId();
     setMobilePaletteOpen(false);
     setShowCalculator(false);
     setActiveTest(null);
@@ -1943,10 +1975,21 @@ function ApprovedStudentTests() {
     timeLeftRef.current = seconds;
   }, []);
   const handleTimerExpire = useCallback(() => {
-    if (!activeTest || submitMutation.isPending || autoSubmitTriggeredRef.current) return;
+    const test = activeTestRef.current;
+    if (!test || submitMutation.isPending || autoSubmitTriggeredRef.current) return;
     autoSubmitTriggeredRef.current = true;
-    submitMutation.mutate();
-  }, [activeTest, submitMutation]);
+    const current = test.questions[currentQuestionIndexRef.current];
+    const finalVisitedSet = new Set(visitedSetRef.current);
+    if (current) finalVisitedSet.add(current.id);
+    submitMutation.mutate({
+      answers: getCommittedAnswersSnapshot(),
+      questionTimings: finalizeTimings(),
+      visitedQuestionIds: Array.from(finalVisitedSet),
+      reviewQuestionIds: Array.from(reviewSetRef.current),
+      interactionLog: interactionLogRef.current,
+      isAuto: true,
+    });
+  }, [submitMutation]);
 
   const applyIntegerEdit = (transform: (value: string, start: number, end: number) => { value: string; caret: number }) => {
     if (!currentQuestion || currentQuestion.questionType !== "integer") return;
@@ -2335,25 +2378,41 @@ function ApprovedStudentTests() {
                     <div className="flex flex-col items-start gap-2 bg-[#d7edf6] px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4">
                       <p className="min-w-0 max-w-full break-words text-[13px] font-bold leading-5 text-[#4d4d4d] [overflow-wrap:anywhere] sm:truncate sm:text-[16px]">{showInstructions ? "Instructions" : activeTest.title}</p>
                       {!showInstructions && (
-                        <div className="flex w-full flex-wrap items-center justify-between gap-2 md:hidden">
-                          {calculatorEnabled ? (
+                        <div className="flex w-full items-center justify-between gap-2 md:hidden">
+                          <div className="flex min-w-0 items-center gap-2">
+                            {calculatorEnabled ? (
+                              <button
+                                type="button"
+                                onClick={openScientificCalculator}
+                                className="inline-flex min-w-0 items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
+                              >
+                                <Calculator size={13} />
+                                Calculator
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {isCompactMobileRunner ? (
+                              <LiveTimeIndicator
+                                initialSeconds={timerInitialSeconds}
+                                onTick={handleTimerTick}
+                                onExpire={handleTimerExpire}
+                                className="max-w-full shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
+                              />
+                            ) : null}
                             <button
                               type="button"
-                              onClick={openScientificCalculator}
-                              className="inline-flex min-w-0 items-center gap-1 rounded-sm border border-[#7f7f7f] bg-white px-2 py-1 text-[12px] font-semibold text-[#2b2b2b] shadow-sm hover:bg-[#f6f6f6] sm:text-[13px]"
+                              onClick={openSubmitReview}
+                              disabled={submitMutation.isPending}
+                              aria-label="Submit test"
+                              title="Submit test"
+                              className="inline-flex h-9 touch-manipulation items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-[#fecaca] bg-[#ef4444] px-3 text-[11px] font-bold text-white shadow-[0_10px_24px_rgba(239,68,68,0.28)] ring-2 ring-white/80 transition hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:opacity-60"
+                              data-testid="button-submit-test-mobile"
                             >
-                              <Calculator size={13} />
-                              Calculator
+                              <CheckCircle2 className="h-4 w-4" strokeWidth={2.4} />
+                              <span>Submit</span>
                             </button>
-                          ) : null}
-                          {isCompactMobileRunner ? (
-                            <LiveTimeIndicator
-                              initialSeconds={timerInitialSeconds}
-                              onTick={handleTimerTick}
-                              onExpire={handleTimerExpire}
-                              className="max-w-full shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
-                            />
-                          ) : null}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2499,7 +2558,7 @@ function ApprovedStudentTests() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => submitMutation.mutate()}
+                            onClick={() => submitMutation.mutate({})}
                             disabled={submitMutation.isPending}
                             className="min-w-[170px] rounded-[4px] bg-[#df5a55] px-6 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-[#cc4b46] disabled:cursor-not-allowed disabled:opacity-70"
                           >
@@ -2514,7 +2573,7 @@ function ApprovedStudentTests() {
                     <div className="flex min-h-0 flex-1 overflow-hidden">
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white md:border-r md:border-slate-300">
                       <div className="border-b border-slate-300 bg-white md:hidden">
-                        <div className="flex items-center justify-between gap-3 px-2.5 py-2.5">
+                        <div className="flex items-start justify-between gap-3 px-2.5 py-2.5">
                           <div className="min-w-0">
                             <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-[#6e4ca5]">
                               {currentSection?.label ?? examSubheading}
@@ -2523,12 +2582,26 @@ function ApprovedStudentTests() {
                               Question {currentQuestionIndex + 1}/{totalQ}
                             </p>
                           </div>
-                          <LiveTimeIndicator
-                            initialSeconds={timerInitialSeconds}
-                            onTick={handleTimerTick}
-                            onExpire={handleTimerExpire}
-                            className="shrink-0 rounded-md bg-[#eef3f8] px-2 py-1 font-mono text-[12px] font-bold text-[#1f2937]"
-                          />
+                          <div className="flex shrink-0 items-center gap-2">
+                            <LiveTimeIndicator
+                              initialSeconds={timerInitialSeconds}
+                              onTick={handleTimerTick}
+                              onExpire={handleTimerExpire}
+                              className="rounded-md bg-[#eef3f8] px-2 py-1 font-mono text-[12px] font-bold text-[#1f2937]"
+                            />
+                            <button
+                              type="button"
+                              onClick={openSubmitReview}
+                              disabled={submitMutation.isPending}
+                              aria-label="Submit test"
+                              title="Submit test"
+                              className="inline-flex h-8 touch-manipulation items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-[#fecaca] bg-[#ef4444] px-2.5 text-[11px] font-bold text-white shadow-[0_8px_18px_rgba(239,68,68,0.24)] transition hover:bg-[#dc2626] disabled:cursor-not-allowed disabled:opacity-60"
+                              data-testid="button-submit-test-mobile"
+                            >
+                              <CheckCircle2 className="h-4 w-4" strokeWidth={2.4} />
+                              <span>Submit</span>
+                            </button>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 border-t border-slate-200 px-2.5 py-2">
                           {calculatorEnabled ? (
@@ -2676,7 +2749,7 @@ function ApprovedStudentTests() {
                         </button>
                       </div>
 
-                      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white px-2 py-2 pb-40 sm:px-4 sm:py-3 sm:pb-6">
+                      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-white px-2 py-2 pb-44 sm:px-4 sm:py-3 sm:pb-6">
                         <div className="relative mx-auto max-w-full overflow-hidden">
                           {!isCompactMobileRunner && questionWatermarkLines.length > 0 && (
                             <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -2834,7 +2907,7 @@ function ApprovedStudentTests() {
                         style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)" }}
                       >
                         <div className="mx-auto max-w-full space-y-2 md:hidden">
-                          <div className="grid min-w-0 grid-cols-2 gap-2">
+                          <div className="grid min-w-0 grid-cols-3 gap-2">
                             <Button
                               variant="outline"
                               className="h-10 min-w-0 touch-manipulation rounded-md border border-[#bdbdbd] bg-white px-2 py-2 text-[10px] font-semibold leading-tight text-black shadow-none hover:bg-[#f3f3f3] disabled:bg-[#f5f5f5] disabled:text-[#9a9a9a]"
@@ -2856,8 +2929,6 @@ function ApprovedStudentTests() {
                                 <span>Clear</span>
                               </span>
                             </Button>
-                          </div>
-                          <div className="grid min-w-0 grid-cols-2 gap-2">
                             <Button
                               variant="outline"
                               className="h-10 min-w-0 touch-manipulation rounded-md border border-[#bdbdbd] bg-white px-2 py-2 text-[10px] font-semibold leading-tight text-black shadow-none hover:bg-[#f3f3f3]"
@@ -2868,6 +2939,8 @@ function ApprovedStudentTests() {
                                 <span>{currentQuestionIndex === totalQ - 1 ? "Mark Review" : "Review & Next"}</span>
                               </span>
                             </Button>
+                          </div>
+                          <div className="grid min-w-0 grid-cols-1 gap-2">
                             <Button
                               className="h-10 min-w-0 touch-manipulation rounded-md border border-[#6d9cc8] bg-[#4a8ac5] px-2 py-2 text-[10px] font-semibold leading-tight text-white shadow-none hover:bg-[#417bb1]"
                               onClick={saveAndNext}

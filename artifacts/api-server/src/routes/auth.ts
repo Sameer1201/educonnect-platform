@@ -23,6 +23,7 @@ import {
   ensureFirebaseEmailUser,
   generateFirebasePasswordResetLink,
   isFirebaseAdminConfigured,
+  isFirebaseTokenVerificationConfigured,
   verifyFirebaseIdToken,
 } from "../lib/firebaseAdmin";
 import { getStudentFeatureAccess } from "../lib/studentFeatureAccess";
@@ -485,7 +486,7 @@ router.post("/auth/google", async (req, res): Promise<void> => {
     return;
   }
 
-  if (!isFirebaseAdminConfigured()) {
+  if (!isFirebaseTokenVerificationConfigured()) {
     res.status(503).json({ error: "Firebase Google login is not configured on the server yet" });
     return;
   }
@@ -523,7 +524,7 @@ router.post("/auth/firebase-email", async (req, res): Promise<void> => {
     return;
   }
 
-  if (!isFirebaseAdminConfigured()) {
+  if (!isFirebaseTokenVerificationConfigured()) {
     res.status(503).json({ error: "Firebase email/password login is not configured on the server yet" });
     return;
   }
@@ -668,8 +669,14 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   const { username, email, password, fullName } = parsed.data;
+  const firebaseIdToken = typeof req.body?.idToken === "string" ? req.body.idToken.trim() : "";
 
-  if (!isFirebaseAdminConfigured()) {
+  if (!firebaseIdToken && !isFirebaseAdminConfigured()) {
+    res.status(503).json({ error: "Firebase student registration is not configured on the server yet" });
+    return;
+  }
+
+  if (firebaseIdToken && !isFirebaseTokenVerificationConfigured()) {
     res.status(503).json({ error: "Firebase student registration is not configured on the server yet" });
     return;
   }
@@ -695,10 +702,35 @@ router.post("/auth/register", async (req, res): Promise<void> => {
   }
 
   let firebaseUid: string | null = null;
+  let usesClientManagedFirebaseUser = false;
 
   try {
-    const firebaseUser = await ensureFirebaseEmailUser({ email, password, fullName });
-    firebaseUid = firebaseUser.uid;
+    if (firebaseIdToken) {
+      const decoded = await verifyFirebaseIdToken(firebaseIdToken);
+      const provider = decoded.firebase?.sign_in_provider;
+      const decodedEmail = normalizeEmail(typeof decoded.email === "string" ? decoded.email : "");
+
+      if (provider && provider !== "password") {
+        res.status(400).json({ error: "Student registration must use Firebase email/password." });
+        return;
+      }
+
+      if (!decodedEmail) {
+        res.status(400).json({ error: "A Firebase email is required to continue." });
+        return;
+      }
+
+      if (decodedEmail !== email) {
+        res.status(400).json({ error: "Registered email does not match the Firebase account." });
+        return;
+      }
+
+      firebaseUid = typeof decoded.uid === "string" && decoded.uid.trim() ? decoded.uid.trim() : null;
+      usesClientManagedFirebaseUser = true;
+    } else {
+      const firebaseUser = await ensureFirebaseEmailUser({ email, password, fullName });
+      firebaseUid = firebaseUser.uid;
+    }
 
     const [newUser] = await db.insert(usersTable).values({
       username,
@@ -714,7 +746,7 @@ router.post("/auth/register", async (req, res): Promise<void> => {
 
     res.status(201).json(serializeUser(newUser));
   } catch (error) {
-    if (firebaseUid) {
+    if (firebaseUid && !usesClientManagedFirebaseUser) {
       await deleteFirebaseUser(firebaseUid).catch(() => undefined);
     }
 

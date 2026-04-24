@@ -194,6 +194,21 @@ interface ExamTemplate {
   examSubheader?: string | null;
 }
 
+interface QuestionBankChapterOption {
+  id: number;
+  title: string;
+}
+
+interface QuestionBankSubjectOption {
+  id: number;
+  title: string;
+  chapters?: QuestionBankChapterOption[];
+}
+
+interface QuestionBankExamCatalog {
+  subjects?: QuestionBankSubjectOption[];
+}
+
 interface QuestionDraft {
   questionType: QuestionType;
   question: string;
@@ -711,6 +726,7 @@ function getQuestionSetupWarnings(question: Question | null | undefined) {
   const warnings: string[] = [];
   if (readQuestionSetupFlag(question, "needsSubjectName")) warnings.push("Subject name");
   if (readQuestionSetupFlag(question, "needsChapterName")) warnings.push("Chapter name");
+  if (readQuestionSetupFlag(question, "needsTaxonomyReview")) warnings.push("Subject mapping");
   if (readQuestionSetupFlag(question, "needsDifficulty")) warnings.push("Difficulty");
   if (readQuestionSetupFlag(question, "needsIdealTimeSeconds")) warnings.push("Ideal time");
   if (readQuestionSetupFlag(question, "needsCorrectAnswer")) warnings.push("Correct answer");
@@ -1007,6 +1023,19 @@ export default function AdminTestBuilder() {
     () => normalizeExamTypeSelection(test?.examType ?? "", examTemplates),
     [test?.examType, examTemplates],
   );
+  const { data: questionBankCatalog = null } = useQuery<QuestionBankExamCatalog | null>({
+    queryKey: ["admin-test-builder-question-bank-taxonomy", currentExamTypeSelection],
+    queryFn: async () => {
+      const examKey = currentExamTypeSelection.trim();
+      if (!examKey) return null;
+      const response = await fetch(`${BASE}/api/question-bank/exams/${encodeURIComponent(examKey)}`, { credentials: "include" });
+      if (response.status === 403 || response.status === 404) return null;
+      if (!response.ok) throw new Error("Failed to load question bank taxonomy");
+      return response.json();
+    },
+    enabled: Boolean(currentExamTypeSelection),
+    staleTime: 5 * 60_000,
+  });
   const currentScheduledSelection = useMemo(
     () => formatDateTimeLocalValue(test?.scheduledAt ?? null),
     [test?.scheduledAt],
@@ -1159,6 +1188,30 @@ export default function AdminTestBuilder() {
     : (selectedSlotNumber < nextEditableSlot ? selectedSlotNumber + 1 : null);
   const showFilteredEmptyState = hasActiveQuestionFilters && visibleSectionQuestions.length === 0;
   const currentQuestionOpenReportCount = getQuestionOpenReportCount(currentQuestion);
+  const questionBankSubjects = useMemo(
+    () => (questionBankCatalog?.subjects ?? []).filter((subject) => subject.title?.trim()),
+    [questionBankCatalog],
+  );
+  const selectedQuestionBankSubject = useMemo(() => {
+    const subjectKey = normalizeImportedTaxonomyKey(draft?.subjectName ?? "");
+    return questionBankSubjects.find((subject) => normalizeImportedTaxonomyKey(subject.title) === subjectKey) ?? null;
+  }, [draft?.subjectName, questionBankSubjects]);
+  const questionBankChapterOptions = useMemo(
+    () => (selectedQuestionBankSubject?.chapters ?? []).filter((chapter) => chapter.title?.trim()),
+    [selectedQuestionBankSubject],
+  );
+  const draftSubjectName = draft?.subjectName.trim() ?? "";
+  const draftChapterName = draft?.chapterName.trim() ?? "";
+  const draftSubjectOutsideCatalog = Boolean(
+    draftSubjectName &&
+    questionBankSubjects.length > 0 &&
+    !questionBankSubjects.some((subject) => normalizeImportedTaxonomyKey(subject.title) === normalizeImportedTaxonomyKey(draftSubjectName)),
+  );
+  const draftChapterOutsideCatalog = Boolean(
+    draftChapterName &&
+    questionBankChapterOptions.length > 0 &&
+    !questionBankChapterOptions.some((chapter) => normalizeImportedTaxonomyKey(chapter.title) === normalizeImportedTaxonomyKey(draftChapterName)),
+  );
 
   const jumpToNextReportedQuestion = () => {
     if (!questionsWithOpenReports.length) return;
@@ -1749,21 +1802,72 @@ export default function AdminTestBuilder() {
                   <div className="grid gap-3 md:grid-cols-4">
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subject Name</Label>
-                      <Input
-                        value={draft.subjectName}
-                        onChange={(event) => updateDraft({ subjectName: event.target.value })}
-                        placeholder="e.g. Communication Systems"
-                        className="h-10 rounded-xl border-[#eadfcd] bg-white"
-                      />
+                      {questionBankSubjects.length > 0 ? (
+                        <Select
+                          value={draft.subjectName || undefined}
+                          onValueChange={(value) => {
+                            const nextSubject = questionBankSubjects.find((subject) => subject.title === value) ?? null;
+                            const nextChapters = nextSubject?.chapters ?? [];
+                            const currentChapterKey = normalizeImportedTaxonomyKey(draft.chapterName);
+                            const preservedChapter = nextChapters.find((chapter) => normalizeImportedTaxonomyKey(chapter.title) === currentChapterKey);
+                            updateDraft({
+                              subjectName: value,
+                              chapterName: preservedChapter?.title ?? nextChapters[0]?.title ?? "",
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="h-10 rounded-xl border-[#eadfcd] bg-white">
+                            <SelectValue placeholder="Select subject" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {draftSubjectOutsideCatalog ? (
+                              <SelectItem value={draftSubjectName}>{draftSubjectName} (review)</SelectItem>
+                            ) : null}
+                            {questionBankSubjects.map((subject) => (
+                              <SelectItem key={subject.id} value={subject.title}>
+                                {subject.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={draft.subjectName}
+                          onChange={(event) => updateDraft({ subjectName: event.target.value })}
+                          placeholder="e.g. Communication Systems"
+                          className="h-10 rounded-xl border-[#eadfcd] bg-white"
+                        />
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Chapter Name</Label>
-                      <Input
-                        value={draft.chapterName}
-                        onChange={(event) => updateDraft({ chapterName: event.target.value })}
-                        placeholder="e.g. Digital Modulation"
-                        className="h-10 rounded-xl border-[#eadfcd] bg-white"
-                      />
+                      {questionBankChapterOptions.length > 0 ? (
+                        <Select
+                          value={draft.chapterName || undefined}
+                          onValueChange={(value) => updateDraft({ chapterName: value })}
+                        >
+                          <SelectTrigger className="h-10 rounded-xl border-[#eadfcd] bg-white">
+                            <SelectValue placeholder="Select chapter" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {draftChapterOutsideCatalog ? (
+                              <SelectItem value={draftChapterName}>{draftChapterName} (review)</SelectItem>
+                            ) : null}
+                            {questionBankChapterOptions.map((chapter) => (
+                              <SelectItem key={chapter.id} value={chapter.title}>
+                                {chapter.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={draft.chapterName}
+                          onChange={(event) => updateDraft({ chapterName: event.target.value })}
+                          placeholder="e.g. Digital Modulation"
+                          className="h-10 rounded-xl border-[#eadfcd] bg-white"
+                        />
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Topic Name</Label>

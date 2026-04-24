@@ -11,9 +11,42 @@ type FirebaseServiceAccountConfig = {
   private_key?: string;
 };
 
+type FirebaseDecodedToken = {
+  uid: string;
+  sub?: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+  firebase?: {
+    sign_in_provider?: string;
+  };
+};
+
+type FirebaseLookupUser = {
+  localId?: string;
+  email?: string;
+  emailVerified?: boolean;
+  displayName?: string;
+  photoUrl?: string;
+  providerUserInfo?: Array<{
+    providerId?: string;
+  }>;
+};
+
+function readTrimmedEnv(name: string) {
+  const value = process.env[name];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function readFirebasePrivateKey() {
   const value = process.env.FIREBASE_PRIVATE_KEY;
   return typeof value === "string" && value.trim() ? value.replace(/\\n/g, "\n") : undefined;
+}
+
+function readFirebaseWebApiKey() {
+  return readTrimmedEnv("FIREBASE_WEB_API_KEY")
+    ?? readTrimmedEnv("VITE_FIREBASE_API_KEY");
 }
 
 function readFirebaseServiceAccountJson(): FirebaseServiceAccountConfig | undefined {
@@ -69,6 +102,10 @@ export function isFirebaseAdminConfigured() {
   return hasServiceAccountConfig() || hasReadableGoogleCredentialsFile();
 }
 
+export function isFirebaseTokenVerificationConfigured() {
+  return isFirebaseAdminConfigured() || Boolean(readFirebaseWebApiKey());
+}
+
 function getFirebaseAdminApp() {
   const existing = getApps()[0];
   if (existing) return existing;
@@ -105,7 +142,104 @@ function getFirebaseAdminApp() {
   });
 }
 
+function decodeFirebaseJwtPayload(idToken: string) {
+  const parts = idToken.split(".");
+  if (parts.length < 2 || !parts[1]) {
+    throw new Error("Firebase ID token is invalid");
+  }
+
+  try {
+    const normalized = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    return JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as Partial<FirebaseDecodedToken>;
+  } catch {
+    throw new Error("Firebase ID token is invalid");
+  }
+}
+
+function normalizeFirebaseLookupError(code: string) {
+  switch (code) {
+    case "INVALID_ID_TOKEN":
+    case "USER_NOT_FOUND":
+      return "Firebase session is invalid. Please sign in again.";
+    case "PROJECT_NOT_FOUND":
+    case "API_KEY_INVALID":
+      return "Firebase verification is not configured on the server yet";
+    default:
+      return code.replace(/_/g, " ").toLowerCase();
+  }
+}
+
+async function verifyFirebaseIdTokenWithApiKey(idToken: string): Promise<FirebaseDecodedToken> {
+  const apiKey = readFirebaseWebApiKey();
+  if (!apiKey) {
+    throw new Error("Firebase verification is not configured on the server yet");
+  }
+
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    },
+  );
+
+  const payload = await response.json().catch(() => ({})) as {
+    error?: { message?: string };
+    users?: FirebaseLookupUser[];
+  };
+
+  if (!response.ok) {
+    throw new Error(normalizeFirebaseLookupError(payload.error?.message ?? "Firebase token lookup failed"));
+  }
+
+  const lookupUser = Array.isArray(payload.users) ? payload.users[0] : undefined;
+  if (!lookupUser?.localId) {
+    throw new Error("Firebase session is invalid. Please sign in again.");
+  }
+
+  const decoded = decodeFirebaseJwtPayload(idToken);
+  const providerFromLookup = Array.isArray(lookupUser.providerUserInfo)
+    ? lookupUser.providerUserInfo
+      .map((provider) => provider.providerId)
+      .find((provider): provider is string => typeof provider === "string" && provider.trim().length > 0)
+    : undefined;
+  const uid = typeof decoded.sub === "string" && decoded.sub.trim()
+    ? decoded.sub.trim()
+    : lookupUser.localId;
+
+  return {
+    ...decoded,
+    uid,
+    sub: uid,
+    email: typeof decoded.email === "string" && decoded.email.trim()
+      ? decoded.email.trim()
+      : lookupUser.email,
+    email_verified: typeof decoded.email_verified === "boolean"
+      ? decoded.email_verified
+      : lookupUser.emailVerified === true,
+    name: typeof decoded.name === "string" && decoded.name.trim()
+      ? decoded.name.trim()
+      : lookupUser.displayName,
+    picture: typeof decoded.picture === "string" && decoded.picture.trim()
+      ? decoded.picture.trim()
+      : lookupUser.photoUrl,
+    firebase: {
+      sign_in_provider:
+        typeof decoded.firebase?.sign_in_provider === "string" && decoded.firebase.sign_in_provider.trim()
+          ? decoded.firebase.sign_in_provider.trim()
+          : providerFromLookup,
+    },
+  };
+}
+
 export async function verifyFirebaseIdToken(idToken: string) {
+  if (!isFirebaseAdminConfigured()) {
+    return verifyFirebaseIdTokenWithApiKey(idToken);
+  }
   const auth = getAuth(getFirebaseAdminApp());
   return auth.verifyIdToken(idToken);
 }

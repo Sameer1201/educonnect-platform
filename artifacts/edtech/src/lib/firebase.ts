@@ -1,11 +1,14 @@
 import { initializeApp, getApps, getApp, type FirebaseOptions } from "firebase/app";
 import {
+  createUserWithEmailAndPassword,
+  deleteUser,
   confirmPasswordReset,
   EmailAuthProvider,
   GoogleAuthProvider,
   browserSessionPersistence,
   getAuth,
   reauthenticateWithCredential,
+  sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -71,6 +74,13 @@ export async function signInWithFirebaseEmailPassword(email: string, password: s
   return { idToken, firebaseUser: result.user };
 }
 
+export async function registerWithFirebaseEmailPassword(email: string, password: string) {
+  await ensureFirebasePersistence();
+  const result = await createUserWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
+  const idToken = await result.user.getIdToken(true);
+  return { idToken, firebaseUser: result.user };
+}
+
 export async function verifyFirebaseResetCode(oobCode: string) {
   await ensureFirebasePersistence();
   return verifyPasswordResetCode(getFirebaseAuth(), oobCode.trim());
@@ -79,6 +89,11 @@ export async function verifyFirebaseResetCode(oobCode: string) {
 export async function confirmFirebaseResetPassword(oobCode: string, newPassword: string) {
   await ensureFirebasePersistence();
   await confirmPasswordReset(getFirebaseAuth(), oobCode.trim(), newPassword);
+}
+
+export async function sendFirebasePasswordResetEmail(email: string) {
+  await ensureFirebasePersistence();
+  await sendPasswordResetEmail(getFirebaseAuth(), email.trim());
 }
 
 export async function changeFirebasePassword(currentPassword: string, newPassword: string) {
@@ -97,4 +112,11 @@ export async function changeFirebasePassword(currentPassword: string, newPasswor
 export async function clearFirebaseGoogleSession() {
   if (!isFirebaseGoogleConfigured()) return;
   await signOut(getFirebaseAuth()).catch(() => undefined);
+}
+
+export async function deleteCurrentFirebaseUser() {
+  if (!isFirebaseGoogleConfigured()) return;
+  const auth = getFirebaseAuth();
+  if (!auth.currentUser) return;
+  await deleteUser(auth.currentUser).catch(() => undefined);
 }

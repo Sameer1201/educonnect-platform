@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   clearFirebaseGoogleSession,
   isFirebaseGoogleConfigured,
+  sendFirebasePasswordResetEmail,
   signInWithFirebaseEmailPassword,
   signInWithFirebaseGoogle,
 } from "@/lib/firebase";
@@ -147,7 +148,7 @@ export default function LoginPage() {
       }
 
       if (payload.delivery === "client") {
-        throw new Error("Password reset email is not fully configured on the server yet.");
+        await sendFirebasePasswordResetEmail(payload.email ?? forgotIdentifier);
       }
 
       toast({

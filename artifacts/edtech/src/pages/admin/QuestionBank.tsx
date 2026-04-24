@@ -48,7 +48,6 @@ import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { optimizeImageToDataUrl } from "@/lib/imageUpload";
-import { buildQuestionBankWordTemplateText, parseQuestionBankWordText } from "@/lib/questionBankWordImport";
 import { stripRichHtmlToText } from "@/lib/richContent";
 import { SubjectThemeIcon, getSubjectAccent, getSubjectTheme } from "@/lib/subject-theme";
 import {
@@ -146,10 +145,6 @@ interface ReportQueueItem {
   status: string;
   createdAt: string;
 }
-
-type WordImportTarget =
-  | { mode: "exam"; examKey: string }
-  | { mode: "subject"; subject: SubjectItem };
 
 function formatQuestionBankDeadlineLabel(value: string | null | undefined) {
   if (!value) return null;
@@ -476,10 +471,6 @@ function slugifyFilename(value: string, fallback: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || fallback;
 }
 
-function normalizeQuestionBankImportKey(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
 async function parseExamImportBundle(file: File): Promise<{
   bundle: QuestionBankExamTransferBundle;
   sourceLabel: "JSON";
@@ -505,65 +496,6 @@ async function parseSubjectImportBundle(
     bundle: JSON.parse(text) as QuestionBankSubjectTransferBundle,
     sourceLabel: "JSON",
     warnings: [],
-  };
-}
-
-function buildExamImportBundleFromWordText(text: string): {
-  bundle: QuestionBankExamTransferBundle;
-  sourceLabel: "Document";
-  warnings: string[];
-} {
-  const parsed = parseQuestionBankWordText(text);
-  return {
-    bundle: {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      subjects: parsed.subjects.map((subject) => ({
-        title: subject.title,
-        chapters: subject.chapters.map((chapter) => ({
-          title: chapter.title,
-          description: chapter.description,
-          questions: chapter.questions.map((question) => ({ ...question })) as Array<Record<string, unknown>>,
-        })),
-      })),
-    },
-    sourceLabel: "Document",
-    warnings: parsed.warnings,
-  };
-}
-
-function buildSubjectImportBundleFromWordText(
-  text: string,
-  subject: SubjectItem,
-): {
-  bundle: QuestionBankSubjectTransferBundle;
-  sourceLabel: "Document";
-  warnings: string[];
-} {
-  const parsed = parseQuestionBankWordText(text, { defaultSubjectTitle: subject.title });
-  const subjectKey = normalizeQuestionBankImportKey(subject.title);
-  const matchedSubject = parsed.subjects.find((entry) => normalizeQuestionBankImportKey(entry.title) === subjectKey)
-    ?? (parsed.subjects.length === 1 ? parsed.subjects[0] : null);
-
-  if (!matchedSubject) {
-    throw new Error(`This document contains multiple subjects. Open the exam-level Word setup or keep only ${subject.title} here.`);
-  }
-
-  return {
-    bundle: {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      subject: {
-        title: matchedSubject.title,
-      },
-      chapters: matchedSubject.chapters.map((chapter) => ({
-        title: chapter.title,
-        description: chapter.description,
-        questions: chapter.questions.map((question) => ({ ...question })) as Array<Record<string, unknown>>,
-      })),
-    },
-    sourceLabel: "Document",
-    warnings: parsed.warnings,
   };
 }
 
@@ -751,9 +683,6 @@ export default function AdminQuestionBank() {
   const [importingExamKey, setImportingExamKey] = useState<string | null>(null);
   const [exportingSubjectId, setExportingSubjectId] = useState<number | null>(null);
   const [importingSubjectId, setImportingSubjectId] = useState<number | null>(null);
-  const [wordImportTarget, setWordImportTarget] = useState<WordImportTarget | null>(null);
-  const [wordImportText, setWordImportText] = useState("");
-  const [wordImportSubmitting, setWordImportSubmitting] = useState(false);
   const [moveTargetByQuestion, setMoveTargetByQuestion] = useState<Record<number, string>>({});
   const [focusedFiltersOpen, setFocusedFiltersOpen] = useState(false);
   const [focusedMarksFilter, setFocusedMarksFilter] = useState<"all" | string>("all");
@@ -1574,53 +1503,6 @@ export default function AdminQuestionBank() {
       });
     } finally {
       setImportingSubjectId(null);
-    }
-  };
-
-  const openWordImportSetup = (subject?: SubjectItem | null) => {
-    const selectedSubject = subject ?? activeSubject ?? null;
-    const selectedChapter = selectedSubject?.chapters[0] ?? null;
-    setWordImportTarget(
-      selectedSubject
-        ? { mode: "subject", subject: selectedSubject }
-        : { mode: "exam", examKey: selectedExamKey },
-    );
-    setWordImportText(
-      buildQuestionBankWordTemplateText({
-        examLabel: activeQuestionBank?.exam.label ?? "RankPulse Question Bank",
-        subjectTitle: selectedSubject?.title ?? "Sample Subject",
-        chapterTitle: selectedChapter?.title ?? "Sample Chapter",
-      }),
-    );
-  };
-
-  const closeWordImportSetup = () => {
-    if (wordImportSubmitting) return;
-    setWordImportTarget(null);
-    setWordImportText("");
-  };
-
-  const handleWordImportSubmit = async () => {
-    if (!wordImportTarget) return;
-    setWordImportSubmitting(true);
-    try {
-      if (wordImportTarget.mode === "subject") {
-        const parsedImport = buildSubjectImportBundleFromWordText(wordImportText, wordImportTarget.subject);
-        await submitSubjectImportBundle(wordImportTarget.subject, parsedImport);
-      } else {
-        const parsedImport = buildExamImportBundleFromWordText(wordImportText);
-        await submitExamImportBundle(parsedImport);
-      }
-      setWordImportTarget(null);
-      setWordImportText("");
-    } catch (error) {
-      toast({
-        title: "Word setup import failed",
-        description: error instanceof Error ? error.message : "Could not import the typed questions",
-        variant: "destructive",
-      });
-    } finally {
-      setWordImportSubmitting(false);
     }
   };
 
@@ -2794,16 +2676,6 @@ export default function AdminQuestionBank() {
                 All Questions
               </button>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-2 border-[#e7dbca] bg-white hover:bg-[#fff7ed]"
-              onClick={() => openWordImportSetup(activeSubject)}
-            >
-              <FileText className="h-4 w-4" />
-              Word Setup
-            </Button>
             {showChapterTargetMeta ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-700">
                 <Target className="h-3.5 w-3.5" />
@@ -3353,12 +3225,12 @@ export default function AdminQuestionBank() {
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="font-semibold">{activeSubject?.title} Upload Queue</h3>
-                      <p className="text-sm text-muted-foreground">Prioritized chapters with direct Word setup and JSON import for this subject.</p>
+                      <p className="text-sm text-muted-foreground">Prioritized chapters with JSON import for this subject.</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge className="w-fit bg-[#EFF2FF] text-[#102147] hover:bg-[#EFF2FF]">
+                      <span className="inline-flex h-9 w-fit items-center rounded-full border border-[#FED7AA] bg-[#FFF7E8] px-3 text-xs font-bold text-[#B45309] shadow-[0_8px_18px_rgba(217,119,6,0.12)]">
                         {activeQuestionBank.exam.label}
-                      </Badge>
+                      </span>
                       {activeSubject ? (
                         <>
                           <Button
@@ -3372,16 +3244,6 @@ export default function AdminQuestionBank() {
                             aria-label={exportingSubjectId === activeSubject.id ? "Exporting subject" : "Export subject"}
                           >
                             <Download className={`h-4 w-4 ${exportingSubjectId === activeSubject.id ? "animate-pulse" : ""}`} />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="gap-2 border-[#D1D5DB] hover:bg-[#FFF7ED]"
-                            onClick={() => openWordImportSetup(activeSubject)}
-                          >
-                            <FileText className="h-4 w-4" />
-                            Word Setup
                           </Button>
                           <Button
                             type="button"
@@ -3575,7 +3437,7 @@ export default function AdminQuestionBank() {
             <Card className="border-[#E5E7EB] bg-white/95 hover:shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base">Question Bank Transfer</CardTitle>
-                <CardDescription>Export the full exam workspace or import a JSON or Word bundle back in.</CardDescription>
+                <CardDescription>Export the full exam workspace or import a JSON bundle back in.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <input
@@ -3613,15 +3475,6 @@ export default function AdminQuestionBank() {
                   type="button"
                   variant="outline"
                   className="w-full justify-center border-[#D1D5DB] hover:bg-[#FFF7ED]"
-                  onClick={() => openWordImportSetup()}
-                >
-                  <FileText size={14} className="mr-2" />
-                  Open Word Setup
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-center border-[#D1D5DB] hover:bg-[#FFF7ED]"
                   onClick={() => examImportInputRef.current?.click()}
                   disabled={importingExamKey === selectedExamKey}
                 >
@@ -3629,127 +3482,11 @@ export default function AdminQuestionBank() {
                   {importingExamKey === selectedExamKey ? "Importing..." : "Import JSON"}
                 </Button>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Use Open Word Setup to type directly in-app. JSON import still works for existing bundles and matches super-admin-owned subject and chapter cards.
+                  JSON import matches super-admin-owned subject and chapter cards.
                 </p>
               </CardContent>
             </Card>
           </div>
-
-          <Dialog open={Boolean(wordImportTarget)} onOpenChange={(open) => { if (!open) closeWordImportSetup(); }}>
-            <DialogContent className="max-w-6xl gap-0 overflow-hidden border-[#E5E7EB] bg-[#fcfaf5] p-0">
-              <DialogHeader className="border-b border-[#E5E7EB] bg-white px-6 py-5">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge className="bg-[#fff1df] text-[#b45309] hover:bg-[#fff1df]">Word Setup</Badge>
-                  {wordImportTarget?.mode === "subject" ? (
-                    <Badge variant="outline">{wordImportTarget.subject.title}</Badge>
-                  ) : activeQuestionBank?.exam.label ? (
-                    <Badge variant="outline">{activeQuestionBank.exam.label}</Badge>
-                  ) : null}
-                </div>
-                <DialogTitle className="text-2xl font-semibold text-slate-900">
-                  {wordImportTarget?.mode === "subject" ? "Type subject questions" : "Type full exam question bank"}
-                </DialogTitle>
-                <DialogDescription className="text-sm text-slate-600">
-                  Yahin document-style setup me type karo. Subject, Chapter, Question, Type, Option, Answer aur Explanation labels use karke direct import ho jayega.
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
-                <div className="border-b border-[#E5E7EB] bg-[#fff8ee] p-5 lg:border-b-0 lg:border-r">
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#b45309]">Format</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        Question blocks ko `---` se separate karo. MCQ ke liye `Answer: B`, multi ke liye `Answer: A,C`, integer ke liye `Answer:` ya `Answer Min/Max:` use karo.
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-[#f5d7ae] bg-white p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Quick labels</p>
-                      <div className="mt-3 space-y-2 text-sm text-slate-700">
-                        <p>`Subject:`</p>
-                        <p>`Chapter:`</p>
-                        <p>`Question:`</p>
-                        <p>`Type: mcq / multi / integer`</p>
-                        <p>`Option A:`</p>
-                        <p>`Answer:`</p>
-                        <p>`Explanation:`</p>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full border-[#e2c8a2] bg-white hover:bg-[#fff7ed]"
-                      onClick={() => {
-                        const selectedSubject = wordImportTarget?.mode === "subject" ? wordImportTarget.subject : activeSubject ?? activeQuestionBank?.subjects[0] ?? null;
-                        const selectedChapter = selectedSubject?.chapters[0] ?? null;
-                        setWordImportText(
-                          buildQuestionBankWordTemplateText({
-                            examLabel: activeQuestionBank?.exam.label ?? "RankPulse Question Bank",
-                            subjectTitle: selectedSubject?.title ?? "Sample Subject",
-                            chapterTitle: selectedChapter?.title ?? "Sample Chapter",
-                          }),
-                        );
-                      }}
-                    >
-                      Reset Sample Template
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="bg-[#f7f2e8] p-4 sm:p-6">
-                  <div className="mx-auto max-w-3xl rounded-[32px] border border-[#eadfcd] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-                    <div className="flex items-center justify-between border-b border-[#f1eadb] px-6 py-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Document</p>
-                        <p className="mt-1 text-sm font-medium text-slate-700">
-                          {wordImportTarget?.mode === "subject"
-                            ? `${wordImportTarget.subject.title} question import`
-                            : `${activeQuestionBank?.exam.label ?? "Exam"} question bank import`}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-slate-500 hover:bg-slate-100"
-                        onClick={() => setWordImportText("")}
-                        disabled={wordImportSubmitting}
-                      >
-                        Clear
-                      </Button>
-                    </div>
-                    <div className="p-4 sm:p-6">
-                      <Textarea
-                        value={wordImportText}
-                        onChange={(event) => setWordImportText(event.target.value)}
-                        placeholder="Type Subject, Chapter, Question, Type, options, Answer, and Explanation here..."
-                        className="min-h-[560px] resize-none border-0 bg-transparent p-0 font-mono text-[13px] leading-7 text-slate-800 shadow-none focus-visible:ring-0"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter className="border-t border-[#E5E7EB] bg-white px-6 py-4 sm:justify-between sm:space-x-0">
-                <p className="text-xs text-slate-500">
-                  Subject and chapter names should match your current question bank cards.
-                </p>
-                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-                  <Button type="button" variant="ghost" onClick={() => closeWordImportSetup()} disabled={wordImportSubmitting}>
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    className="bg-[#f97316] text-white hover:bg-[#ea580c]"
-                    onClick={() => void handleWordImportSubmit()}
-                    disabled={!wordImportText.trim() || wordImportSubmitting}
-                  >
-                    {wordImportSubmitting ? "Importing..." : "Import From Word Setup"}
-                  </Button>
-                </div>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
 
           {reports.length > 0 && (
             <Card className="border-[#E5E7EB] bg-white/95 hover:shadow-sm">

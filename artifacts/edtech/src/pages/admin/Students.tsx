@@ -363,7 +363,7 @@ export default function AdminStudents() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col h-full min-h-[360px]">
             <div className="px-5 pt-5 pb-4 border-b border-slate-50">
-              <div className="flex items-start gap-3">
+              <div className="flex flex-wrap items-start gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm shadow-indigo-200 shrink-0">
                   <UserCheck className="w-4.5 h-4.5 text-white" />
                 </div>
@@ -371,7 +371,7 @@ export default function AdminStudents() {
                   <h2 className="text-sm font-bold text-slate-800 leading-none">Student Approvals</h2>
                   <p className="mt-1 text-[11px] leading-4 text-slate-400">Review student registration requests</p>
                 </div>
-                <div className="ml-auto shrink-0">
+                <div className="shrink-0 sm:ml-auto">
                   <span className="inline-flex items-center gap-1.5 whitespace-nowrap bg-indigo-50 text-indigo-600 text-xs font-bold px-3 py-1.5 rounded-full border border-indigo-100">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                     {pendingCount} pending
@@ -732,7 +732,7 @@ export default function AdminStudents() {
                             {" "}and all related data. This cannot be undone.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter className="gap-2 mt-2 flex-row">
+                        <AlertDialogFooter className="mt-2 gap-2 sm:flex-row">
                           <AlertDialogCancel className="flex-1 rounded-xl">Cancel</AlertDialogCancel>
                           <AlertDialogAction
                             onClick={() => handleDeleteStudent(student)}
@@ -950,7 +950,7 @@ export default function AdminStudents() {
         />
       ) : (
         <Dialog open={!!profileStudent} onOpenChange={(open) => !open && setProfileStudent(null)}>
-          <DialogContent className="max-w-[min(96vw,72rem)] overflow-hidden p-0">
+          <DialogContent className="max-w-[min(calc(100vw-0.75rem),72rem)] overflow-hidden p-0">
             <DialogHeader className="border-b bg-gradient-to-r from-amber-50 via-white to-orange-50 px-6 py-5">
               <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
                 <span>Student profile insights</span>
@@ -1002,7 +1002,7 @@ export default function AdminStudents() {
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[min(calc(100vw-0.75rem),28rem)]">
           <DialogHeader>
             <DialogTitle>Reject application</DialogTitle>
           </DialogHeader>

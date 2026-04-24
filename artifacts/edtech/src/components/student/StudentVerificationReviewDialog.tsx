@@ -304,16 +304,16 @@ export function StudentVerificationReviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[min(96vw,76rem)] overflow-hidden border-none bg-transparent p-0 shadow-none [&>button]:hidden">
+      <DialogContent className="max-h-[calc(100dvh-0.5rem)] max-w-[min(calc(100vw-0.5rem),76rem)] overflow-hidden border-none bg-transparent p-0 shadow-none [&>button]:hidden">
         <div className="w-full overflow-hidden rounded-[28px] border border-slate-100 bg-white shadow-2xl shadow-slate-200/80">
-          <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 via-slate-800 to-slate-900 px-8 py-5">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 via-slate-800 to-slate-900 px-4 py-4 sm:px-8 sm:py-5">
+            <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500/20 backdrop-blur">
                 <Shield className="h-4 w-4 text-orange-400" />
               </div>
-              <div>
-                <h2 className="text-lg font-bold leading-tight text-white">Student Verification Profile</h2>
-                <p className="text-xs font-medium text-slate-400">{summary.username}</p>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-bold leading-tight text-white sm:text-lg">Student Verification Profile</h2>
+                <p className="truncate text-xs font-medium text-slate-400">{summary.username}</p>
               </div>
             </div>
             <button
@@ -325,8 +325,8 @@ export function StudentVerificationReviewDialog({
             </button>
           </div>
 
-          <div className="flex items-center gap-5 border-b border-slate-100 bg-white px-8 py-5">
-            <div className="relative">
+          <div className="flex flex-col gap-4 border-b border-slate-100 bg-white px-4 py-4 sm:px-8 sm:py-5 lg:flex-row lg:items-center lg:gap-5">
+            <div className="relative self-start">
               {summary.avatarUrl ? (
                 <img src={summary.avatarUrl} alt={summary.fullName} className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
               ) : (
@@ -339,9 +339,9 @@ export function StudentVerificationReviewDialog({
               </div>
             </div>
 
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-xl font-extrabold text-slate-900">{summary.fullName}</h1>
+                <h1 className="break-words text-xl font-extrabold text-slate-900 sm:text-2xl">{summary.fullName}</h1>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
                     summary.status === "Pending"
@@ -367,13 +367,13 @@ export function StudentVerificationReviewDialog({
             </div>
 
             {showActionButtons ? (
-              <div className="ml-auto flex gap-2">
+              <div className="flex w-full flex-col gap-2 sm:flex-row lg:ml-auto lg:w-auto">
                 {onPrimaryAction ? (
                   <button
                     type="button"
                     onClick={onPrimaryAction}
                     disabled={primaryActionDisabled}
-                    className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-orange-200 transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-orange-200 transition-all hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {primaryActionLabel}
                   </button>
@@ -383,7 +383,7 @@ export function StudentVerificationReviewDialog({
                     type="button"
                     onClick={onSecondaryAction}
                     disabled={secondaryActionDisabled}
-                    className="rounded-xl border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-semibold text-red-600 transition-all hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-xl border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-semibold text-red-600 transition-all hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {secondaryActionLabel}
                   </button>
@@ -392,13 +392,13 @@ export function StudentVerificationReviewDialog({
             ) : null}
           </div>
 
-          <div className="flex gap-1 border-b border-slate-100 px-8 pt-4">
+          <div className="flex gap-1 overflow-x-auto border-b border-slate-100 px-4 pt-3 sm:px-8 sm:pt-4">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id as VerificationTab)}
-                className={`relative rounded-t-xl px-5 py-2.5 text-sm font-semibold transition-all ${
+                className={`relative shrink-0 rounded-t-xl px-4 py-2.5 text-sm font-semibold transition-all sm:px-5 ${
                   activeTab === tab.id
                     ? "bg-orange-50 text-orange-600"
                     : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
@@ -410,7 +410,7 @@ export function StudentVerificationReviewDialog({
             ))}
           </div>
 
-          <div ref={contentRef} className="max-h-[calc(100vh-280px)] overflow-y-auto bg-slate-50/60 p-8">
+          <div ref={contentRef} className="max-h-[calc(100dvh-15.5rem)] overflow-y-auto bg-slate-50/60 p-4 sm:max-h-[calc(100dvh-17rem)] sm:p-8">
             {isLoading ? (
               <div className="rounded-[28px] border border-slate-100 bg-white p-4 shadow-sm">
                 {showLoader ? (
@@ -429,7 +429,7 @@ export function StudentVerificationReviewDialog({
               </div>
             ) : !insights ? null : activeTab === "overview" ? (
               <div className="grid gap-6 lg:grid-cols-5">
-                <div className="col-span-2 flex flex-col gap-5">
+                <div className="col-span-1 flex flex-col gap-5 lg:col-span-2">
                   <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
                     <SectionHeader icon={<Target className="h-4 w-4" />} title="Exam Focus" iconBg="bg-rose-50" iconColor="text-rose-500" />
                     <div className="mb-4 flex flex-wrap gap-2">
@@ -454,19 +454,19 @@ export function StudentVerificationReviewDialog({
                   <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
                     <SectionHeader icon={<GraduationCap className="h-4 w-4" />} title="Quick Review" iconBg="bg-violet-50" iconColor="text-violet-500" />
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3 transition-colors hover:bg-violet-50">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-xl bg-slate-50 p-3 transition-colors hover:bg-violet-50">
                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Target Year</span>
                         <span className="text-sm font-bold text-slate-800">
                           {insights.preparationSnapshot.preparation.targetYear || "Not provided"}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3 transition-colors hover:bg-violet-50">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-xl bg-slate-50 p-3 transition-colors hover:bg-violet-50">
                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Learning Mode</span>
-                        <span className="max-w-[160px] text-right text-xs font-semibold leading-tight text-violet-600">
+                        <span className="max-w-[180px] break-words text-right text-xs font-semibold leading-tight text-violet-600">
                           {learningMode || "Not provided"}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between rounded-xl bg-slate-50 p-3 transition-colors hover:bg-violet-50">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-xl bg-slate-50 p-3 transition-colors hover:bg-violet-50">
                         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lead Source</span>
                         <div className="flex items-center gap-1.5">
                           <Search className="h-3 w-3 text-violet-400" />
@@ -479,9 +479,9 @@ export function StudentVerificationReviewDialog({
                   </div>
                 </div>
 
-                <div className="col-span-3">
+                <div className="col-span-1 lg:col-span-3">
                   <div className="h-full rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                    <div className="mb-5 flex items-center justify-between">
+                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <SectionHeader icon={<AlertCircle className="h-4 w-4" />} title="Review Summary" iconBg="bg-amber-50" iconColor="text-amber-500" />
                       <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-600">
                         Admin Review Required

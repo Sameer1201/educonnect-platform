@@ -426,8 +426,8 @@ export default function SendNotification() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#111827] via-[#7C2D12] to-[#F59E0B] p-6 text-white shadow-lg">
+    <div className="mx-auto max-w-6xl min-w-0 space-y-6">
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#111827] via-[#7C2D12] to-[#F59E0B] p-5 text-white shadow-lg sm:p-6">
         <div className="relative z-10">
           <div className="mb-1 flex items-center gap-2 text-sm text-white/70">
             <Bell size={14} /> Notifications & Email Operations
@@ -591,13 +591,13 @@ export default function SendNotification() {
 
         <Card>
           <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Server size={14} className="text-[#D97706]" /> Brevo Accounts
-                </CardTitle>
-              </div>
-              <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Server size={14} className="text-[#D97706]" /> Brevo Accounts
+              </CardTitle>
+            </div>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                 <Button
                   variant="outline"
                   size="sm"
@@ -706,8 +706,8 @@ export default function SendNotification() {
                   const progress = provider.dailyLimit > 0 ? Math.min(100, Math.round((provider.usedToday / provider.dailyLimit) * 100)) : 0;
                   return (
                     <div key={provider.key} className="rounded-2xl border border-[#FDE7BE] bg-white p-4 shadow-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-semibold text-slate-900">{provider.providerName}</p>
                             <Badge variant="outline" className={statusCopy.className}>{statusCopy.label}</Badge>
@@ -733,8 +733,8 @@ export default function SendNotification() {
                             <span className="inline-flex items-center gap-1"><Clock3 size={12} className="text-[#D97706]" /> {formatDateTime(provider.lastSentAt)}</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-11 min-w-[112px] flex-col justify-center rounded-lg bg-[#FFF7E8] px-3 text-center">
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                          <div className="flex h-11 w-full flex-col justify-center rounded-lg bg-[#FFF7E8] px-3 text-center sm:min-w-[112px] sm:w-auto">
                             <p className="text-[8px] font-semibold uppercase tracking-[0.2em] leading-none text-[#B45309]">Usage Today</p>
                             <p className="mt-1 text-sm font-black leading-none text-slate-900">
                               {provider.usedToday}
@@ -745,11 +745,11 @@ export default function SendNotification() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className={provider.providerSource === "database"
+                            className={`w-full sm:w-auto ${provider.providerSource === "database"
                               ? provider.isActive
                                 ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
                                 : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                              : "border-slate-200 bg-slate-50 text-slate-500"}
+                              : "border-slate-200 bg-slate-50 text-slate-500"}`}
                             onClick={() => void handleToggleProvider(provider)}
                             disabled={provider.providerSource !== "database" || togglingProviderId === provider.id}
                           >
@@ -839,8 +839,8 @@ export default function SendNotification() {
                 </p>
               </div>
             ) : (
-              <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)] lg:items-center">
-                <div className="h-72">
+              <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.9fr)] xl:items-center">
+                <div className="h-64 sm:h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -920,7 +920,7 @@ export default function SendNotification() {
           ) : (
             emailLogs.map((log) => (
               <div key={log.id} className="rounded-2xl border border-border bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-semibold text-slate-900">{log.subject}</p>
@@ -984,7 +984,7 @@ export default function SendNotification() {
       )}
 
       <Dialog open={showAddProviderDialog} onOpenChange={setShowAddProviderDialog}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-[min(calc(100vw-0.75rem),36rem)]">
           <DialogHeader>
             <DialogTitle>Add Brevo Account</DialogTitle>
             <DialogDescription>
@@ -1037,7 +1037,7 @@ export default function SendNotification() {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={() => setShowAddProviderDialog(false)} disabled={addingProvider}>
               Cancel
             </Button>

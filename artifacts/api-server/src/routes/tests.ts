@@ -628,6 +628,20 @@ type ResolvedQuestionBankTaxonomy = {
   chapterKey: string;
 };
 
+type QuestionBankTaxonomyCatalog = {
+  targetClass: typeof classesTable.$inferSelect;
+  subjects: Array<typeof subjectsTable.$inferSelect>;
+  subjectsByKey: QuestionBankSubjectsByKey;
+  chaptersBySubjectId: QuestionBankChaptersBySubjectId;
+};
+
+type QuestionBankTitleMatch<T> = {
+  item: T;
+  exact: boolean;
+  reason: "exact" | "compact" | "fuzzy" | "single" | "fallback";
+  score: number;
+};
+
 function buildQuestionBankSectionLookup(sections: Array<typeof testSectionsTable.$inferSelect>): QuestionBankSectionLookup {
   return new Map(sections.map((section) => [section.id, section] as const));
 }
@@ -651,6 +665,99 @@ function buildQuestionBankChaptersBySubjectId(chapters: Array<typeof chaptersTab
     chaptersBySubjectId.set(chapter.subjectId, current);
   });
   return chaptersBySubjectId;
+}
+
+function compactTitleKey(value: string | null | undefined) {
+  return value?.replace(/\s+/g, "") || "";
+}
+
+function titleKeyTokens(value: string | null | undefined) {
+  return (value ?? "").split(/\s+/).filter(Boolean);
+}
+
+function titleKeyAcronym(value: string | null | undefined) {
+  return titleKeyTokens(value).map((token) => token[0]).join("");
+}
+
+function titleMatchScore(leftKey: string | null | undefined, rightKey: string | null | undefined) {
+  if (!leftKey || !rightKey) return 0;
+  if (leftKey === rightKey) return 1;
+  const leftCompact = compactTitleKey(leftKey);
+  const rightCompact = compactTitleKey(rightKey);
+  if (leftCompact && leftCompact === rightCompact) return 0.98;
+  if (leftCompact && (leftCompact === titleKeyAcronym(rightKey) || rightCompact === titleKeyAcronym(leftKey))) return 0.92;
+  if (leftKey.includes(rightKey) || rightKey.includes(leftKey)) return 0.86;
+
+  const leftTokens = new Set(titleKeyTokens(leftKey));
+  const rightTokens = new Set(titleKeyTokens(rightKey));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let overlap = 0;
+  leftTokens.forEach((token) => {
+    if (rightTokens.has(token)) overlap += 1;
+  });
+  return overlap / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function findBestQuestionBankTitleMatch<T>(
+  requestedKey: string | null | undefined,
+  items: T[],
+  getTitle: (item: T) => string,
+  allowFallback: boolean,
+): QuestionBankTitleMatch<T> | null {
+  const normalizedRequestedKey = requestedKey ?? "";
+  if (normalizedRequestedKey) {
+    let best: { item: T; score: number; reason: QuestionBankTitleMatch<T>["reason"] } | null = null;
+    for (const item of items) {
+      const candidateKey = normalizeTitleKey(getTitle(item));
+      const score = titleMatchScore(normalizedRequestedKey, candidateKey);
+      if (score <= 0) continue;
+      const reason: QuestionBankTitleMatch<T>["reason"] =
+        score >= 1 ? "exact" : score >= 0.98 ? "compact" : "fuzzy";
+      if (!best || score > best.score) best = { item, score, reason };
+    }
+    if (best && best.score >= 0.72) {
+      return { item: best.item, exact: best.reason === "exact", reason: best.reason, score: best.score };
+    }
+  }
+
+  if (allowFallback && items.length === 1) {
+    return { item: items[0]!, exact: false, reason: "single", score: 0.55 };
+  }
+  if (allowFallback && items.length > 0) {
+    return { item: items[0]!, exact: false, reason: "fallback", score: 0.1 };
+  }
+  return null;
+}
+
+function findQuestionBankSubjectForTaxonomy(
+  subjectKey: string | null | undefined,
+  subjectsByKey: QuestionBankSubjectsByKey,
+  subjects: Array<typeof subjectsTable.$inferSelect>,
+  allowFallback: boolean,
+) {
+  const exactSubject = subjectKey ? subjectsByKey.get(subjectKey) ?? null : null;
+  if (exactSubject) return { item: exactSubject, exact: true, reason: "exact" as const, score: 1 };
+  return findBestQuestionBankTitleMatch(subjectKey, subjects, (subject) => subject.title, allowFallback);
+}
+
+function findBestQuestionBankChapterPair(
+  chapterKey: string | null | undefined,
+  catalog: Pick<QuestionBankTaxonomyCatalog, "subjects" | "chaptersBySubjectId">,
+) {
+  if (!chapterKey) return null;
+  let best: {
+    subject: typeof subjectsTable.$inferSelect;
+    chapterMatch: QuestionBankTitleMatch<typeof chaptersTable.$inferSelect>;
+  } | null = null;
+  for (const subject of catalog.subjects) {
+    const chapters = catalog.chaptersBySubjectId.get(subject.id) ?? [];
+    const chapterMatch = findBestQuestionBankTitleMatch(chapterKey, chapters, (chapter) => chapter.title, false);
+    if (!chapterMatch) continue;
+    if (!best || chapterMatch.score > best.chapterMatch.score) {
+      best = { subject, chapterMatch };
+    }
+  }
+  return best;
 }
 
 function resolveQuestionBankTaxonomyForTestQuestion(
@@ -689,8 +796,11 @@ function findQuestionBankChapterForTaxonomy(
   targetSubjectId: number,
   chapterKey: string,
   chaptersBySubjectId: QuestionBankChaptersBySubjectId,
+  allowFallback = false,
 ) {
-  return (chaptersBySubjectId.get(targetSubjectId) ?? []).find((chapter) => normalizeTitleKey(chapter.title) === chapterKey) ?? null;
+  const chapters = chaptersBySubjectId.get(targetSubjectId) ?? [];
+  const match = findBestQuestionBankTitleMatch(chapterKey, chapters, (chapter) => chapter.title, allowFallback);
+  return match?.item ?? null;
 }
 
 async function ensureTeacherAssignedToQuestionBankClass(
@@ -718,7 +828,9 @@ async function ensureTeacherAssignedToQuestionBankClass(
 async function resolveQuestionBankClassForExam(
   teacherId: number,
   examType: unknown,
+  options: { createIfMissing?: boolean } = {},
 ): Promise<ResolvedQuestionBankContext> {
+  const shouldCreateMissing = options.createIfMissing !== false;
   const examKey = normalizeExamKey(examType);
   if (!examKey) {
     return {
@@ -749,6 +861,12 @@ async function resolveQuestionBankClassForExam(
   let targetClass = assignedClass ?? ownedClass ?? examMatchedClass ?? null;
 
   if (!targetClass) {
+    if (!shouldCreateMissing) {
+      return {
+        targetClass: null,
+        createdQuestionBankClassCount: 0,
+      };
+    }
     const examLabel =
       typeof examType === "string" && examType.trim()
         ? examType.trim().replace(/\s+/g, " ").toUpperCase()
@@ -780,6 +898,112 @@ async function resolveQuestionBankClassForExam(
   return {
     targetClass,
     createdQuestionBankClassCount: 0,
+  };
+}
+
+async function loadQuestionBankTaxonomyCatalogForExam(
+  teacherId: number,
+  examType: unknown,
+): Promise<QuestionBankTaxonomyCatalog | null> {
+  const { targetClass } = await resolveQuestionBankClassForExam(teacherId, examType, { createIfMissing: false });
+  if (!targetClass) return null;
+
+  const subjects = await db
+    .select()
+    .from(subjectsTable)
+    .where(eq(subjectsTable.classId, targetClass.id))
+    .orderBy(asc(subjectsTable.order), asc(subjectsTable.createdAt));
+  const chapters = subjects.length > 0
+    ? await db.select().from(chaptersTable).where(inArray(chaptersTable.subjectId, subjects.map((subject) => subject.id))).orderBy(asc(chaptersTable.order), asc(chaptersTable.id))
+    : [];
+
+  return {
+    targetClass,
+    subjects,
+    subjectsByKey: buildQuestionBankSubjectsByKey(subjects),
+    chaptersBySubjectId: buildQuestionBankChaptersBySubjectId(chapters),
+  };
+}
+
+function resolveCanonicalQuestionBankTaxonomy(
+  catalog: QuestionBankTaxonomyCatalog | null,
+  subjectName: string | null,
+  chapterName: string | null,
+) {
+  if (!catalog || catalog.subjects.length === 0) {
+    return {
+      subjectName,
+      chapterName,
+      needsReview: false,
+      reviewReason: null as string | null,
+      importedSubjectName: null as string | null,
+      importedChapterName: null as string | null,
+    };
+  }
+
+  const requestedSubjectKey = normalizeTitleKey(subjectName ?? "");
+  const requestedChapterKey = normalizeTitleKey(chapterName ?? "");
+  const directSubjectMatch = findQuestionBankSubjectForTaxonomy(requestedSubjectKey, catalog.subjectsByKey, catalog.subjects, false);
+  const crossSubjectChapterMatch = findBestQuestionBankChapterPair(requestedChapterKey, catalog);
+
+  let subjectMatch = directSubjectMatch;
+  let targetSubject = subjectMatch?.item ?? null;
+  let chapterMatch: QuestionBankTitleMatch<typeof chaptersTable.$inferSelect> | null = null;
+
+  if (targetSubject) {
+    const targetChapters = catalog.chaptersBySubjectId.get(targetSubject.id) ?? [];
+    chapterMatch = findBestQuestionBankTitleMatch(requestedChapterKey, targetChapters, (chapter) => chapter.title, false);
+  }
+
+  if (
+    crossSubjectChapterMatch &&
+    (
+      !targetSubject ||
+      !chapterMatch ||
+      crossSubjectChapterMatch.chapterMatch.exact ||
+      crossSubjectChapterMatch.chapterMatch.score > chapterMatch.score + 0.08
+    )
+  ) {
+    targetSubject = crossSubjectChapterMatch.subject;
+    subjectMatch = {
+      item: crossSubjectChapterMatch.subject,
+      exact: normalizeTitleKey(crossSubjectChapterMatch.subject.title) === requestedSubjectKey,
+      reason: normalizeTitleKey(crossSubjectChapterMatch.subject.title) === requestedSubjectKey ? "exact" : "fuzzy",
+      score: directSubjectMatch?.item.id === crossSubjectChapterMatch.subject.id ? directSubjectMatch.score : 0.72,
+    };
+    chapterMatch = crossSubjectChapterMatch.chapterMatch;
+  }
+
+  if (!targetSubject) {
+    subjectMatch = findQuestionBankSubjectForTaxonomy(requestedSubjectKey, catalog.subjectsByKey, catalog.subjects, Boolean(subjectName));
+    targetSubject = subjectMatch?.item ?? null;
+  }
+
+  if (targetSubject && !chapterMatch) {
+    const targetChapters = catalog.chaptersBySubjectId.get(targetSubject.id) ?? [];
+    chapterMatch = findBestQuestionBankTitleMatch(requestedChapterKey, targetChapters, (chapter) => chapter.title, Boolean(chapterName));
+  }
+
+  const canonicalSubjectName = targetSubject?.title ?? subjectName;
+  const canonicalChapterName = chapterMatch?.item.title ?? chapterName;
+  const subjectChanged = Boolean(subjectName && canonicalSubjectName && normalizeTitleKey(subjectName) !== normalizeTitleKey(canonicalSubjectName));
+  const chapterChanged = Boolean(chapterName && canonicalChapterName && normalizeTitleKey(chapterName) !== normalizeTitleKey(canonicalChapterName));
+  const needsReview = Boolean(
+    subjectChanged ||
+    chapterChanged ||
+    (subjectName && subjectMatch && !subjectMatch.exact) ||
+    (chapterName && chapterMatch && !chapterMatch.exact),
+  );
+
+  return {
+    subjectName: canonicalSubjectName,
+    chapterName: canonicalChapterName,
+    needsReview,
+    reviewReason: needsReview
+      ? "Metadata was mapped to the nearest super-admin subject/chapter. Please review once."
+      : null,
+    importedSubjectName: subjectChanged ? subjectName : null,
+    importedChapterName: chapterChanged ? chapterName : null,
   };
 }
 
@@ -828,6 +1052,7 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
     : [];
   const chaptersBySubjectId = buildQuestionBankChaptersBySubjectId(chapters);
   const duplicateKeysByChapterId = new Map<number, Map<string, number>>();
+  const taxonomyMappingWarnings = new Set<string>();
 
   for (const question of testQuestions) {
     if (existingLinksByTestQuestionId.has(question.id)) {
@@ -840,7 +1065,8 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
       continue;
     }
 
-    let targetSubject = subjectsByKey.get(resolvedTaxonomy.subjectKey) ?? null;
+    let subjectMatch = findQuestionBankSubjectForTaxonomy(resolvedTaxonomy.subjectKey, subjectsByKey, subjects, subjects.length > 0);
+    let targetSubject = subjectMatch?.item ?? null;
     if (!targetSubject) {
       const nextOrder = subjectsByKey.size;
       const [createdSubject] = await db.insert(subjectsTable).values({
@@ -855,9 +1081,16 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
       chaptersBySubjectId.set(createdSubject.id, []);
       summary.createdSubjectCount += 1;
     }
+    if (targetSubject && subjectMatch && !subjectMatch.exact) {
+      const warningKey = `subject:${resolvedTaxonomy.subjectLabel}->${targetSubject.title}`;
+      if (!taxonomyMappingWarnings.has(warningKey)) {
+        taxonomyMappingWarnings.add(warningKey);
+        summary.warnings.push(`Mapped subject "${resolvedTaxonomy.subjectLabel}" to "${targetSubject.title}" for review.`);
+      }
+    }
 
     let subjectChapters = chaptersBySubjectId.get(targetSubject.id) ?? [];
-    let targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId);
+    let targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId, subjectChapters.length > 0);
     if (!targetChapter) {
       const [createdChapter] = await db.insert(chaptersTable).values({
         subjectId: targetSubject.id,
@@ -870,6 +1103,13 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
       subjectChapters = [...subjectChapters, createdChapter];
       chaptersBySubjectId.set(targetSubject.id, subjectChapters);
       summary.createdChapterCount += 1;
+    }
+    if (targetChapter && normalizeTitleKey(targetChapter.title) !== resolvedTaxonomy.chapterKey) {
+      const warningKey = `chapter:${targetSubject.id}:${resolvedTaxonomy.chapterTitle}->${targetChapter.title}`;
+      if (!taxonomyMappingWarnings.has(warningKey)) {
+        taxonomyMappingWarnings.add(warningKey);
+        summary.warnings.push(`Mapped chapter "${resolvedTaxonomy.chapterTitle}" to "${targetChapter.title}" for review.`);
+      }
     }
 
     let duplicateMap = duplicateKeysByChapterId.get(targetChapter.id);
@@ -2884,14 +3124,21 @@ router.post("/tests/:id/import-question-metadata", requireAuth, async (req, res)
       return res.status(400).json({ error: "No question metadata found in import payload" });
     }
 
-    const testQuestions = await db
-      .select()
-      .from(testQuestionsTable)
-      .where(eq(testQuestionsTable.testId, testId))
-      .orderBy(asc(testQuestionsTable.order));
+    const [[test], testQuestions] = await Promise.all([
+      db.select().from(testsTable).where(eq(testsTable.id, testId)),
+      db
+        .select()
+        .from(testQuestionsTable)
+        .where(eq(testQuestionsTable.testId, testId))
+        .orderBy(asc(testQuestionsTable.order)),
+    ]);
+    if (!test) {
+      return res.status(404).json({ error: "Test not found" });
+    }
     if (testQuestions.length === 0) {
       return res.status(404).json({ error: "Test questions not found" });
     }
+    const questionBankCatalog = await loadQuestionBankTaxonomyCatalogForExam(userId, test.examType);
 
     const questionByCode = new Map<string, typeof testQuestions[number]>();
     const questionByCodeNumber = new Map<number, typeof testQuestions[number]>();
@@ -2971,6 +3218,13 @@ router.post("/tests/:id/import-question-metadata", requireAuth, async (req, res)
       const nextIdealTimeSeconds =
         explicitIdealTimeSeconds ??
         parseImportedNumericValue(currentMeta?.estimatedTimeSeconds);
+      const canonicalTaxonomy = resolveCanonicalQuestionBankTaxonomy(
+        questionBankCatalog,
+        nextSubjectName,
+        nextChapterName,
+      );
+      const resolvedSubjectName = canonicalTaxonomy.subjectName;
+      const resolvedChapterName = canonicalTaxonomy.chapterName;
 
       const providedCorrectAnswerIndex = parseImportedOptionIndex(
         item.correctAnswer ?? item.answer,
@@ -3016,19 +3270,24 @@ router.post("/tests/:id/import-question-metadata", requireAuth, async (req, res)
 
       const nextMeta = {
         ...(currentMeta ?? {}),
-        ...(nextSubjectName ? { subjectName: nextSubjectName } : {}),
-        ...(nextChapterName ? { chapterName: nextChapterName } : {}),
+        ...(resolvedSubjectName ? { subjectName: resolvedSubjectName } : {}),
+        ...(resolvedChapterName ? { chapterName: resolvedChapterName } : {}),
+        importedSubjectName: canonicalTaxonomy.importedSubjectName,
+        importedChapterName: canonicalTaxonomy.importedChapterName,
+        needsTaxonomyReview: canonicalTaxonomy.needsReview,
+        taxonomyReviewReason: canonicalTaxonomy.reviewReason,
         ...(nextTopicTag ? { topicTag: nextTopicTag } : {}),
         ...(nextDifficulty ? { difficulty: nextDifficulty } : {}),
         ...(nextIdealTimeSeconds !== null && Number.isFinite(nextIdealTimeSeconds) ? { estimatedTimeSeconds: nextIdealTimeSeconds } : {}),
-        needsSubjectName: !nextSubjectName,
-        needsChapterName: !nextChapterName,
+        needsSubjectName: !resolvedSubjectName,
+        needsChapterName: !resolvedChapterName,
         needsDifficulty: !nextDifficulty,
         needsIdealTimeSeconds: !(nextIdealTimeSeconds !== null && Number.isFinite(nextIdealTimeSeconds)),
         needsCorrectAnswer: !nextHasCorrectAnswer,
         needsQuestionSetup: (
-          !nextSubjectName ||
-          !nextChapterName ||
+          !resolvedSubjectName ||
+          !resolvedChapterName ||
+          canonicalTaxonomy.needsReview ||
           !nextDifficulty ||
           !(nextIdealTimeSeconds !== null && Number.isFinite(nextIdealTimeSeconds)) ||
           !nextHasCorrectAnswer

@@ -395,7 +395,7 @@ export default function SuperAdminStudents() {
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[min(calc(100vw-0.75rem),28rem)]">
           <DialogHeader>
             <DialogTitle>Reject application</DialogTitle>
           </DialogHeader>

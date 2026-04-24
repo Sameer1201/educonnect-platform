@@ -9,7 +9,11 @@ import { CheckCircle } from "lucide-react";
 import { Link } from "wouter";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { useAuth } from "@/contexts/AuthContext";
-import { isFirebaseGoogleConfigured, signInWithFirebaseEmailPassword } from "@/lib/firebase";
+import {
+  deleteCurrentFirebaseUser,
+  isFirebaseGoogleConfigured,
+  registerWithFirebaseEmailPassword,
+} from "@/lib/firebase";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -70,7 +74,20 @@ export default function RegisterPage() {
     }
 
     setSaving(true);
+    let firebaseIdToken = "";
+    let createdClientFirebaseUser = false;
+    let registeredOnServer = false;
+
     try {
+      if (isFirebaseGoogleConfigured()) {
+        const firebaseRegistration = await registerWithFirebaseEmailPassword(
+          normalizedEmail,
+          form.password,
+        );
+        firebaseIdToken = firebaseRegistration.idToken;
+        createdClientFirebaseUser = true;
+      }
+
       const response = await fetch(`${BASE}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,24 +96,25 @@ export default function RegisterPage() {
           username: normalizedUsername,
           password: form.password,
           fullName: normalizedFullName,
+          ...(firebaseIdToken ? { idToken: firebaseIdToken } : {}),
         }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload.error ?? "Registration failed. Please try again.");
       }
+      registeredOnServer = true;
 
       if (!isFirebaseGoogleConfigured()) {
         setSuccess(true);
         return;
       }
 
-      const { idToken } = await signInWithFirebaseEmailPassword(
-        normalizedEmail,
-        form.password,
-      );
-      await completeFirebaseServerLogin(idToken);
+      await completeFirebaseServerLogin(firebaseIdToken);
     } catch (err: any) {
+      if (createdClientFirebaseUser && !registeredOnServer) {
+        await deleteCurrentFirebaseUser();
+      }
       setError(err.message ?? "Registration failed. Please try again.");
     } finally {
       setSaving(false);
