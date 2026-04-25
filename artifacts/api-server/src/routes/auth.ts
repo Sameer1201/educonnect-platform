@@ -26,7 +26,7 @@ import {
   isFirebaseTokenVerificationConfigured,
   verifyFirebaseIdToken,
 } from "../lib/firebaseAdmin";
-import { getStudentFeatureAccess } from "../lib/studentFeatureAccess";
+import { getStudentFeatureAccess, getStudentFeatureUnlockPricing } from "../lib/studentFeatureAccess";
 
 const router: IRouter = Router();
 const STUDENT_ONBOARDING_TOTAL_STEPS = 5;
@@ -366,6 +366,7 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
     onboardingDraftStep: onboardingComplete ? null : getStudentOnboardingDraftStep(parsedProfileDetails),
     profileDetails: stripStudentOnboardingDraftMeta(parsedProfileDetails),
     studentFeatureAccess,
+    studentFeaturePricing: getStudentFeatureUnlockPricing(parsedProfileDetails),
   };
 }
 

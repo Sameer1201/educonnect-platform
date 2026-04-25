@@ -15,6 +15,7 @@ import {
   ImagePlus,
   List,
   PenLine,
+  Plus,
   Save,
   SlidersHorizontal,
   Trash2,
@@ -132,6 +133,8 @@ interface TestDetail {
   sections: TestSection[];
   questions: Question[];
 }
+
+type AdminTestsCacheItem = Partial<TestDetail> & { id: number };
 
 interface BuilderExportSection {
   exportRef?: string | null;
@@ -287,6 +290,8 @@ const OPTION_BADGE_STYLES = [
   "bg-rose-500",
   "bg-slate-700",
 ];
+
+const CPET_EXPECTED_QUESTION_COUNT = 100;
 
 function normalizeExamConfigObject(value: unknown) {
   if (typeof value === "string") {
@@ -600,6 +605,11 @@ function buildSectionBreadcrumb(subjectLabel?: string | null, sectionTitle?: str
   return uniqueLabels.join(" · ");
 }
 
+function isQuestionCodeLikeLabel(value?: string | null) {
+  const normalized = value?.trim() ?? "";
+  return /^q\s*[-:]?\s*\d+$/i.test(normalized) || /^[a-z]\s*[-:]?\s*\d+$/i.test(normalized);
+}
+
 function isImportedMarksTag(value: string) {
   return /^[-+0-9.\s/]+$/.test(value.trim());
 }
@@ -726,7 +736,7 @@ function getQuestionSetupWarnings(question: Question | null | undefined) {
   const warnings: string[] = [];
   if (readQuestionSetupFlag(question, "needsSubjectName")) warnings.push("Subject name");
   if (readQuestionSetupFlag(question, "needsChapterName")) warnings.push("Chapter name");
-  if (readQuestionSetupFlag(question, "needsTaxonomyReview")) warnings.push("Subject mapping");
+  if (readQuestionSetupFlag(question, "needsTaxonomyReview")) warnings.push("Taxonomy review");
   if (readQuestionSetupFlag(question, "needsDifficulty")) warnings.push("Difficulty");
   if (readQuestionSetupFlag(question, "needsIdealTimeSeconds")) warnings.push("Ideal time");
   if (readQuestionSetupFlag(question, "needsCorrectAnswer")) warnings.push("Correct answer");
@@ -1040,9 +1050,13 @@ export default function AdminTestBuilder() {
     () => formatDateTimeLocalValue(test?.scheduledAt ?? null),
     [test?.scheduledAt],
   );
-  const currentTestCategorySelection = useMemo(
-    () => normalizeTestCategory(normalizeExamConfigObject(test?.examConfig).testCategory),
+  const currentExamConfig = useMemo(
+    () => normalizeExamConfigObject(test?.examConfig),
     [test?.examConfig],
+  );
+  const currentTestCategorySelection = useMemo(
+    () => normalizeTestCategory(currentExamConfig.testCategory),
+    [currentExamConfig],
   );
 
   useEffect(() => {
@@ -1069,6 +1083,22 @@ export default function AdminTestBuilder() {
     () => [...(test?.sections ?? [])].sort((left, right) => (left.order ?? 0) - (right.order ?? 0)),
     [test?.sections],
   );
+  const savedQuestionCount = test?.questions.length ?? 0;
+  const isCpetTest = /\bcpet\b/i.test([
+    test?.examType,
+    test?.title,
+    test?.examHeader,
+    test?.examSubheader,
+  ].filter(Boolean).join(" "));
+  const isImportedLayoutTest = Boolean(
+    currentExamConfig.importedFromHtml ||
+    currentExamConfig.preserveImportedSections ||
+    (test?.questions ?? []).some((question) => {
+      const sourceType = (question.sourceType ?? "manual").trim().toLowerCase();
+      return Boolean(sourceType && sourceType !== "manual");
+    }) ||
+    sections.some((section) => /^[a-z]+\s*[-:]?\s*\d+/i.test(section.title.trim())),
+  );
 
   useEffect(() => {
     if (!sections.length) return;
@@ -1090,10 +1120,6 @@ export default function AdminTestBuilder() {
   const activeSectionMarkingSchemes = useMemo(
     () => getSectionMarkingSchemes(activeSectionQuestions, activeSection, test),
     [activeSectionQuestions, activeSection, test],
-  );
-  const activeSectionBreadcrumb = useMemo(
-    () => buildSectionBreadcrumb(activeSection?.subjectLabel, activeSection?.title),
-    [activeSection?.subjectLabel, activeSection?.title],
   );
   const questionsWithOpenReports = useMemo(
     () => (test?.questions ?? []).filter((question) => getQuestionOpenReportCount(question) > 0),
@@ -1169,6 +1195,33 @@ export default function AdminTestBuilder() {
     () => getQuestionMarking(currentQuestion, activeSection, test),
     [currentQuestion, activeSection, test],
   );
+  const currentQuestionMeta = useMemo(
+    () => ((currentQuestion?.meta as Record<string, unknown> | null) ?? null),
+    [currentQuestion],
+  );
+  const currentQuestionTaxonomyReview = useMemo(() => {
+    const importedSubjectName = sanitizeExplicitTaxonomyValue(currentQuestionMeta?.importedSubjectName);
+    const importedChapterName = sanitizeExplicitTaxonomyValue(currentQuestionMeta?.importedChapterName);
+    const suggestedSubjectName = sanitizeExplicitTaxonomyValue(currentQuestionMeta?.suggestedSubjectName);
+    const suggestedChapterName = sanitizeExplicitTaxonomyValue(currentQuestionMeta?.suggestedChapterName);
+    const reviewReason =
+      typeof currentQuestionMeta?.taxonomyReviewReason === "string" && currentQuestionMeta.taxonomyReviewReason.trim()
+        ? currentQuestionMeta.taxonomyReviewReason.trim()
+        : "This subject or chapter does not exactly match the super-admin question bank.";
+    const needsReview =
+      readQuestionSetupFlag(currentQuestion, "needsTaxonomyReview") ||
+      Boolean(importedSubjectName || importedChapterName);
+
+    if (!needsReview) return null;
+
+    return {
+      importedSubjectName,
+      importedChapterName,
+      suggestedSubjectName,
+      suggestedChapterName,
+      reviewReason,
+    };
+  }, [currentQuestion, currentQuestionMeta]);
   const preferredNewQuestionMarking = useMemo(
     () => getPreferredNewQuestionMarking(activeSectionQuestions, activeSection, test),
     [activeSectionQuestions, activeSection, test],
@@ -1176,9 +1229,6 @@ export default function AdminTestBuilder() {
   const currentQuestionReports = (currentQuestion?.reports ?? []) as QuestionReport[];
   const currentOpenReports = currentQuestionReports.filter((report) => report.status === "open");
   const latestQuestionReport = currentQuestionReports[0] ?? null;
-  const sidebarSlotNumbers = hasActiveQuestionFilters
-    ? visibleSlotNumbers
-    : Array.from({ length: totalSlots }, (_, index) => index + 1);
   const currentVisibleSlotIndex = hasActiveQuestionFilters ? visibleSlotNumbers.indexOf(selectedSlotNumber) : -1;
   const previousSlotNumber = hasActiveQuestionFilters
     ? (currentVisibleSlotIndex > 0 ? visibleSlotNumbers[currentVisibleSlotIndex - 1] : null)
@@ -1187,6 +1237,105 @@ export default function AdminTestBuilder() {
     ? (currentVisibleSlotIndex >= 0 ? (visibleSlotNumbers[currentVisibleSlotIndex + 1] ?? null) : (visibleSlotNumbers[0] ?? null))
     : (selectedSlotNumber < nextEditableSlot ? selectedSlotNumber + 1 : null);
   const showFilteredEmptyState = hasActiveQuestionFilters && visibleSectionQuestions.length === 0;
+  const selectedGlobalQuestionNumber = useMemo(() => {
+    if (!activeSection) return selectedSlotNumber;
+    let offset = 0;
+    const allQuestions = test?.questions ?? [];
+
+    for (const section of sections) {
+      const sectionQuestions = sortQuestionsForSection(allQuestions, section.id);
+      const sectionTotalSlots = Math.max(section.questionCount ?? 0, sectionQuestions.length || 1);
+      if (section.id === activeSection.id) {
+        return offset + selectedSlotNumber;
+      }
+      offset += sectionTotalSlots;
+    }
+
+    return selectedSlotNumber;
+  }, [activeSection, sections, selectedSlotNumber, test?.questions]);
+  const singleQuestionHeaderLabel = useMemo(() => {
+    if (showFilteredEmptyState) return "No match";
+    return String(selectedGlobalQuestionNumber);
+  }, [selectedGlobalQuestionNumber, showFilteredEmptyState]);
+  const singleQuestionContextLabel = useMemo(() => {
+    if (showFilteredEmptyState) return "";
+    const headerKey = normalizeImportedTaxonomyKey(singleQuestionHeaderLabel);
+    const labels = [
+      activeSection?.subjectLabel?.trim() ?? "",
+      isImportedLayoutTest ? "" : activeSection?.title?.trim() ?? "",
+    ];
+    const uniqueLabels: string[] = [];
+    const uniqueKeys = new Set<string>();
+
+    for (const label of labels) {
+      if (!label) continue;
+      const labelKey = normalizeImportedTaxonomyKey(label);
+      if (isImportedLayoutTest && isQuestionCodeLikeLabel(label)) continue;
+      if (!labelKey || labelKey === headerKey || uniqueKeys.has(labelKey)) continue;
+      uniqueKeys.add(labelKey);
+      uniqueLabels.push(label);
+    }
+
+    return uniqueLabels.join(" / ");
+  }, [
+    activeSection?.subjectLabel,
+    activeSection?.title,
+    isImportedLayoutTest,
+    showFilteredEmptyState,
+    singleQuestionHeaderLabel,
+  ]);
+  const sidebarQuestionItems = useMemo(() => {
+    const allQuestions = test?.questions ?? [];
+    const items = sections.flatMap((section, sectionIndex) => {
+      const sectionQuestions = sortQuestionsForSection(allQuestions, section.id);
+      const sectionTotalSlots = Math.max(section.questionCount ?? 0, sectionQuestions.length || 1);
+      const sectionNextEditableSlot = Math.min(sectionTotalSlots, sectionQuestions.length + 1);
+
+      return Array.from({ length: sectionTotalSlots }, (_, index) => {
+        const slot = index + 1;
+        return {
+          key: `${section.id}:${slot}`,
+          section,
+          sectionIndex,
+          slot,
+          question: sectionQuestions[index] ?? null,
+          totalSlots: sectionTotalSlots,
+          nextEditableSlot: sectionNextEditableSlot,
+        };
+      });
+    });
+
+    return items.map((item, index) => ({
+      ...item,
+      displayNumber: index + 1,
+    }));
+  }, [sections, test?.questions]);
+  const firstBlankSidebarQuestionItem = useMemo(
+    () => sidebarQuestionItems.find((item) => !item.question && item.slot <= item.nextEditableSlot) ?? null,
+    [sidebarQuestionItems],
+  );
+  const cpetExistingQuestionSlotCount = Math.max(savedQuestionCount, sidebarQuestionItems.length);
+  const cpetMissingQuestionCount = Math.max(0, CPET_EXPECTED_QUESTION_COUNT - cpetExistingQuestionSlotCount);
+  const canAddImportedCpetQuestion = Boolean(
+    isCpetTest &&
+    cpetMissingQuestionCount > 0 &&
+    (isImportedLayoutTest || sidebarQuestionItems.length > 1),
+  );
+  const showImportedCpetAddQuestionButton = Boolean(
+    canAddImportedCpetQuestion && (firstBlankSidebarQuestionItem || activeSection || sections.length > 0),
+  );
+  const visibleSidebarQuestionItems = useMemo(() => {
+    if (!hasActiveQuestionFilters) return sidebarQuestionItems;
+
+    return sidebarQuestionItems.filter((item) => {
+      if (!item.question) return false;
+      const questionMarking = getQuestionMarking(item.question, item.section, test);
+      const matchesMarks = marksFilter === "all" || questionMarking?.key === marksFilter;
+      const matchesDifficulty = difficultyFilter === "all" || getQuestionDifficulty(item.question) === difficultyFilter;
+      const matchesQuestionType = questionTypeFilter === "all" || item.question.questionType === questionTypeFilter;
+      return matchesMarks && matchesDifficulty && matchesQuestionType;
+    });
+  }, [sidebarQuestionItems, hasActiveQuestionFilters, marksFilter, difficultyFilter, questionTypeFilter, test]);
   const currentQuestionOpenReportCount = getQuestionOpenReportCount(currentQuestion);
   const questionBankSubjects = useMemo(
     () => (questionBankCatalog?.subjects ?? []).filter((subject) => subject.title?.trim()),
@@ -1398,9 +1547,14 @@ export default function AdminTestBuilder() {
         const message = await response.text();
         throw new Error(message || "Failed to update test details");
       }
-      return response.json();
+      return response.json() as Promise<Partial<TestDetail> & { id: number }>;
     },
-    onSuccess: async () => {
+    onSuccess: async (updatedTest) => {
+      queryClient.setQueryData<AdminTestsCacheItem[]>(["admin-tests"], (current) =>
+        current?.map((cachedTest) =>
+          cachedTest.id === testId ? { ...cachedTest, ...updatedTest } : cachedTest,
+        ),
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["admin-test-builder", testId] }),
         queryClient.invalidateQueries({ queryKey: ["admin-tests"] }),
@@ -1447,6 +1601,77 @@ export default function AdminTestBuilder() {
     } else {
       createQuestionMutation.mutate(body);
     }
+  };
+
+  const createMissingCpetQuestionSectionMutation = useMutation({
+    mutationFn: async ({
+      title,
+      subjectLabel,
+      questionCount,
+      marksPerQuestion,
+      negativeMarks,
+      meta,
+    }: {
+      title: string;
+      subjectLabel: string | null;
+      questionCount: number;
+      marksPerQuestion: number | null;
+      negativeMarks: number | null;
+      meta: Record<string, unknown> | null;
+    }) => {
+      const response = await fetch(`${BASE}/api/tests/${testId}/sections`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          description: null,
+          subjectLabel,
+          questionCount,
+          marksPerQuestion,
+          negativeMarks,
+          meta,
+        }),
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Failed to add question slot");
+      }
+      return response.json() as Promise<TestSection>;
+    },
+    onSuccess: async (section) => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-test-builder", testId] });
+      setActiveSectionId(section.id);
+      setActiveSlotNumber(1);
+      setViewMode("single");
+      toast({ title: "Question slot added", description: "Fill the blank question and save it." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not add question", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleAddQuestionSlot = () => {
+    if (!canAddImportedCpetQuestion) return;
+    if (firstBlankSidebarQuestionItem) {
+      setActiveSectionId(firstBlankSidebarQuestionItem.section.id);
+      setActiveSlotNumber(firstBlankSidebarQuestionItem.slot);
+      setViewMode("single");
+      return;
+    }
+
+    const templateSection = activeSection ?? sections[sections.length - 1];
+    if (!templateSection) return;
+    const nextQuestionNumber = Math.min(savedQuestionCount + 1, CPET_EXPECTED_QUESTION_COUNT);
+
+    createMissingCpetQuestionSectionMutation.mutate({
+      title: `Q${nextQuestionNumber}`,
+      subjectLabel: templateSection.subjectLabel ?? null,
+      questionCount: 1,
+      marksPerQuestion: templateSection.marksPerQuestion ?? null,
+      negativeMarks: templateSection.negativeMarks ?? null,
+      meta: templateSection.meta ?? null,
+    });
   };
 
   const handleQuestionImageUpload = async (file?: File | null) => {
@@ -1672,15 +1897,15 @@ export default function AdminTestBuilder() {
             <div className="flex h-full flex-col overflow-hidden">
               <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#eadfcd] bg-white px-6">
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-xs text-slate-500">Slot</span>
+                  <span className="text-xs text-slate-500">Question</span>
                   <span className="rounded-md bg-[#f97316] px-2 py-0.5 text-sm font-bold text-white">
-                    {showFilteredEmptyState ? "No match" : `Q${selectedSlotNumber}`}
+                    {singleQuestionHeaderLabel}
                   </span>
-                  {activeSectionBreadcrumb ? (
+                  {singleQuestionContextLabel ? (
                     <>
                       <span className="text-xs text-slate-400">/</span>
                       <span className="text-xs font-medium text-slate-600">
-                        {activeSectionBreadcrumb}
+                        {singleQuestionContextLabel}
                       </span>
                     </>
                   ) : null}
@@ -1798,6 +2023,37 @@ export default function AdminTestBuilder() {
                       })}
                     </div>
                   </div>
+
+                  {currentQuestionTaxonomyReview ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-700">Taxonomy Review Pending</p>
+                      <p className="mt-2 text-sm leading-6 text-amber-900">
+                        {currentQuestionTaxonomyReview.reviewReason} This test can still be published, but this question will stay in the builder until you choose the exact subject and chapter.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                        {currentQuestionTaxonomyReview.importedSubjectName ? (
+                          <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-amber-800">
+                            Imported subject: {currentQuestionTaxonomyReview.importedSubjectName}
+                          </span>
+                        ) : null}
+                        {currentQuestionTaxonomyReview.importedChapterName ? (
+                          <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-amber-800">
+                            Imported chapter: {currentQuestionTaxonomyReview.importedChapterName}
+                          </span>
+                        ) : null}
+                        {currentQuestionTaxonomyReview.suggestedSubjectName ? (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">
+                            Suggested subject: {currentQuestionTaxonomyReview.suggestedSubjectName}
+                          </span>
+                        ) : null}
+                        {currentQuestionTaxonomyReview.suggestedChapterName ? (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">
+                            Suggested chapter: {currentQuestionTaxonomyReview.suggestedChapterName}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="grid gap-3 md:grid-cols-4">
                     <div className="space-y-1.5">
@@ -2373,24 +2629,6 @@ export default function AdminTestBuilder() {
         </div>
 
         <aside className="flex h-full w-80 shrink-0 flex-col overflow-hidden border-l border-[#eadfcd] bg-[#fff7ea]">
-          <div className="border-b border-[#eadfcd] px-2 pb-2 pt-2">
-            <div className="flex gap-1 overflow-x-auto pb-1">
-              {sections.map((section, index) => (
-                <button
-                  key={section.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveSectionId(section.id);
-                    setActiveSlotNumber(1);
-                  }}
-                  className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-semibold transition ${activeSection.id === section.id ? "bg-[#f97316] text-white shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-900"}`}
-                >
-                  {index + 1}. {section.title}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="border-b border-[#eadfcd] px-4 py-3">
             <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
               <span className="font-semibold text-slate-900">{activeSection.title}</span>
@@ -2487,56 +2725,82 @@ export default function AdminTestBuilder() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Questions</span>
-              {activeFiltersCount > 0 ? (
-                <span className="text-[10px] text-orange-600">{visibleSectionQuestions.length} matched</span>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {activeFiltersCount > 0 ? (
+                  <span className="text-[10px] text-orange-600">{visibleSidebarQuestionItems.length} matched</span>
+                ) : null}
+              </div>
             </div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {sidebarSlotNumbers.map((slot) => {
-                const slotQuestion = activeSectionQuestions[slot - 1] ?? null;
-                const isActive = selectedSlotNumber === slot;
-                const isSaved = Boolean(slotQuestion);
-                const isMatched = slotQuestion
-                  ? visibleSectionQuestions.some((question) => question.id === slotQuestion.id)
-                  : false;
-                const isDisabledFutureSlot = !slotQuestion && slot > nextEditableSlot;
-                const openReportCount = Number(slotQuestion?.openReportCount ?? 0) || 0;
-                const hasPendingSetup = hasQuestionSetupPending(slotQuestion);
+            {visibleSidebarQuestionItems.length > 0 ? (
+              <div className="grid grid-cols-4 gap-1.5">
+                {visibleSidebarQuestionItems.map((item) => {
+                  const slotQuestion = item.question;
+                  const slot = item.slot;
+                  const isActive = activeSection?.id === item.section.id && selectedSlotNumber === slot;
+                  const isSaved = Boolean(slotQuestion);
+                  const isDisabledFutureSlot = !slotQuestion && slot > item.nextEditableSlot;
+                  const openReportCount = Number(slotQuestion?.openReportCount ?? 0) || 0;
+                  const hasPendingSetup = hasQuestionSetupPending(slotQuestion);
+                  const needsReviewAttention = hasPendingSetup || openReportCount > 0;
+                  const importedCode = slotQuestion?.questionCode?.trim() ?? "";
+                  const displayNumber = item.displayNumber;
+                  const titleLabel = importedCode
+                    ? `${displayNumber}${importedCode !== String(displayNumber) ? ` (${importedCode})` : ""}`
+                    : String(displayNumber);
 
-                return (
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      title={titleLabel}
+                      onClick={() => {
+                        if (isDisabledFutureSlot) return;
+                        setActiveSectionId(item.section.id);
+                        setActiveSlotNumber(slot);
+                        setViewMode("single");
+                      }}
+                      disabled={isDisabledFutureSlot}
+                      className={`relative flex h-9 items-center justify-center rounded-md border px-1 text-[11px] font-semibold transition ${isActive ? "border-[#f97316] bg-[#f97316] text-white shadow-sm" : isDisabledFutureSlot ? "cursor-not-allowed border-[#eadfcd] bg-[#fffaf3] text-slate-400" : isSaved ? needsReviewAttention ? "border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50" : "border-[#d9ccb7] bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50" : "border-[#eadfcd] bg-white text-slate-400 hover:border-[#d6c5ae] hover:text-slate-700"}`}
+                    >
+                      <span className="max-w-full truncate">{displayNumber}</span>
+                      {slotQuestion ? (
+                        <span
+                          className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ring-2 ring-white ${
+                            needsReviewAttention ? "bg-rose-500" : getDifficultyDotClass(getQuestionDifficulty(slotQuestion))
+                          }`}
+                        />
+                      ) : null}
+                      {openReportCount > 0 ? (
+                        <span className="absolute bottom-0.5 right-0.5 flex min-h-[14px] min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
+                          {openReportCount}
+                        </span>
+                      ) : null}
+	                    </button>
+	                  );
+	                })}
+                {!hasActiveQuestionFilters && showImportedCpetAddQuestionButton ? (
                   <button
-                    key={slot}
                     type="button"
-                    onClick={() => {
-                      if (isDisabledFutureSlot) return;
-                      setActiveSlotNumber(slot);
-                      setViewMode("single");
-                    }}
-                    disabled={isDisabledFutureSlot}
-                    className={`relative flex h-9 items-center justify-center rounded-md border text-[11px] font-semibold transition ${isActive ? "border-[#f97316] bg-[#f97316] text-white shadow-sm" : isMatched ? isSaved ? hasPendingSetup ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "border-orange-300 bg-orange-50 text-orange-600 hover:bg-orange-100" : isDisabledFutureSlot ? "cursor-not-allowed border-[#eadfcd] bg-[#fffaf3] text-slate-400" : isSaved ? hasPendingSetup ? "border-amber-200 bg-white text-amber-700 hover:border-amber-300 hover:bg-amber-50" : "border-[#d9ccb7] bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50" : "border-[#eadfcd] bg-white text-slate-400 hover:border-[#d6c5ae] hover:text-slate-700"}`}
+                    onClick={handleAddQuestionSlot}
+                    disabled={createMissingCpetQuestionSectionMutation.isPending}
+                    title={`Add missing CPET question (${cpetMissingQuestionCount} remaining)`}
+                    aria-label="Add missing CPET question"
+                    className="relative flex h-9 items-center justify-center rounded-md border border-dashed border-[#f0c88f] bg-[#FFF7E8] px-1 text-[#D97706] shadow-sm transition hover:bg-[#ffedd0] hover:text-[#b45309] disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {slot}
-                    {slotQuestion ? (
-                      <span
-                        className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ring-2 ring-white ${
-                          hasPendingSetup ? "bg-slate-300" : getDifficultyDotClass(getQuestionDifficulty(slotQuestion))
-                        }`}
-                      />
-                    ) : null}
-                    {openReportCount > 0 ? (
-                      <span className="absolute bottom-0.5 right-0.5 flex min-h-[14px] min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
-                        {openReportCount}
-                      </span>
-                    ) : null}
+                    <Plus className="h-4 w-4" />
                   </button>
-                );
-              })}
-            </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-[#eadfcd] bg-white/70 px-3 py-6 text-center text-xs text-slate-500">
+                No questions match the current filters.
+              </div>
+            )}
             {hasActiveQuestionFilters ? (
               <p className="mt-3 text-xs text-slate-500">
-                {`Showing only ${visibleSectionQuestions.length} question${visibleSectionQuestions.length === 1 ? "" : "s"} that match the current filters.`}
+                {`Showing only ${visibleSidebarQuestionItems.length} question${visibleSidebarQuestionItems.length === 1 ? "" : "s"} that match the current filters.`}
               </p>
             ) : null}
           </div>

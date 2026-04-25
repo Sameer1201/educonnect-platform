@@ -133,55 +133,12 @@ function PendingQuestionBankPreview() {
   );
 }
 
-function LockedQuestionBankDashboard() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  return (
-    <>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">My Question Banks</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Question bank access is currently locked for this student account.</p>
-        </div>
-
-        <div className="rounded-[28px] border border-[#F5D0A5] bg-[linear-gradient(135deg,#FFF7ED_0%,#FFFFFF_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(249,115,22,0.08)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#DC2626]">Access locked</p>
-              <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Question bank locked</h2>
-              <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
-                This section is locked for your account right now. Contact admin to unlock question bank access.
-              </p>
-            </div>
-            <Button
-              type="button"
-              className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
-              onClick={() => setDialogOpen(true)}
-            >
-              Contact admin
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <PendingVerificationDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        title="Question Bank Locked"
-        description="Your question bank access is locked for now. Please contact admin to unlock this section."
-        emailSubject="Question bank access locked"
-        emailBody="Hi Admin,\n\nMy question bank section is locked. Please review and unlock my question bank access.\n"
-      />
-    </>
-  );
-}
-
-function ApprovedQuestionBankDashboard({ enabled = true }: { enabled?: boolean }) {
+function ApprovedQuestionBankDashboard({ enabled = true, featureLocked = false }: { enabled?: boolean; featureLocked?: boolean }) {
   const { data: exams = [], isLoading } = useStudentQuestionBankExams(enabled);
   const { data: progress } = useQuery<QuestionBankProgressSummary>({
     queryKey: ["dashboard-question-bank-progress"],
     queryFn: () => api.get("/question-bank/progress/summary"),
-    enabled,
+    enabled: enabled && !featureLocked,
     staleTime: 30_000,
   });
   const totalExams = exams.length;
@@ -195,6 +152,15 @@ function ApprovedQuestionBankDashboard({ enabled = true }: { enabled?: boolean }
         <h1 className="text-2xl font-bold text-foreground">My Question Banks</h1>
         <p className="mt-1 text-sm text-muted-foreground">Browse exams, subjects and chapters to practise questions.</p>
       </div>
+
+      {featureLocked ? (
+        <div className="rounded-[24px] border border-[#F5D0A5] bg-[linear-gradient(135deg,#FFF8ED_0%,#FFFFFF_100%)] px-4 py-4 shadow-[0_10px_26px_rgba(249,115,22,0.08)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B45309]">Locked access</p>
+          <p className="mt-2 text-sm leading-6 text-[#6B7280]">
+            You can browse exams and subjects normally. Payment will be asked only when you try to open a locked chapter.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Active Exams" value={totalExams} icon={<BookOpen className="h-4 w-4" />} color="text-primary" bg="bg-primary/10" />
@@ -278,11 +244,7 @@ export default function StudentQuestionBankDashboard() {
     return <PendingQuestionBankPreview />;
   }
 
-  if (isQuestionBankAccessLocked) {
-    return <LockedQuestionBankDashboard />;
-  }
-
-  return <ApprovedQuestionBankDashboard enabled={!isQuestionBankAccessLocked} />;
+  return <ApprovedQuestionBankDashboard enabled featureLocked={isQuestionBankAccessLocked} />;
 }
 
 function StatCard({

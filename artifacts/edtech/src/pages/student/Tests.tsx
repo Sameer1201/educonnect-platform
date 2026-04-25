@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
 import { filterReviewBucketEntries, getReviewBucketRemovedQuestionIds } from "@/lib/reviewBucket";
+import { buildStudentUnlockPath } from "@/lib/student-unlock";
 import {
   ClipboardList, Clock, CheckCircle2, AlertCircle, BookOpen,
   Calculator, PanelRightOpen,
@@ -604,6 +605,7 @@ function StudentTestSeriesCard({
   questionCount,
   detail,
   hasSavedDraft,
+  locked = false,
   onPrimaryAction,
 }: {
   test: TestItem;
@@ -611,6 +613,7 @@ function StudentTestSeriesCard({
   questionCount: number | null;
   detail?: TestDetail | null;
   hasSavedDraft?: boolean;
+  locked?: boolean;
   onPrimaryAction: () => void;
 }) {
   const subject = getStudentTestSubject(test);
@@ -661,6 +664,11 @@ function StudentTestSeriesCard({
             <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${categoryTone.pill}`}>
               {getTestCategoryLabel(testCategory)}
             </span>
+            {locked ? (
+              <span className="inline-flex shrink-0 whitespace-nowrap items-center rounded-full border border-[#F5D0A5] bg-[#FFF7E8] px-3 py-1 text-xs font-bold text-[#B45309]">
+                Locked
+              </span>
+            ) : null}
             <span className={`inline-flex shrink-0 whitespace-nowrap items-center rounded-full border px-3 py-1 text-xs font-bold ${statusClass}`}>
               {!isCompleted && !isUpcoming && <span className="mr-2 h-1.5 w-1.5 rounded-full bg-[#F59E0B] shadow-[0_0_0_2px_rgba(245,158,11,0.14)]" />}
               {statusLabel}
@@ -692,9 +700,9 @@ function StudentTestSeriesCard({
           <button
             type="button"
             onClick={onPrimaryAction}
-            className={`w-full flex-1 rounded-full px-4 py-3 text-sm font-semibold transition-colors ${isCompleted ? "border border-[#E5E7EB] bg-white text-[#0F172A] hover:bg-[#F8FAFC]" : accent.button}`}
+            className={`w-full flex-1 rounded-full px-4 py-3 text-sm font-semibold transition-colors ${locked ? "bg-[#D97706] text-white hover:bg-[#B45309]" : isCompleted ? "border border-[#E5E7EB] bg-white text-[#0F172A] hover:bg-[#F8FAFC]" : accent.button}`}
           >
-            {isCompleted ? "View Result" : hasSavedDraft ? "Resume" : "Start Test"}
+            {locked ? "Unlock" : isCompleted ? "View Result" : hasSavedDraft ? "Resume" : "Start Test"}
           </button>
         </div>
       </div>
@@ -1114,7 +1122,7 @@ function StudentTestsPreview() {
   );
 }
 
-function ApprovedStudentTests() {
+function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boolean }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -1310,6 +1318,7 @@ function ApprovedStudentTests() {
         return response.json() as Promise<TestDetail>;
       },
       staleTime: 300000,
+      enabled: !featureLocked,
     })),
   });
 
@@ -1320,6 +1329,7 @@ function ApprovedStudentTests() {
       if (!response.ok) throw new Error("Failed to load review bucket");
       return response.json();
     },
+    enabled: !featureLocked,
   });
   const [removedReviewBucketQuestionIds, setRemovedReviewBucketQuestionIds] = useState<number[]>(() =>
     getReviewBucketRemovedQuestionIds(),
@@ -2055,7 +2065,17 @@ function ApprovedStudentTests() {
           <Button
             variant="outline"
             className="relative w-full overflow-visible self-start rounded-full border-[#E5E7EB] bg-white px-5 py-3 text-sm font-semibold text-[#111827] shadow-[0_8px_30px_rgba(15,23,42,0.04)] hover:bg-[#F8FAFC] sm:w-auto md:self-auto"
-            onClick={() => setLocation("/student/tests/review-bucket")}
+            onClick={() => {
+              if (featureLocked) {
+                setLocation(buildStudentUnlockPath({
+                  feature: "tests",
+                  kind: "feature",
+                  returnTo: "/student/tests/review-bucket",
+                }));
+                return;
+              }
+              setLocation("/student/tests/review-bucket");
+            }}
             data-testid="button-top-wrong-bucket"
           >
             <BookOpen className="mr-2 h-4 w-4 text-[#5B4DFF]" />
@@ -2067,6 +2087,15 @@ function ApprovedStudentTests() {
             )}
           </Button>
         </div>
+
+        {featureLocked ? (
+          <div className="rounded-[24px] border border-[#F5D0A5] bg-[linear-gradient(135deg,#FFF8ED_0%,#FFFFFF_100%)] px-4 py-4 shadow-[0_10px_26px_rgba(249,115,22,0.08)]">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#B45309]">Locked access</p>
+            <p className="mt-2 text-sm leading-6 text-[#6B7280]">
+              Your test list stays visible. Payment will be asked only when you try to open a locked test.
+            </p>
+          </div>
+        ) : null}
 
         <StudentTestsStatsBar
           total={testStats.total}
@@ -2160,8 +2189,19 @@ function ApprovedStudentTests() {
                   status={status}
                   questionCount={questionCountByTestId[test.id] ?? null}
                   detail={detail}
+                  locked={featureLocked}
                   hasSavedDraft={typeof window !== "undefined" && !!localStorage.getItem(getDraftKey(test.id))}
                   onPrimaryAction={() => {
+                    if (featureLocked) {
+                      setLocation(buildStudentUnlockPath({
+                        feature: "tests",
+                        kind: "test",
+                        label: test.title,
+                        subjectLabel: getStudentTestSubject(test),
+                        returnTo: "/student/tests",
+                      }));
+                      return;
+                    }
                     setPreviewTestId(test.id);
                   }}
                 />
@@ -3152,56 +3192,5 @@ export default function StudentTests() {
     return <StudentTestsPreview />;
   }
 
-  if (isTestsAccessLocked) {
-    return <LockedStudentTests />;
-  }
-
-  return <ApprovedStudentTests />;
-}
-
-function LockedStudentTests() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  return (
-    <>
-      <div className="space-y-7">
-        <div className="mx-auto max-w-7xl space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-[#0F172A]">My Tests</h1>
-            <p className="mt-1 text-sm font-medium text-[#64748B]">
-              Tests access is currently locked for this student account.
-            </p>
-          </div>
-
-          <div className="rounded-[28px] border border-[#F5D0A5] bg-[linear-gradient(135deg,#FFF7ED_0%,#FFFFFF_100%)] px-5 py-5 shadow-[0_12px_32px_rgba(249,115,22,0.08)]">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#DC2626]">Access locked</p>
-                <h2 className="mt-2 text-[28px] font-black tracking-tight text-[#111827]">Tests locked</h2>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6B7280]">
-                  This section is locked for your account right now. Contact admin to unlock tests access.
-                </p>
-              </div>
-              <Button
-                type="button"
-                className="rounded-full bg-[#F59E0B] px-6 py-3 text-white hover:bg-[#EA580C]"
-                onClick={() => setDialogOpen(true)}
-              >
-                Contact admin
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <PendingVerificationDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        title="Tests Locked"
-        description="Your tests section is locked for now. Please contact admin to unlock test access."
-        emailSubject="Tests access locked"
-        emailBody="Hi Admin,\n\nMy tests section is locked. Please review and unlock my test access.\n"
-      />
-    </>
-  );
+  return <ApprovedStudentTests featureLocked={isTestsAccessLocked} />;
 }

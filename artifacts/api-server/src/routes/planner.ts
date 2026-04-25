@@ -49,6 +49,19 @@ function mergeTemplateInstructions(storedInstructions: unknown, templateName: st
   return customInstructions ? `${defaultInstructions}\n${customInstructions}` : defaultInstructions;
 }
 
+function serializeTemplate(row: typeof examTemplatesTable.$inferSelect) {
+  return {
+    ...row,
+    examHeader: row.examHeader ?? null,
+    examSubheader: row.examSubheader ?? null,
+    instructions: mergeTemplateInstructions(row.instructions, row.name, row.durationMinutes),
+    customInstructions: extractCustomTemplateInstructions(row.instructions, row.name, row.durationMinutes),
+    showInRegistration: row.showInRegistration ?? true,
+    isLocked: row.isLocked ?? false,
+    sections: row.sections ? JSON.parse(row.sections) : [],
+  };
+}
+
 const DEFAULT_EXAM_TEMPLATES = [
   {
     key: "jee-main",
@@ -167,17 +180,7 @@ router.get("/planner/exam-templates", async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   }
   const rows = await ensureExamTemplates(auth.userId);
-  return res.json(
-    rows.map((row) => ({
-      ...row,
-      examHeader: row.examHeader ?? null,
-      examSubheader: row.examSubheader ?? null,
-      instructions: mergeTemplateInstructions(row.instructions, row.name, row.durationMinutes),
-      customInstructions: extractCustomTemplateInstructions(row.instructions, row.name, row.durationMinutes),
-      showInRegistration: row.showInRegistration ?? true,
-      sections: row.sections ? JSON.parse(row.sections) : [],
-    })),
-  );
+  return res.json(rows.map(serializeTemplate));
 });
 
 router.post("/planner/exam-templates", async (req, res) => {
@@ -213,12 +216,7 @@ router.post("/planner/exam-templates", async (req, res) => {
     showInRegistration: showInRegistration !== false,
     createdBy: auth.userId,
   }).returning();
-  return res.status(201).json({
-    ...template,
-    instructions: mergeTemplateInstructions(template.instructions, template.name, template.durationMinutes),
-    customInstructions: extractCustomTemplateInstructions(template.instructions, template.name, template.durationMinutes),
-    sections: JSON.parse(template.sections),
-  });
+  return res.status(201).json(serializeTemplate(template));
 });
 
 router.patch("/planner/exam-templates/:id", async (req, res) => {
@@ -231,6 +229,9 @@ router.patch("/planner/exam-templates/:id", async (req, res) => {
   const { key, name, description, examHeader, examSubheader, instructions, customInstructions, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, sections, showInRegistration } = req.body;
   const [existingTemplate] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.id, templateId));
   if (!existingTemplate) return res.status(404).json({ error: "Template not found" });
+  if (existingTemplate.isLocked) {
+    return res.status(409).json({ error: "This exam template is locked. Unlock it to make changes." });
+  }
   const updates: Record<string, unknown> = {};
   if (key !== undefined) updates.key = String(key);
   if (name !== undefined) updates.name = String(name);
@@ -256,12 +257,45 @@ router.patch("/planner/exam-templates/:id", async (req, res) => {
   if (sections !== undefined) updates.sections = JSON.stringify(sections);
   if (showInRegistration !== undefined) updates.showInRegistration = Boolean(showInRegistration);
   const [template] = await db.update(examTemplatesTable).set(updates).where(eq(examTemplatesTable.id, templateId)).returning();
-  return res.json({
-    ...template,
-    instructions: mergeTemplateInstructions(template.instructions, template.name, template.durationMinutes),
-    customInstructions: extractCustomTemplateInstructions(template.instructions, template.name, template.durationMinutes),
-    sections: JSON.parse(template.sections),
-  });
+  return res.json(serializeTemplate(template));
+});
+
+router.patch("/planner/exam-templates/:id/lock", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (auth.role !== "super_admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const templateId = Number(req.params.id);
+  const [existingTemplate] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.id, templateId));
+  if (!existingTemplate) return res.status(404).json({ error: "Template not found" });
+
+  const [template] = await db
+    .update(examTemplatesTable)
+    .set({ isLocked: Boolean(req.body?.isLocked) })
+    .where(eq(examTemplatesTable.id, templateId))
+    .returning();
+
+  return res.json(serializeTemplate(template));
+});
+
+router.delete("/planner/exam-templates/:id", async (req, res) => {
+  const auth = getAuth(req, res);
+  if (!auth) return;
+  if (auth.role !== "super_admin") {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  const templateId = Number(req.params.id);
+  const [existingTemplate] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.id, templateId));
+  if (!existingTemplate) return res.status(404).json({ error: "Template not found" });
+  if (existingTemplate.isLocked) {
+    return res.status(409).json({ error: "This exam template is locked. Unlock it before deleting." });
+  }
+
+  await db.delete(examTemplatesTable).where(eq(examTemplatesTable.id, templateId));
+  return res.json({ success: true, id: templateId });
 });
 
 export { router as plannerRouter };

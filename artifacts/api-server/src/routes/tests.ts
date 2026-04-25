@@ -600,6 +600,13 @@ type QuestionBankPublishSyncSummary = {
     questionId: number;
     questionNo: string;
   }>;
+  reviewQuestions: Array<{
+    questionId: number;
+    questionNo: string;
+    reason: string;
+    subjectName: string | null;
+    chapterName: string | null;
+  }>;
   warnings: string[];
 };
 
@@ -938,6 +945,8 @@ function resolveCanonicalQuestionBankTaxonomy(
       reviewReason: null as string | null,
       importedSubjectName: null as string | null,
       importedChapterName: null as string | null,
+      suggestedSubjectName: null as string | null,
+      suggestedChapterName: null as string | null,
     };
   }
 
@@ -984,27 +993,46 @@ function resolveCanonicalQuestionBankTaxonomy(
     chapterMatch = findBestQuestionBankTitleMatch(requestedChapterKey, targetChapters, (chapter) => chapter.title, Boolean(chapterName));
   }
 
-  const canonicalSubjectName = targetSubject?.title ?? subjectName;
-  const canonicalChapterName = chapterMatch?.item.title ?? chapterName;
-  const subjectChanged = Boolean(subjectName && canonicalSubjectName && normalizeTitleKey(subjectName) !== normalizeTitleKey(canonicalSubjectName));
-  const chapterChanged = Boolean(chapterName && canonicalChapterName && normalizeTitleKey(chapterName) !== normalizeTitleKey(canonicalChapterName));
+  const subjectAutoAccepted = Boolean(subjectMatch && (subjectMatch.reason === "exact" || subjectMatch.reason === "compact"));
+  const chapterAutoAccepted = Boolean(chapterMatch && (chapterMatch.reason === "exact" || chapterMatch.reason === "compact"));
+  const canonicalSubjectName = subjectAutoAccepted ? (targetSubject?.title ?? subjectName) : subjectName;
+  const canonicalChapterName = chapterAutoAccepted ? (chapterMatch?.item.title ?? chapterName) : chapterName;
+  const subjectChanged = Boolean(subjectAutoAccepted && subjectName && canonicalSubjectName && normalizeTitleKey(subjectName) !== normalizeTitleKey(canonicalSubjectName));
+  const chapterChanged = Boolean(chapterAutoAccepted && chapterName && canonicalChapterName && normalizeTitleKey(chapterName) !== normalizeTitleKey(canonicalChapterName));
+  const needsSubjectReview = Boolean(subjectName && (!targetSubject || !subjectAutoAccepted));
+  const needsChapterReview = Boolean(chapterName && (!chapterMatch || !chapterAutoAccepted));
   const needsReview = Boolean(
     subjectChanged ||
     chapterChanged ||
-    (subjectName && subjectMatch && !subjectMatch.exact) ||
-    (chapterName && chapterMatch && !chapterMatch.exact),
+    needsSubjectReview ||
+    needsChapterReview,
   );
+  const reviewMessages: string[] = [];
+  if (needsSubjectReview) {
+    reviewMessages.push("Subject does not exactly match the super-admin question bank.");
+  }
+  if (needsChapterReview) {
+    reviewMessages.push("Chapter does not exactly match the super-admin question bank.");
+  }
 
   return {
     subjectName: canonicalSubjectName,
     chapterName: canonicalChapterName,
     needsReview,
     reviewReason: needsReview
-      ? "Metadata was mapped to the nearest super-admin subject/chapter. Please review once."
+      ? reviewMessages.join(" ")
       : null,
-    importedSubjectName: subjectChanged ? subjectName : null,
-    importedChapterName: chapterChanged ? chapterName : null,
+    importedSubjectName: needsReview ? subjectName : null,
+    importedChapterName: needsReview ? chapterName : null,
+    suggestedSubjectName: needsSubjectReview ? targetSubject?.title ?? null : null,
+    suggestedChapterName: needsChapterReview ? chapterMatch?.item.title ?? null : null,
   };
+}
+
+function buildPublishQuestionCode(question: typeof testQuestionsTable.$inferSelect) {
+  const explicitCode = typeof question.questionCode === "string" ? question.questionCode.trim() : "";
+  if (explicitCode) return explicitCode;
+  return `Q${String((question.order ?? 0) + 1).padStart(2, "0")}`;
 }
 
 async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherId: number, examType: unknown): Promise<QuestionBankPublishSyncSummary> {
@@ -1018,14 +1046,15 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
     skippedInvalidQuestionCount: 0,
     skippedDuplicateCount: 0,
     duplicateQuestions: [],
+    reviewQuestions: [],
     warnings: [],
   };
 
-  const { targetClass, createdQuestionBankClassCount } = await resolveQuestionBankClassForExam(teacherId, examType);
+  const { targetClass, createdQuestionBankClassCount } = await resolveQuestionBankClassForExam(teacherId, examType, { createIfMissing: false });
   summary.createdQuestionBankClassCount = createdQuestionBankClassCount;
   if (!targetClass) {
     summary.skippedNoQuestionBankClassCount += 1;
-    summary.warnings.push("No matching question bank class was found for this exam.");
+    summary.warnings.push("No super-admin question bank structure was found for this exam.");
     return summary;
   }
 
@@ -1052,7 +1081,6 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
     : [];
   const chaptersBySubjectId = buildQuestionBankChaptersBySubjectId(chapters);
   const duplicateKeysByChapterId = new Map<number, Map<string, number>>();
-  const taxonomyMappingWarnings = new Set<string>();
 
   for (const question of testQuestions) {
     if (existingLinksByTestQuestionId.has(question.id)) {
@@ -1060,56 +1088,45 @@ async function syncPublishedTestQuestionsToQuestionBank(testId: number, teacherI
     }
 
     const resolvedTaxonomy = resolveQuestionBankTaxonomyForTestQuestion(question, sectionById);
+    const questionNo = buildPublishQuestionCode(question);
     if (!resolvedTaxonomy) {
       summary.skippedNoSubjectCount += 1;
+      summary.reviewQuestions.push({
+        questionId: question.id,
+        questionNo,
+        reason: "Subject or chapter is missing.",
+        subjectName: null,
+        chapterName: null,
+      });
       continue;
     }
 
-    let subjectMatch = findQuestionBankSubjectForTaxonomy(resolvedTaxonomy.subjectKey, subjectsByKey, subjects, subjects.length > 0);
-    let targetSubject = subjectMatch?.item ?? null;
+    const targetSubject = subjectsByKey.get(resolvedTaxonomy.subjectKey) ?? null;
     if (!targetSubject) {
-      const nextOrder = subjectsByKey.size;
-      const [createdSubject] = await db.insert(subjectsTable).values({
-        classId: targetClass.id,
-        teacherId,
-        title: resolvedTaxonomy.subjectLabel,
-        description: null,
-        order: nextOrder,
-      }).returning();
-      targetSubject = createdSubject;
-      subjectsByKey.set(resolvedTaxonomy.subjectKey, createdSubject);
-      chaptersBySubjectId.set(createdSubject.id, []);
-      summary.createdSubjectCount += 1;
-    }
-    if (targetSubject && subjectMatch && !subjectMatch.exact) {
-      const warningKey = `subject:${resolvedTaxonomy.subjectLabel}->${targetSubject.title}`;
-      if (!taxonomyMappingWarnings.has(warningKey)) {
-        taxonomyMappingWarnings.add(warningKey);
-        summary.warnings.push(`Mapped subject "${resolvedTaxonomy.subjectLabel}" to "${targetSubject.title}" for review.`);
-      }
+      summary.skippedNoSubjectCount += 1;
+      summary.reviewQuestions.push({
+        questionId: question.id,
+        questionNo,
+        reason: "Subject does not match the super-admin question bank.",
+        subjectName: resolvedTaxonomy.subjectLabel,
+        chapterName: resolvedTaxonomy.chapterTitle,
+      });
+      summary.warnings.push(`Skipped ${questionNo} because its subject does not match the super-admin question bank.`);
+      continue;
     }
 
-    let subjectChapters = chaptersBySubjectId.get(targetSubject.id) ?? [];
-    let targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId, subjectChapters.length > 0);
+    const targetChapter = findQuestionBankChapterForTaxonomy(targetSubject.id, resolvedTaxonomy.chapterKey, chaptersBySubjectId, false);
     if (!targetChapter) {
-      const [createdChapter] = await db.insert(chaptersTable).values({
-        subjectId: targetSubject.id,
-        title: resolvedTaxonomy.chapterTitle,
-        description: null,
-        targetQuestions: 0,
-        order: subjectChapters.length,
-      }).returning();
-      targetChapter = createdChapter;
-      subjectChapters = [...subjectChapters, createdChapter];
-      chaptersBySubjectId.set(targetSubject.id, subjectChapters);
-      summary.createdChapterCount += 1;
-    }
-    if (targetChapter && normalizeTitleKey(targetChapter.title) !== resolvedTaxonomy.chapterKey) {
-      const warningKey = `chapter:${targetSubject.id}:${resolvedTaxonomy.chapterTitle}->${targetChapter.title}`;
-      if (!taxonomyMappingWarnings.has(warningKey)) {
-        taxonomyMappingWarnings.add(warningKey);
-        summary.warnings.push(`Mapped chapter "${resolvedTaxonomy.chapterTitle}" to "${targetChapter.title}" for review.`);
-      }
+      summary.skippedNoSubjectCount += 1;
+      summary.reviewQuestions.push({
+        questionId: question.id,
+        questionNo,
+        reason: "Chapter does not match the super-admin question bank.",
+        subjectName: targetSubject.title,
+        chapterName: resolvedTaxonomy.chapterTitle,
+      });
+      summary.warnings.push(`Skipped ${questionNo} because its chapter does not match the super-admin question bank.`);
+      continue;
     }
 
     let duplicateMap = duplicateKeysByChapterId.get(targetChapter.id);
@@ -1925,7 +1942,6 @@ router.get("/tests", requireAuth, async (req, res) => {
     }
 
     // Student
-    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
     const [enrolledClassIds, submissions] = await Promise.all([
       getStudentEnrolledClassIds(userId),
       db.select({ testId: testSubmissionsTable.testId })
@@ -3274,6 +3290,8 @@ router.post("/tests/:id/import-question-metadata", requireAuth, async (req, res)
         ...(resolvedChapterName ? { chapterName: resolvedChapterName } : {}),
         importedSubjectName: canonicalTaxonomy.importedSubjectName,
         importedChapterName: canonicalTaxonomy.importedChapterName,
+        suggestedSubjectName: canonicalTaxonomy.suggestedSubjectName,
+        suggestedChapterName: canonicalTaxonomy.suggestedChapterName,
         needsTaxonomyReview: canonicalTaxonomy.needsReview,
         taxonomyReviewReason: canonicalTaxonomy.reviewReason,
         ...(nextTopicTag ? { topicTag: nextTopicTag } : {}),
@@ -3374,6 +3392,8 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     if (scheduledAt !== undefined) updates.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
 
     const preserveSections = shouldPreserveImportedSections(beforeTest?.examConfig);
+    const publishExamType = updates.examType ?? beforeTest.examType;
+
     if (selectedTemplate && !preserveSections) {
       updates.examType = selectedTemplate.key;
       updates.examHeader = selectedTemplate.examHeader ?? null;

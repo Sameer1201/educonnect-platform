@@ -14,7 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useToast } from "@/hooks/use-toast";
 import { looksLikeRichHtmlContent, sanitizeRichHtml, stripRichHtmlToText } from "@/lib/richContent";
 import {
-  ClipboardList, Plus, Trash2, CheckCircle2, ChevronDown,
+  ClipboardList, Plus, Trash2, CheckCircle2,
   ToggleLeft, ToggleRight, Clock, Hash,
   Calculator, Flag,
   TrendingUp, PencilLine, Download, Upload, FileText, X
@@ -72,6 +72,12 @@ interface PublishSyncQuestion {
   questionNo: string;
 }
 
+interface PublishReviewQuestion extends PublishSyncQuestion {
+  reason: string;
+  subjectName: string | null;
+  chapterName: string | null;
+}
+
 interface PublishSyncSummary {
   linkedCount: number;
   createdQuestionBankClassCount: number;
@@ -82,6 +88,7 @@ interface PublishSyncSummary {
   skippedInvalidQuestionCount: number;
   skippedDuplicateCount: number;
   duplicateQuestions?: PublishSyncQuestion[];
+  reviewQuestions?: PublishReviewQuestion[];
   warnings?: string[];
 }
 
@@ -963,6 +970,10 @@ export default function AdminTests() {
       if (!r.ok) throw new Error("Failed");
       return r.json();
     },
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const { data: examTemplates = FALLBACK_TEMPLATES } = useQuery<ExamTemplate[]>({
@@ -1276,7 +1287,13 @@ export default function AdminTests() {
   const togglePublish = useMutation({
     mutationFn: async ({ id, isPublished }: { id: number; isPublished: boolean }) => {
       const r = await fetch(`${BASE}/api/tests/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isPublished }) });
-      if (!r.ok) throw new Error("Failed");
+      if (!r.ok) {
+        const message = formatApiErrorMessage(
+          await r.text(),
+          isPublished ? "Failed to publish test" : "Failed to unpublish test",
+        );
+        throw new Error(message);
+      }
       return r.json();
     },
     onMutate: async (variables) => {
@@ -1331,13 +1348,13 @@ export default function AdminTests() {
       }
       toast({ title: variables.isPublished ? "Test published" : "Test unpublished" });
     },
-    onError: (_error, _variables, context) => {
+    onError: (error: Error, _variables, context) => {
       if (context?.previousTests) {
         queryClient.setQueryData(["admin-tests"], context.previousTests);
       }
       toast({
         title: "Publish update failed",
-        description: "Please try again.",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1708,21 +1725,6 @@ export default function AdminTests() {
                         <span className="flex items-center gap-1"><Clock size={11} />{test.durationMinutes} min</span>
                         {test.scheduledAt ? <span>{format(new Date(test.scheduledAt), "MMM d, yyyy")}</span> : null}
                       </div>
-                      {sections.length > 0 ? (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {sections.map((section) => {
-                            const sectionCount = qs.filter((question) => question.sectionId === section.id).length;
-                            return (
-                              <span
-                                key={section.id}
-                                className="rounded-full border border-[#eadfcd] bg-[#fff9ef] px-2 py-0.5 text-[10px] font-medium text-slate-600"
-                              >
-                                {section.title}: {sectionCount}/{section.questionCount ?? "—"}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      ) : null}
                     </div>
                     <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:items-end">
                       <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
@@ -1756,12 +1758,12 @@ export default function AdminTests() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-9 w-full justify-center gap-1.5 px-2 text-xs text-[#D97706] hover:bg-[#FFF7E8] hover:text-[#B45309] sm:h-8 sm:w-auto"
+                              className="h-10 w-full justify-center rounded-xl px-0 text-[#D97706] hover:bg-[#FFF7E8] hover:text-[#B45309] sm:h-9 sm:w-9"
                               disabled={isJsonExporting || isPdfExporting}
+                              aria-label="Export test"
+                              title="Export"
                             >
-                              <Download size={13} />
-                              {isJsonExporting ? "Exporting..." : isPdfExporting ? "PDF..." : "Export"}
-                              <ChevronDown size={12} />
+                              <Download size={16} className={isJsonExporting || isPdfExporting ? "animate-pulse" : ""} />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44 border-[#E5E7EB]">
@@ -1775,27 +1777,17 @@ export default function AdminTests() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-9 w-full justify-center gap-1.5 px-2 text-xs text-[#D97706] hover:bg-[#FFF7E8] hover:text-[#B45309] sm:h-8 sm:w-auto"
-                          onClick={() => setLocation(`/admin/tests/${test.id}/analytics`)}
-                          data-testid={`button-advanced-analytics-${test.id}`}
-                        >
-                          <TrendingUp size={13} />
-                          Advanced
-                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-9 w-full justify-center gap-1.5 px-2 text-xs text-[#D97706] hover:bg-[#FFF7E8] hover:text-[#B45309] sm:h-8 sm:w-auto"
+                              className="h-10 w-full justify-center rounded-xl px-0 text-[#D97706] hover:bg-[#FFF7E8] hover:text-[#B45309] sm:h-9 sm:w-9"
                               disabled={importMetadataMutation.isPending && metadataImportTestId === test.id}
+                              aria-label="Import test metadata"
+                              title="Import"
                             >
-                              <Upload size={13} />
-                              {importMetadataMutation.isPending && metadataImportTestId === test.id ? "Importing..." : "Import"}
-                              <ChevronDown size={12} />
+                              <Upload size={16} className={importMetadataMutation.isPending && metadataImportTestId === test.id ? "animate-pulse" : ""} />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-52 border-[#E5E7EB]">
@@ -1809,6 +1801,16 @@ export default function AdminTests() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-9 w-full justify-center gap-1.5 px-2 text-xs text-[#D97706] hover:bg-[#FFF7E8] hover:text-[#B45309] sm:h-8 sm:w-auto"
+                          onClick={() => setLocation(`/admin/tests/${test.id}/analytics`)}
+                          data-testid={`button-advanced-analytics-${test.id}`}
+                        >
+                          <TrendingUp size={13} />
+                          Advanced
+                        </Button>
                         <Button size="sm" variant="ghost" className={`h-9 w-full justify-center gap-1.5 px-2 text-xs sm:h-8 sm:w-auto ${test.isPublished ? "text-[#F97316] hover:bg-[#FFF7E8]" : "text-[#16A34A] hover:bg-emerald-50"}`}
                           onClick={() => togglePublish.mutate({ id: test.id, isPublished: !test.isPublished })} data-testid={`button-toggle-publish-${test.id}`}>
                           {test.isPublished ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
@@ -1830,26 +1832,29 @@ export default function AdminTests() {
       )}
 
       {publishResultDialog ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 px-4 backdrop-blur-[2px]">
-          <div className="relative w-full max-w-lg overflow-hidden rounded-[24px] border border-[#eadfcd] bg-[#fffaf2] shadow-[0_28px_80px_rgba(15,23,42,0.28)]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-[3px]">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-[28px] border border-[#f2d6a6] bg-[#fffaf2] shadow-[0_32px_90px_rgba(120,53,15,0.24)]">
             <button
               type="button"
               onClick={() => setPublishResultDialog(null)}
-              className="absolute right-4 top-4 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white transition hover:bg-white/20"
+              className="absolute right-4 top-4 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/50 bg-white/60 text-[#9a3412] shadow-sm transition hover:bg-white"
               aria-label="Close publish summary"
             >
               <X size={16} />
             </button>
 
-            <div className="bg-[linear-gradient(135deg,#17253d_0%,#243b63_55%,#2f4c7f_100%)] px-5 py-4 text-white">
+            <div className="relative overflow-hidden bg-[radial-gradient(circle_at_15%_10%,rgba(255,255,255,0.38),transparent_28%),linear-gradient(135deg,#F59E0B_0%,#EA7A00_52%,#D97706_100%)] px-5 py-5 text-white">
+              <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full bg-white/18" />
+              <div className="absolute -bottom-12 left-8 h-24 w-24 rounded-full bg-white/12" />
               <div className="flex items-center gap-3 pr-10">
-                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/12 text-white backdrop-blur">
-                  <CheckCircle2 size={18} />
+                <div className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-600 shadow-[0_12px_30px_rgba(120,53,15,0.22)]">
+                  <CheckCircle2 size={22} />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="truncate text-xl font-extrabold tracking-tight">Test published</h2>
-                  <p className="mt-1 text-sm leading-5 text-white/80">
-                    Question bank sync for <span className="font-semibold text-white">{publishResultDialog.testTitle}</span> is complete.
+                  <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-white/75">Publish Complete</p>
+                  <h2 className="mt-1 truncate text-2xl font-black tracking-tight">Test published</h2>
+                  <p className="mt-1 text-sm leading-5 text-white/90">
+                    <span className="font-semibold text-white">{publishResultDialog.testTitle}</span> is live. Question bank sync summary is below.
                   </p>
                 </div>
               </div>
@@ -1857,23 +1862,32 @@ export default function AdminTests() {
 
             <div className="space-y-4 px-5 py-4">
               <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Synced</p>
-                  <p className="mt-2 text-2xl font-extrabold text-emerald-800">{publishResultDialog.summary.linkedCount}</p>
+                <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-4 py-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Synced</p>
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                  </div>
+                  <p className="mt-2 text-3xl font-black text-emerald-800">{publishResultDialog.summary.linkedCount}</p>
                 </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-700">Duplicates</p>
-                  <p className="mt-2 text-2xl font-extrabold text-amber-800">{publishResultDialog.summary.skippedDuplicateCount}</p>
+                <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-[#fff7e8] to-white px-4 py-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#b45309]">Duplicates</p>
+                    <Hash size={16} className="text-[#D97706]" />
+                  </div>
+                  <p className="mt-2 text-3xl font-black text-[#b45309]">{publishResultDialog.summary.skippedDuplicateCount}</p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Needs Tagging</p>
-                  <p className="mt-2 text-2xl font-extrabold text-slate-900">{publishResultDialog.summary.skippedNoSubjectCount}</p>
+                <div className="rounded-2xl border border-rose-200 bg-gradient-to-br from-rose-50 to-white px-4 py-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-rose-700">Review</p>
+                    <Flag size={16} className="text-rose-600" />
+                  </div>
+                  <p className="mt-2 text-3xl font-black text-rose-700">{publishResultDialog.summary.skippedNoSubjectCount}</p>
                 </div>
               </div>
 
               {publishResultDialog.summary.duplicateQuestions && publishResultDialog.summary.duplicateQuestions.length > 0 ? (
-                <div className="rounded-2xl border border-[#eadfcd] bg-white px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Duplicate Questions</p>
+                <div className="rounded-2xl border border-[#f0d7ad] bg-white px-4 py-3 shadow-sm">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#b45309]">Duplicate Questions</p>
                   <p className="mt-2 text-sm text-slate-700">
                     {publishResultDialog.summary.duplicateQuestions.slice(0, 10).map((item) => item.questionNo).join(", ")}
                     {publishResultDialog.summary.duplicateQuestions.length > 10
@@ -1884,8 +1898,88 @@ export default function AdminTests() {
               ) : null}
 
               {publishResultDialog.summary.createdQuestionBankClassCount > 0 ? (
-                <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+                <div className="rounded-2xl border border-[#f0d7ad] bg-[#fff7e8] px-4 py-3 text-sm text-[#7c2d12] shadow-sm">
                   The question bank card for the same exam was missing, so the system created it automatically.
+                </div>
+              ) : null}
+
+              {publishResultDialog.summary.skippedNoSubjectCount > 0 ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/90 px-4 py-3 text-sm leading-6 text-rose-900 shadow-sm">
+                  Test published successfully. {publishResultDialog.summary.skippedNoSubjectCount} question{publishResultDialog.summary.skippedNoSubjectCount === 1 ? "" : "s"} still need exact subject/chapter review in Edit test, so they were not synced to the question bank yet.
+                </div>
+              ) : null}
+
+              {publishResultDialog.summary.reviewQuestions && publishResultDialog.summary.reviewQuestions.length > 0 ? (
+                <div className="rounded-2xl border border-rose-200 bg-white px-4 py-3 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-rose-700">Questions to Review</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        These questions are live in the test, but not synced to Question Bank.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-full bg-gradient-to-r from-[#F59E0B] to-[#D97706] px-4 text-white shadow-[0_12px_26px_rgba(217,119,6,0.24)] hover:from-[#D97706] hover:to-[#b45309]"
+                      onClick={() => {
+                        setPublishResultDialog(null);
+                        const firstReviewQuestion = publishResultDialog.summary.reviewQuestions?.[0];
+                        setLocation(firstReviewQuestion
+                          ? `/admin/tests/${publishResultDialog.testId}/builder?questionId=${firstReviewQuestion.questionId}`
+                          : `/admin/tests/${publishResultDialog.testId}/builder`);
+                      }}
+                    >
+                      Open builder
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {publishResultDialog.summary.reviewQuestions.slice(0, 18).map((item) => (
+                      <button
+                        key={item.questionId}
+                        type="button"
+                        title={`${item.reason}${item.subjectName ? ` Subject: ${item.subjectName}` : ""}${item.chapterName ? ` Chapter: ${item.chapterName}` : ""}`}
+                        onClick={() => {
+                          setPublishResultDialog(null);
+                          setLocation(`/admin/tests/${publishResultDialog.testId}/builder?questionId=${item.questionId}`);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                      >
+                        <Flag className="h-3 w-3" />
+                        {item.questionNo}
+                      </button>
+                    ))}
+                    {publishResultDialog.summary.reviewQuestions.length > 18 ? (
+                      <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                        + {publishResultDialog.summary.reviewQuestions.length - 18} more
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 max-h-28 space-y-1.5 overflow-y-auto pr-1">
+                    {publishResultDialog.summary.reviewQuestions.slice(0, 5).map((item) => (
+                      <p key={`reason-${item.questionId}`} className="text-xs leading-5 text-slate-600">
+                        <span className="font-bold text-slate-900">{item.questionNo}</span>: {item.reason}
+                        {item.subjectName ? ` Subject: ${item.subjectName}.` : ""}
+                        {item.chapterName ? ` Chapter: ${item.chapterName}.` : ""}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {publishResultDialog.summary.warnings && publishResultDialog.summary.warnings.length > 0 ? (
+                <div className="rounded-2xl border border-[#f0d7ad] bg-white px-4 py-3 shadow-sm">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[#b45309]">Review Notes</p>
+                  <div className="mt-2 space-y-2 text-sm text-slate-700">
+                    {publishResultDialog.summary.warnings.slice(0, 5).map((warning, index) => (
+                      <p key={`${index}-${warning}`}>{warning}</p>
+                    ))}
+                    {publishResultDialog.summary.warnings.length > 5 ? (
+                      <p className="text-xs text-slate-500">+ {publishResultDialog.summary.warnings.length - 5} more</p>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </div>

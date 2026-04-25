@@ -17,6 +17,9 @@ import SubjectMovement from "@/features/test-analysis/pages/SubjectMovement";
 import QuestionJourney from "@/features/test-analysis/pages/QuestionJourney";
 import QsByQsAnalysis from "@/features/test-analysis/pages/QsByQsAnalysis";
 import { getSamplePreviewAnalysisData, isSamplePreviewAnalysisId } from "@/pages/student/sampleTestAnalysis";
+import { useAuth } from "@/contexts/AuthContext";
+import { isStudentFeatureLocked } from "@/lib/student-access";
+import { buildStudentUnlockPath } from "@/lib/student-unlock";
 
 const pageTitles: Record<string, string> = {
   overview: "Overview",
@@ -99,6 +102,22 @@ function renderPage(activeTab: string, mode: ViewMode) {
 export default function StudentTestAnalysis() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const isTestsLocked = isStudentFeatureLocked(user, "tests");
+
+  useEffect(() => {
+    if (!isTestsLocked || !id) return;
+    setLocation(buildStudentUnlockPath({
+      feature: "tests",
+      kind: "test",
+      label: `Test ${id}`,
+      returnTo: `/student/tests/${id}/analysis`,
+    }));
+  }, [id, isTestsLocked, setLocation]);
+
+  if (isTestsLocked) {
+    return <div className="py-20 text-center text-muted-foreground">Redirecting to unlock payment...</div>;
+  }
   const [activeTab, setActiveTab] = useState("overview");
   const [mode, setMode] = useState<ViewMode>("personal");
   const [datasetReady, setDatasetReady] = useState(false);

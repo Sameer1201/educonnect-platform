@@ -15,6 +15,7 @@ export const examTemplatesTable = pgTable("exam_templates", {
   defaultNegativeMarks: real("default_negative_marks").notNull().default(0),
   sections: text("sections").notNull(),
   isSystem: boolean("is_system").notNull().default(false),
+  isLocked: boolean("is_locked").notNull().default(false),
   showInRegistration: boolean("show_in_registration").notNull().default(true),
   createdBy: integer("created_by").references(() => usersTable.id),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

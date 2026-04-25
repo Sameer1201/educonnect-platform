@@ -23,6 +23,7 @@ import {
 import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   addReviewBucketRemovedQuestionId,
@@ -30,6 +31,8 @@ import {
   getReviewBucketRemovedQuestionIds,
   setReviewBucketRemovedQuestionIds,
 } from "@/lib/reviewBucket";
+import { isStudentFeatureLocked } from "@/lib/student-access";
+import { buildStudentUnlockPath } from "@/lib/student-unlock";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -230,6 +233,8 @@ export default function StudentReviewBucket() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isTestsLocked = isStudentFeatureLocked(user, "tests");
   const reviewBucketPageQueryKey = ["student-review-bucket-page"] as const;
   const reviewBucketCountQueryKey = ["student-review-bucket-count"] as const;
   const solutionRef = useRef<HTMLDivElement | null>(null);
@@ -245,6 +250,19 @@ export default function StudentReviewBucket() {
   const [pendingRemovalEntry, setPendingRemovalEntry] = useState<BucketEntry | null>(null);
   const [pendingReportEntry, setPendingReportEntry] = useState<BucketEntry | null>(null);
   const [reportReason, setReportReason] = useState("");
+
+  useEffect(() => {
+    if (!isTestsLocked) return;
+    setLocation(buildStudentUnlockPath({
+      feature: "tests",
+      kind: "feature",
+      returnTo: "/student/tests/review-bucket",
+    }));
+  }, [isTestsLocked, setLocation]);
+
+  if (isTestsLocked) {
+    return <div className="py-20 text-center text-muted-foreground">Redirecting to unlock payment...</div>;
+  }
 
   const bucketQuery = useQuery<BucketEntry[]>({
     queryKey: reviewBucketPageQueryKey,

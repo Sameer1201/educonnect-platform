@@ -33,6 +33,10 @@ export interface StudentProfileDetails {
     testsLocked?: boolean;
     questionBankLocked?: boolean;
   };
+  featureUnlockPricing?: {
+    testsAmount?: number | null;
+    questionBankAmount?: number | null;
+  };
 }
 
 export interface StudentFeatureAccess {
@@ -46,4 +50,8 @@ export interface AuthUser extends ApiUser {
   profileDetails?: StudentProfileDetails | null;
   rejectionReason?: string | null;
   studentFeatureAccess?: StudentFeatureAccess | null;
+  studentFeaturePricing?: {
+    testsAmount?: number | null;
+    questionBankAmount?: number | null;
+  } | null;
 }

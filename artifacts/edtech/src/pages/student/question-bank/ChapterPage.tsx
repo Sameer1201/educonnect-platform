@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Circle, Lock, Tag } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { stripRichHtmlToText } from "@/lib/richContent";
 import { useAuth } from "@/contexts/AuthContext";
-import { isStudentPendingVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
+import { buildStudentUnlockPath } from "@/lib/student-unlock";
 import {
   applyPendingPreviewLocksToExam,
   formatDifficultyLabel,
@@ -34,6 +35,7 @@ export default function StudentQuestionBankChapterPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const isPreviewMode = isStudentPendingVerification(user);
+  const isQuestionBankFeatureLocked = isStudentFeatureLocked(user, "question-bank");
   const [filterAttempted, setFilterAttempted] = useState<"all" | "attempted" | "unattempted">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const { data: liveData, isLoading } = useStudentQuestionBankExam(examId);
@@ -50,6 +52,18 @@ export default function StudentQuestionBankChapterPage() {
   const subject = data?.subjects.find((entry) => String(entry.id) === subjectId);
   const chapter = subject?.chapters.find((entry) => String(entry.id) === chapterId);
 
+  useEffect(() => {
+    if (!isQuestionBankFeatureLocked || !exam || !subject || !chapter) return;
+    navigate(buildStudentUnlockPath({
+      feature: "question-bank",
+      kind: "chapter",
+      label: chapter.title,
+      examLabel: exam.label,
+      subjectLabel: subject.title,
+      returnTo: `/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}`,
+    }));
+  }, [chapter, chapterId, exam, examId, isQuestionBankFeatureLocked, navigate, subject, subjectId]);
+
   if (!exam || !subject || !chapter) {
     return (
       <div className="py-20 text-center text-muted-foreground">
@@ -59,6 +73,10 @@ export default function StudentQuestionBankChapterPage() {
         </Link>
       </div>
     );
+  }
+
+  if (isQuestionBankFeatureLocked) {
+    return <div className="py-20 text-center text-muted-foreground">Redirecting to unlock payment...</div>;
   }
 
   if (subject.isLocked || chapter.isLocked) {

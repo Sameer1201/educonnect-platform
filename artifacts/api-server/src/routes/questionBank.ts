@@ -871,10 +871,6 @@ router.get("/question-bank/exams", async (req, res) => {
   if (!["admin", "super_admin", "student"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
   }
-  if (auth.role === "student") {
-    const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
-    if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
-  }
 
   const classes = await getAccessibleQuestionBankClasses(auth);
   const studentExamKeys = auth.role === "student" ? await getStudentExamKeys(auth.userId) : null;
@@ -1015,10 +1011,6 @@ router.get("/question-bank/exams/:examKey", async (req, res) => {
   if (!auth) return;
   if (!["admin", "super_admin", "student"].includes(auth.role)) {
     return res.status(403).json({ error: "Forbidden" });
-  }
-  if (auth.role === "student") {
-    const [student] = await db.select().from(usersTable).where(eq(usersTable.id, auth.userId));
-    if (!ensureStudentFeatureUnlocked(student, "question-bank", res)) return;
   }
 
   const examKey = normalizeExamKey(req.params.examKey);
@@ -2255,16 +2247,14 @@ router.patch("/question-bank/chapters/:chapterId", async (req, res) => {
 
   const context = await getChapterContext(chapterId);
   if (!context) return res.status(404).json({ error: "Chapter not found" });
-  const canEditStructure = canManageQuestionBankStructure(auth, context.cls);
-  const canEditChapterContent = canManageQuestionBank(auth, context.subject, context.cls);
-  if (!canEditStructure && !canEditChapterContent) {
-    return res.status(403).json({ error: "You do not have access to update this chapter" });
+  if (!canManageQuestionBankStructure(auth, context.cls)) {
+    return res.status(403).json({ error: "Only super admin can update chapter details" });
   }
   if (!ensureQuestionBankUnlocked(context.cls, res)) return;
 
   const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
   const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
-  const rawTargetQuestions = canEditStructure ? Number(req.body?.targetQuestions ?? context.chapter.targetQuestions ?? 0) : (context.chapter.targetQuestions ?? 0);
+  const rawTargetQuestions = Number(req.body?.targetQuestions ?? context.chapter.targetQuestions ?? 0);
 
   if (!title) {
     return res.status(400).json({ error: "Chapter title is required" });

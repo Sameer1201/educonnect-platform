@@ -9,7 +9,7 @@ import StudentPreviewLockBanner from "@/components/student/StudentPreviewLockBan
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatExamDisplayName } from "@/lib/exam-display";
-import { isStudentPendingVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
 import {
   BrainCircuit,
   Target,
@@ -918,6 +918,8 @@ export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isPendingPreview = isStudentPendingVerification(user);
+  const isTestsLocked = isStudentFeatureLocked(user, "tests");
+  const isQuestionBankLocked = isStudentFeatureLocked(user, "question-bank");
   const initialDailyGoal = resolveDailyGoal(user?.profileDetails?.dashboard?.dailyQuestionGoal);
   const [isEditingDailyGoal, setIsEditingDailyGoal] = useState(false);
   const [dailyGoalDraft, setDailyGoalDraft] = useState(String(initialDailyGoal));
@@ -946,7 +948,7 @@ export default function Dashboard() {
   );
 
   const analysisQueries = useQueries({
-    queries: isPendingPreview ? [] : completedTests.map((test) => ({
+    queries: isPendingPreview || isTestsLocked ? [] : completedTests.map((test) => ({
       queryKey: ["dashboard-test-analysis", test.id],
       queryFn: () => api.get(`/tests/${test.id}/my-analysis`) as Promise<AnalysisResponse>,
       staleTime: 5 * 60_000,
@@ -957,7 +959,7 @@ export default function Dashboard() {
     queryKey: ["dashboard-question-bank-progress"],
     queryFn: () => api.get("/question-bank/progress/summary"),
     staleTime: 60_000,
-    enabled: !isPendingPreview,
+    enabled: !isPendingPreview && !isQuestionBankLocked,
   });
 
   const { data: questionBankExams = [] } = useQuery<StudentQuestionBankExamSummary[]>({
@@ -968,7 +970,7 @@ export default function Dashboard() {
   });
 
   const questionBankExamQueries = useQueries({
-    queries: isPendingPreview ? [] : questionBankExams.map((exam) => ({
+    queries: isPendingPreview || isQuestionBankLocked ? [] : questionBankExams.map((exam) => ({
       queryKey: ["dashboard-question-bank-exam", exam.key],
       queryFn: () => api.get(`/question-bank/exams/${exam.key}`) as Promise<StudentQuestionBankExamResponse>,
       staleTime: 60_000,

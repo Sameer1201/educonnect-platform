@@ -3,8 +3,9 @@ import { ArrowLeft, ChevronRight, Filter, Lock } from "lucide-react";
 import { Link, useLocation, useParams } from "wouter";
 import PendingVerificationDialog from "@/components/student/PendingVerificationDialog";
 import { useAuth } from "@/contexts/AuthContext";
-import { isStudentPendingVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
 import { SubjectThemeIcon, getSubjectAccent, getSubjectTheme } from "@/lib/subject-theme";
+import { buildStudentUnlockPath } from "@/lib/student-unlock";
 import {
   applyPendingPreviewLocksToExam,
   formatDifficultyLabel,
@@ -23,6 +24,7 @@ export default function StudentQuestionBankSubjectPage() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isPreviewMode = isStudentPendingVerification(user);
+  const isQuestionBankFeatureLocked = isStudentFeatureLocked(user, "question-bank");
   const [diffFilter, setDiffFilter] = useState<"All" | "Easy" | "Medium" | "Hard">("All");
   const [dialogOpen, setDialogOpen] = useState(false);
   const { data: liveData, isLoading } = useStudentQuestionBankExam(examId);
@@ -49,7 +51,7 @@ export default function StudentQuestionBankSubjectPage() {
     );
   }
 
-  if (subject.isLocked) {
+  if (subject.isLocked && !isQuestionBankFeatureLocked) {
     return (
       <>
         <div className="space-y-6">
@@ -193,7 +195,7 @@ export default function StudentQuestionBankSubjectPage() {
                 const chapterDifficulty = getChapterDifficultyLabel(chapter);
                 const totalQuestions = chapterQuestions.length;
                 const pct = totalQuestions > 0 ? Math.round((chapterAttempted / totalQuestions) * 100) : 0;
-                const isLockedChapter = Boolean(chapter.isLocked);
+                const isLockedChapter = isQuestionBankFeatureLocked || Boolean(chapter.isLocked);
 
                 return (
                   <button
@@ -201,6 +203,17 @@ export default function StudentQuestionBankSubjectPage() {
                     type="button"
                     onClick={() => {
                       if (isLockedChapter) {
+                        if (isQuestionBankFeatureLocked) {
+                          setLocation(buildStudentUnlockPath({
+                            feature: "question-bank",
+                            kind: "chapter",
+                            label: chapter.title,
+                            examLabel: exam.label,
+                            subjectLabel: subject.title,
+                            returnTo: `/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapter.id}`,
+                          }));
+                          return;
+                        }
                         setDialogOpen(true);
                         return;
                       }

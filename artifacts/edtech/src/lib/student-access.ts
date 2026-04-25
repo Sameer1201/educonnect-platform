@@ -1,5 +1,10 @@
 export const STUDENT_VERIFICATION_CONTACT_EMAIL = "sameermajhi339@gmail.com";
 
+export type StudentFeatureUnlockPricing = {
+  testsAmount?: number | null;
+  questionBankAmount?: number | null;
+};
+
 type StudentAccessUser = {
   role?: string | null;
   onboardingComplete?: boolean | null;
@@ -13,7 +18,9 @@ type StudentAccessUser = {
       testsLocked?: boolean | null;
       questionBankLocked?: boolean | null;
     } | null;
+    featureUnlockPricing?: StudentFeatureUnlockPricing | null;
   } | null;
+  studentFeaturePricing?: StudentFeatureUnlockPricing | null;
 } | null | undefined;
 
 export type StudentFeatureKey = "tests" | "question-bank";
@@ -39,4 +46,12 @@ export function isStudentFeatureLocked(user: StudentAccessUser, feature: Student
   if (user?.role !== "student") return false;
   const access = getStudentFeatureAccess(user);
   return feature === "tests" ? access.testsLocked : access.questionBankLocked;
+}
+
+export function getStudentFeatureUnlockAmount(user: StudentAccessUser, feature: StudentFeatureKey) {
+  const pricing = user?.studentFeaturePricing ?? user?.profileDetails?.featureUnlockPricing;
+  const rawValue = feature === "tests" ? pricing?.testsAmount : pricing?.questionBankAmount;
+  if (rawValue == null) return null;
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }

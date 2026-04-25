@@ -6,7 +6,8 @@ import { RichQuestionContent } from "@/components/ui/rich-question-content";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { isStudentPendingVerification } from "@/lib/student-access";
+import { isStudentFeatureLocked, isStudentPendingVerification } from "@/lib/student-access";
+import { buildStudentUnlockPath } from "@/lib/student-unlock";
 import {
   applyPendingPreviewLocksToExam,
   formatDifficultyLabel,
@@ -80,6 +81,7 @@ export default function StudentQuestionBankQuestionPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isPreviewMode = isStudentPendingVerification(user);
+  const isQuestionBankFeatureLocked = isStudentFeatureLocked(user, "question-bank");
   const { data: liveData, isLoading } = useStudentQuestionBankExam(examId);
   const data = useMemo(() => {
     if (!liveData) return null;
@@ -102,6 +104,18 @@ export default function StudentQuestionBankQuestionPage() {
   const prevQuestion = currentIndex > 0 ? chapterQuestions[currentIndex - 1] : null;
   const nextQuestion = currentIndex >= 0 && currentIndex < chapterQuestions.length - 1 ? chapterQuestions[currentIndex + 1] : null;
   const questionType: QuestionType = question?.questionType === "multi" || question?.questionType === "integer" ? question.questionType : "mcq";
+
+  useEffect(() => {
+    if (!isQuestionBankFeatureLocked || !exam || !subject || !chapter) return;
+    navigate(buildStudentUnlockPath({
+      feature: "question-bank",
+      kind: "chapter",
+      label: chapter.title,
+      examLabel: exam.label,
+      subjectLabel: subject.title,
+      returnTo: `/student/question-bank/exam/${examId}/subject/${subjectId}/chapter/${chapterId}/question/${questionId}`,
+    }));
+  }, [chapter, chapterId, exam, examId, isQuestionBankFeatureLocked, navigate, questionId, subject, subjectId]);
 
   const attemptMutation = useMutation({
     mutationFn: async (answer: number | number[] | string) => {
@@ -155,6 +169,10 @@ export default function StudentQuestionBankQuestionPage() {
 
   if (isLoading) {
     return <div className="py-20 text-center text-muted-foreground">Loading question...</div>;
+  }
+
+  if (isQuestionBankFeatureLocked) {
+    return <div className="py-20 text-center text-muted-foreground">Redirecting to unlock payment...</div>;
   }
 
   if (!exam || !subject || !chapter || !question || subject.isLocked || chapter.isLocked) {

@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle,
@@ -18,7 +19,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { StudentProfileInsights } from "@/components/student/StudentProfileInsightsPanel";
 import { StudentVerificationReviewDialog } from "@/components/student/StudentVerificationReviewDialog";
 import { formatExamDisplayName } from "@/lib/exam-display";
@@ -48,6 +49,10 @@ interface User {
   studentFeatureAccess?: {
     testsLocked?: boolean;
     questionBankLocked?: boolean;
+  } | null;
+  studentFeaturePricing?: {
+    testsAmount?: number | null;
+    questionBankAmount?: number | null;
   } | null;
 }
 
@@ -103,6 +108,31 @@ export default function SuperAdminStudents() {
   const [selectedStudent, setSelectedStudent] = useState<User | null>(null);
   const [rejectionDialog, setRejectionDialog] = useState<User | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [testsUnlockAmount, setTestsUnlockAmount] = useState("");
+  const [questionBankUnlockAmount, setQuestionBankUnlockAmount] = useState("");
+
+  useEffect(() => {
+    if (!selectedStudent) {
+      setTestsUnlockAmount("");
+      setQuestionBankUnlockAmount("");
+      return;
+    }
+
+    setTestsUnlockAmount(
+      selectedStudent.studentFeaturePricing?.testsAmount != null
+        ? String(selectedStudent.studentFeaturePricing.testsAmount)
+        : "",
+    );
+    setQuestionBankUnlockAmount(
+      selectedStudent.studentFeaturePricing?.questionBankAmount != null
+        ? String(selectedStudent.studentFeaturePricing.questionBankAmount)
+        : "",
+    );
+  }, [
+    selectedStudent?.id,
+    selectedStudent?.studentFeaturePricing?.questionBankAmount,
+    selectedStudent?.studentFeaturePricing?.testsAmount,
+  ]);
 
   const { data: students = [], isLoading: isStudentsLoading } = useQuery<User[]>({
     queryKey: ["sa-students-with-approvers"],
@@ -191,10 +221,14 @@ export default function SuperAdminStudents() {
       id,
       testsLocked,
       questionBankLocked,
+      testsAmount,
+      questionBankAmount,
     }: {
       id: number;
       testsLocked?: boolean;
       questionBankLocked?: boolean;
+      testsAmount?: number | null;
+      questionBankAmount?: number | null;
     }) => {
       const response = await fetch(`${BASE}/api/users/${id}/student-feature-access`, {
         method: "PATCH",
@@ -203,6 +237,8 @@ export default function SuperAdminStudents() {
         body: JSON.stringify({
           ...(testsLocked !== undefined ? { testsLocked } : {}),
           ...(questionBankLocked !== undefined ? { questionBankLocked } : {}),
+          ...(testsAmount !== undefined ? { testsAmount } : {}),
+          ...(questionBankAmount !== undefined ? { questionBankAmount } : {}),
         }),
       });
       if (!response.ok) {
@@ -217,7 +253,9 @@ export default function SuperAdminStudents() {
       toast({
         title: "Student access updated",
         description:
-          variables.testsLocked !== undefined
+          variables.testsAmount !== undefined || variables.questionBankAmount !== undefined
+            ? "Student unlock amounts were updated."
+            : variables.testsLocked !== undefined
             ? variables.testsLocked
               ? "Tests are now locked for this student."
               : "Tests are unlocked again for this student."
@@ -401,7 +439,7 @@ export default function SuperAdminStudents() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Student ko rejection reason dashboard par dikhega aur same reason email se bhi jayega.
+              The rejection reason will be visible in the student dashboard and will also be sent by email.
             </p>
             <Textarea
               value={rejectionReason}
@@ -542,6 +580,63 @@ export default function SuperAdminStudents() {
                   </span>
                 </Button>
               </div>
+
+              {selectedStudent.status === "approved" ? (
+                <div className="rounded-3xl border border-[#F3E8D6] bg-[#FFF9F2] p-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
+                  <div className="mb-4">
+                    <h4 className="text-base font-bold text-slate-900">One-time unlock amounts</h4>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Set the payment amount this student will see when a locked test or locked chapter is opened.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9A6B2C]">Tests unlock amount</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={testsUnlockAmount}
+                        onChange={(event) => setTestsUnlockAmount(event.target.value)}
+                        placeholder="Enter tests amount"
+                        className="h-11 rounded-2xl border-[#EBDCC4] bg-white"
+                      />
+                    </label>
+
+                    <label className="space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9A6B2C]">Question bank unlock amount</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={questionBankUnlockAmount}
+                        onChange={(event) => setQuestionBankUnlockAmount(event.target.value)}
+                        placeholder="Enter question bank amount"
+                        className="h-11 rounded-2xl border-[#EBDCC4] bg-white"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Button
+                      type="button"
+                      className="rounded-full bg-[#D97706] px-5 text-white hover:bg-[#B45309]"
+                      disabled={featureAccessMutation.isPending}
+                      onClick={() => featureAccessMutation.mutate({
+                        id: selectedStudent.id,
+                        testsAmount: testsUnlockAmount.trim() ? Number(testsUnlockAmount) : null,
+                        questionBankAmount: questionBankUnlockAmount.trim() ? Number(questionBankUnlockAmount) : null,
+                      })}
+                    >
+                      Save unlock amounts
+                    </Button>
+                    <p className="self-center text-xs text-slate-500">
+                      Leave a field empty if the amount should not be configured yet.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null
         }

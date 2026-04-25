@@ -6,7 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useActivityTracker } from "@/hooks/useActivityTracker";
-import { isStudentFeatureLocked, isStudentPendingVerification, isStudentRejectedVerification } from "@/lib/student-access";
+import { isStudentPendingVerification, isStudentRejectedVerification } from "@/lib/student-access";
 
 const importLayout = () => import("@/components/Layout");
 const importSuperAdminDashboard = () => import("@/pages/super-admin/Dashboard");
@@ -21,6 +21,7 @@ const importStudentDashboard = () => import("@/pages/student/Dashboard");
 const importStudentTests = () => import("@/pages/student/Tests");
 const importStudentQuestionBankDashboard = () => import("@/pages/student/question-bank/Dashboard");
 const importStudentProfile = () => import("@/pages/student/Profile");
+const importStudentUnlockFeature = () => import("@/pages/student/UnlockFeature");
 
 const Layout = lazy(importLayout);
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -54,6 +55,7 @@ const StudentQuestionBankChapterPage = lazy(() => import("@/pages/student/questi
 const StudentQuestionBankQuestionPage = lazy(() => import("@/pages/student/question-bank/QuestionPage"));
 const StudentReviewBucket = lazy(() => import("@/pages/student/ReviewBucket"));
 const StudentProfile = lazy(importStudentProfile);
+const StudentUnlockFeaturePage = lazy(importStudentUnlockFeature);
 const StudentPendingApproval = lazy(() => import("@/pages/student/PendingApproval"));
 const StudentTests = lazy(importStudentTests);
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
@@ -219,23 +221,6 @@ function isPendingStudentPreviewAnalysisPath(location: string) {
   return /^\/student\/tests\/-\d+\/analysis$/.test(location);
 }
 
-function getLockedStudentRedirect(
-  user: { role?: string | null; studentFeatureAccess?: { testsLocked?: boolean | null; questionBankLocked?: boolean | null } | null } | null | undefined,
-  location: string,
-) {
-  if (user?.role !== "student") return null;
-
-  if (isStudentFeatureLocked(user, "tests") && location.startsWith("/student/tests") && location !== "/student/tests") {
-    return "/student/tests";
-  }
-
-  if (isStudentFeatureLocked(user, "question-bank") && location.startsWith("/student/question-bank") && location !== "/student/question-bank") {
-    return "/student/question-bank";
-  }
-
-  return null;
-}
-
 function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const [location, setLocation] = useLocation();
@@ -255,12 +240,6 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
   }
 
   if (user.role === "student") {
-    const lockedRedirect = getLockedStudentRedirect(user, location);
-    if (lockedRedirect) {
-      setLocation(lockedRedirect);
-      return null;
-    }
-
     if (studentNeedsOnboarding(user) && location !== "/student/profile") {
       setLocation("/student/profile");
       return null;
@@ -503,6 +482,11 @@ function AppRouter() {
       <Route path="/student/pending-approval">
         <ProtectedRoute roles={["student"]}>
           <StudentPendingApproval />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/unlock/:feature">
+        <ProtectedRoute roles={["student"]}>
+          <Layout><StudentUnlockFeaturePage /></Layout>
         </ProtectedRoute>
       </Route>
 

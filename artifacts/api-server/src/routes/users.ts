@@ -50,7 +50,20 @@ import { hasBrevoAccounts, queueStudentApprovedEmail, queueStudentRejectedEmail,
 import { createFirebaseEmailUser, deleteFirebaseUser, deleteFirebaseUserByEmail, ensureFirebaseEmailUser, generateFirebasePasswordResetLink, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
 import { logger } from "../lib/logger";
 import { buildCustomPasswordResetUrl } from "../lib/passwordReset";
-import { getStudentFeatureAccess, mergeStudentFeatureAccess } from "../lib/studentFeatureAccess";
+import {
+  getStudentFeatureAccess,
+  getStudentFeatureUnlockPricing,
+  mergeStudentFeatureAccess,
+  mergeStudentFeatureUnlockPricing,
+} from "../lib/studentFeatureAccess";
+import {
+  captureRazorpayPayment,
+  createRazorpayOrder,
+  getRazorpayKeyId,
+  getRazorpayPayment,
+  isRazorpayConfigured,
+  verifyRazorpayPaymentSignature,
+} from "../lib/razorpay";
 
 const router: IRouter = Router();
 
@@ -62,6 +75,7 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
     ...rest,
     profileDetails: parsedProfileDetails,
     studentFeatureAccess: getStudentFeatureAccess(parsedProfileDetails),
+    studentFeaturePricing: getStudentFeatureUnlockPricing(parsedProfileDetails),
   };
 }
 
@@ -265,18 +279,47 @@ router.patch("/users/:id/student-feature-access", async (req, res): Promise<void
 
   const testsLockedRaw = req.body?.testsLocked;
   const questionBankLockedRaw = req.body?.questionBankLocked;
+  const testsAmountRaw = req.body?.testsAmount;
+  const questionBankAmountRaw = req.body?.questionBankAmount;
   const updates: Record<string, boolean> = {};
+  const pricingUpdates: Record<string, number | null> = {};
 
   if (typeof testsLockedRaw === "boolean") updates.testsLocked = testsLockedRaw;
   if (typeof questionBankLockedRaw === "boolean") updates.questionBankLocked = questionBankLockedRaw;
+  if (testsAmountRaw === null || testsAmountRaw === "" || testsAmountRaw === undefined) {
+    if (testsAmountRaw !== undefined) pricingUpdates.testsAmount = null;
+  } else {
+    const parsedTestsAmount = Number(testsAmountRaw);
+    if (!Number.isFinite(parsedTestsAmount) || parsedTestsAmount <= 0) {
+      res.status(400).json({ error: "Tests unlock amount must be a positive number" });
+      return;
+    }
+    pricingUpdates.testsAmount = Math.round(parsedTestsAmount * 100) / 100;
+  }
 
-  if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: "No valid student feature access updates were provided" });
+  if (questionBankAmountRaw === null || questionBankAmountRaw === "" || questionBankAmountRaw === undefined) {
+    if (questionBankAmountRaw !== undefined) pricingUpdates.questionBankAmount = null;
+  } else {
+    const parsedQuestionBankAmount = Number(questionBankAmountRaw);
+    if (!Number.isFinite(parsedQuestionBankAmount) || parsedQuestionBankAmount <= 0) {
+      res.status(400).json({ error: "Question bank unlock amount must be a positive number" });
+      return;
+    }
+    pricingUpdates.questionBankAmount = Math.round(parsedQuestionBankAmount * 100) / 100;
+  }
+
+  if (Object.keys(updates).length === 0 && Object.keys(pricingUpdates).length === 0) {
+    res.status(400).json({ error: "No valid student access or pricing updates were provided" });
     return;
   }
 
   const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
-  const nextProfileData = mergeStudentFeatureAccess(existingProfileData, updates);
+  const nextProfileWithAccess = Object.keys(updates).length > 0
+    ? mergeStudentFeatureAccess(existingProfileData, updates)
+    : existingProfileData;
+  const nextProfileData = Object.keys(pricingUpdates).length > 0
+    ? mergeStudentFeatureUnlockPricing(nextProfileWithAccess, pricingUpdates)
+    : nextProfileWithAccess;
 
   const [updated] = await db
     .update(usersTable)
@@ -285,6 +328,178 @@ router.patch("/users/:id/student-feature-access", async (req, res): Promise<void
     .returning();
 
   res.json(serializeUser(updated));
+});
+
+router.post("/users/me/student-feature-unlock/order", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["student"]);
+  if (!callerRole) return;
+
+  const userId = Number(req.cookies?.userId);
+  if (!Number.isFinite(userId)) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const feature = req.body?.feature === "question-bank" ? "question-bank" : req.body?.feature === "tests" ? "tests" : null;
+  if (!feature) {
+    res.status(400).json({ error: "A valid feature is required" });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!user || user.role !== "student") {
+    res.status(404).json({ error: "Student account not found" });
+    return;
+  }
+
+  const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
+  const access = getStudentFeatureAccess(existingProfileData);
+  const pricing = getStudentFeatureUnlockPricing(existingProfileData);
+  const isLocked = feature === "tests" ? access.testsLocked : access.questionBankLocked;
+  const amount = feature === "tests" ? pricing.testsAmount : pricing.questionBankAmount;
+
+  if (!isLocked) {
+    res.status(400).json({ error: "This feature is already unlocked for your account." });
+    return;
+  }
+
+  if (!amount) {
+    res.status(400).json({ error: "The unlock amount has not been configured for this student yet." });
+    return;
+  }
+
+  if (!isRazorpayConfigured()) {
+    res.status(500).json({ error: "Razorpay is not configured on the server yet." });
+    return;
+  }
+
+  const amountPaise = Math.round(amount * 100);
+
+  try {
+    const order = await createRazorpayOrder({
+      amountPaise,
+      currency: "INR",
+      receipt: `unlock_${user.id}_${feature}_${Date.now()}`.slice(0, 40),
+      notes: {
+        studentId: String(user.id),
+        feature,
+      },
+    });
+
+    res.json({
+      keyId: getRazorpayKeyId(),
+      orderId: order.id,
+      amountPaise: order.amount,
+      currency: order.currency,
+      feature,
+      amount,
+    });
+  } catch (error) {
+    logger.error({ error, userId, feature }, "Failed to create Razorpay unlock order");
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to create payment order",
+    });
+  }
+});
+
+router.post("/users/me/student-feature-unlock/verify", async (req, res): Promise<void> => {
+  const callerRole = requireRole(req, res, ["student"]);
+  if (!callerRole) return;
+
+  const userId = Number(req.cookies?.userId);
+  if (!Number.isFinite(userId)) {
+    res.status(401).json({ error: "Not authenticated" });
+    return;
+  }
+
+  const feature = req.body?.feature === "question-bank" ? "question-bank" : req.body?.feature === "tests" ? "tests" : null;
+  const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
+  const paymentId = typeof req.body?.paymentId === "string" ? req.body.paymentId.trim() : "";
+  const signature = typeof req.body?.signature === "string" ? req.body.signature.trim() : "";
+
+  if (!feature || !orderId || !paymentId || !signature) {
+    res.status(400).json({ error: "Payment verification data is incomplete." });
+    return;
+  }
+
+  if (!verifyRazorpayPaymentSignature({ orderId, paymentId, signature })) {
+    res.status(400).json({ error: "Payment signature is invalid." });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
+  if (!user || user.role !== "student") {
+    res.status(404).json({ error: "Student account not found" });
+    return;
+  }
+
+  const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
+  const access = getStudentFeatureAccess(existingProfileData);
+  const pricing = getStudentFeatureUnlockPricing(existingProfileData);
+  const isLocked = feature === "tests" ? access.testsLocked : access.questionBankLocked;
+  const amount = feature === "tests" ? pricing.testsAmount : pricing.questionBankAmount;
+
+  if (!isLocked) {
+    res.json({
+      message: "Feature is already unlocked.",
+      user: serializeUser(user),
+    });
+    return;
+  }
+
+  if (!amount) {
+    res.status(400).json({ error: "The unlock amount has not been configured for this student yet." });
+    return;
+  }
+
+  const expectedAmountPaise = Math.round(amount * 100);
+
+  try {
+    let payment = await getRazorpayPayment(paymentId);
+
+    if (payment.order_id !== orderId) {
+      res.status(400).json({ error: "This payment does not belong to the requested order." });
+      return;
+    }
+
+    if (payment.amount !== expectedAmountPaise) {
+      res.status(400).json({ error: "The payment amount does not match this student unlock amount." });
+      return;
+    }
+
+    if (payment.status === "authorized") {
+      payment = await captureRazorpayPayment({
+        paymentId,
+        amountPaise: expectedAmountPaise,
+        currency: payment.currency,
+      });
+    }
+
+    if (payment.status !== "captured") {
+      res.status(400).json({ error: "Payment is not captured yet. Please try again in a moment." });
+      return;
+    }
+
+    const nextProfileData = mergeStudentFeatureAccess(existingProfileData, {
+      ...(feature === "tests" ? { testsLocked: false } : { questionBankLocked: false }),
+    });
+
+    const [updated] = await db
+      .update(usersTable)
+      .set({ studentProfileData: JSON.stringify(nextProfileData) })
+      .where(eq(usersTable.id, user.id))
+      .returning();
+
+    res.json({
+      message: feature === "tests" ? "Tests unlocked successfully." : "Question bank unlocked successfully.",
+      user: serializeUser(updated),
+    });
+  } catch (error) {
+    logger.error({ error, userId, feature, orderId, paymentId }, "Failed to verify student unlock payment");
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to verify payment",
+    });
+  }
 });
 
 router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {

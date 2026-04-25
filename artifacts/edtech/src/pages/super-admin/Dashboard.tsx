@@ -55,7 +55,7 @@ function KpiTile({
     <TiltCard>
     <div
       onClick={onClick}
-      className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${from} ${to} text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)] ring-1 ring-white/15 hover:shadow-lg transition-all duration-200 ${onClick ? "cursor-pointer" : ""}`}
+      className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-br ${from} ${to} text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)] ring-1 ring-white/15 hover:shadow-lg transition-all duration-200 ${onClick ? "cursor-pointer" : ""}`}
       data-testid={`kpi-${title.toLowerCase().replace(/\s/g, "-")}`}
     >
       {/* bg glow */}
@@ -63,8 +63,8 @@ function KpiTile({
       <div className="absolute bottom-0 left-0 w-16 h-16 bg-white/5 rounded-full translate-y-4 -translate-x-4" />
 
       <div className="relative z-10">
-        <div className="flex items-start justify-between mb-3">
-          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+        <div className="mb-2.5 flex items-start justify-between sm:mb-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 sm:h-10 sm:w-10">
             {icon}
           </div>
           {badge && (
@@ -73,9 +73,9 @@ function KpiTile({
             </span>
           )}
         </div>
-        <p className="text-3xl font-black tracking-tight">{count.toLocaleString()}</p>
-        <p className="text-white/70 text-xs mt-0.5 font-medium">{title}</p>
-        {sub && <p className="text-white/50 text-[10px] mt-1">{sub}</p>}
+        <p className="text-[2.65rem] font-black leading-none tracking-tight sm:text-3xl">{count.toLocaleString()}</p>
+        <p className="mt-1 text-xs font-medium text-white/70 sm:mt-1.5">{title}</p>
+        {sub && <p className="mt-1 text-[10px] text-white/50">{sub}</p>}
       </div>
     </div>
     </TiltCard>

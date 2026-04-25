@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Layers3, Plus, Sparkles } from "lucide-react";
+import { Layers3, Lock, LockOpen, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -64,6 +63,7 @@ interface ExamTemplate {
     preferredQuestionType?: QuestionType;
   }>;
   isSystem: boolean;
+  isLocked?: boolean;
 }
 
 function makeTemplateSection(input?: Partial<ExamTemplateSectionDraft>): ExamTemplateSectionDraft {
@@ -93,6 +93,7 @@ export default function PlannerExamTemplates() {
   const [templatePassing, setTemplatePassing] = useState("60");
   const [templateShowInRegistration, setTemplateShowInRegistration] = useState(true);
   const [templateSections, setTemplateSections] = useState<ExamTemplateSectionDraft[]>([makeTemplateSection()]);
+  const [templateToDelete, setTemplateToDelete] = useState<ExamTemplate | null>(null);
 
   const { data: examTemplates = [], isLoading } = useQuery<ExamTemplate[]>({
     queryKey: ["planner-dashboard", "exam-templates"],
@@ -209,6 +210,67 @@ export default function PlannerExamTemplates() {
     },
   });
 
+  const toggleTemplateLockMutation = useMutation({
+    mutationFn: async ({ templateId, isLocked }: { templateId: number; isLocked: boolean }) => {
+      const response = await fetch(`${BASE}/api/planner/exam-templates/${templateId}/lock`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isLocked }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error ?? `Failed to ${isLocked ? "lock" : "unlock"} exam template`);
+      }
+      return payload as ExamTemplate;
+    },
+    onSuccess: (template, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["planner-dashboard", "exam-templates"] });
+      toast({
+        title: variables.isLocked ? "Template locked" : "Template unlocked",
+        description: variables.isLocked
+          ? `${template.name} is now locked for editing and deletion.`
+          : `${template.name} can be edited again.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Lock update failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (template: ExamTemplate) => {
+      const response = await fetch(`${BASE}/api/planner/exam-templates/${template.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to delete exam template");
+      }
+      return template;
+    },
+    onSuccess: (template) => {
+      queryClient.invalidateQueries({ queryKey: ["planner-dashboard", "exam-templates"] });
+      setTemplateToDelete(null);
+      toast({
+        title: "Template deleted",
+        description: `${template.name} has been removed.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -242,8 +304,7 @@ export default function PlannerExamTemplates() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <Card className="xl:col-span-2 overflow-hidden">
+      <Card className="overflow-hidden">
           <CardHeader className="border-b bg-muted/20">
             <CardTitle className="text-base flex items-center gap-2">
               <Layers3 size={16} className="text-indigo-600" />
@@ -257,19 +318,24 @@ export default function PlannerExamTemplates() {
               </div>
             ) : (
               examTemplates.map((template) => (
-                <div key={template.id} className="rounded-2xl border p-4">
+                <div key={template.id} className={`rounded-2xl border p-4 ${template.isLocked ? "border-[#FDE68A] bg-[#FFFBEB]" : ""}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold">{template.name}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold">{template.name}</p>
+                        {template.isLocked ? (
+                          <Badge className="border-[#FCD34D] bg-[#FFF7E8] text-[#B45309] hover:bg-[#FFF7E8]">
+                            <Lock className="mr-1 h-3 w-3" />
+                            Locked
+                          </Badge>
+                        ) : null}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-1">
                         {template.description || "Super admin managed exam structure"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       {template.isSystem && <Badge variant="outline">System</Badge>}
-                      <Button size="sm" variant="outline" onClick={() => openTemplateEditor(template)}>
-                        Edit
-                      </Button>
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
@@ -285,41 +351,46 @@ export default function PlannerExamTemplates() {
                       </Badge>
                     ))}
                   </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => openTemplateEditor(template)}
+                      disabled={Boolean(template.isLocked)}
+                      aria-label={`Edit ${template.name}`}
+                      title={template.isLocked ? "Unlock the template before editing" : "Edit exam template"}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => toggleTemplateLockMutation.mutate({ templateId: template.id, isLocked: !template.isLocked })}
+                      disabled={toggleTemplateLockMutation.isPending}
+                      aria-label={template.isLocked ? `Unlock ${template.name}` : `Lock ${template.name}`}
+                      title={template.isLocked ? "Unlock exam template" : "Lock exam template"}
+                    >
+                      {template.isLocked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="shrink-0 text-destructive hover:text-destructive"
+                      onClick={() => setTemplateToDelete(template)}
+                      disabled={Boolean(template.isLocked) || deleteTemplateMutation.isPending}
+                      aria-label={`Delete ${template.name}`}
+                      title={template.isLocked ? "Unlock the template before deleting" : "Delete exam template"}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
           </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b bg-muted/20">
-            <CardTitle className="text-base flex items-center gap-2">
-              <ClipboardList size={16} className="text-cyan-600" />
-              Template Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-5 space-y-4">
-            <div className="rounded-2xl border p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Total Templates</p>
-              <p className="text-3xl font-black mt-2">{examTemplates.length}</p>
-            </div>
-            <div className="rounded-2xl border p-4">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold">Super admin owned flow</p>
-                <InfoTip content="Super admin controls the exam shell, duration, sections, default marking, and preferred question types. Teachers only author questions." />
-              </div>
-            </div>
-            <div className="rounded-2xl border p-4">
-              <p className="text-sm font-semibold">Active defaults</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {examTemplates.slice(0, 8).map((template) => (
-                  <Badge key={template.id} variant="outline">{template.name}</Badge>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      </Card>
 
       <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -404,6 +475,33 @@ export default function PlannerExamTemplates() {
               <Button variant="ghost" onClick={() => { setTemplateOpen(false); resetTemplateForm(); }}>Cancel</Button>
               <Button disabled={!templateName.trim() || templateSections.every((section) => !section.subjectLabel.trim()) || saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate()}>
                 {saveTemplateMutation.isPending ? "Saving..." : editingTemplateId ? "Update Template" : "Create Template"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(templateToDelete)} onOpenChange={(open) => !open && setTemplateToDelete(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Exam Template</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {templateToDelete
+                ? `Delete ${templateToDelete.name}? This removes the template from the library.`
+                : "Delete this exam template?"}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setTemplateToDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!templateToDelete || deleteTemplateMutation.isPending}
+                onClick={() => templateToDelete && deleteTemplateMutation.mutate(templateToDelete)}
+              >
+                {deleteTemplateMutation.isPending ? "Deleting..." : "Delete"}
               </Button>
             </div>
           </div>
