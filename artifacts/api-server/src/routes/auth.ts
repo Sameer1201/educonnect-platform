@@ -21,6 +21,7 @@ import { queueNewStudentReviewRequestEmails } from "../lib/brevo";
 import {
   deleteFirebaseUser,
   ensureFirebaseEmailUser,
+  ensureFirebaseEmailUserExists,
   generateFirebasePasswordResetLink,
   isFirebaseAdminConfigured,
   isFirebaseTokenVerificationConfigured,
@@ -30,13 +31,27 @@ import { getStudentFeatureAccess, getStudentFeatureUnlockPricing } from "../lib/
 
 const router: IRouter = Router();
 const STUDENT_ONBOARDING_TOTAL_STEPS = 5;
+const COLLEGE_BOARD_VALUE = "UG University";
+const COLLEGE_CLASS_LEVELS = new Set(["Clg 1st", "Clg 2nd", "Clg 3rd", "Clg 4th", "Graduated"]);
 
 function readTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeCollegeClassLevel(value: unknown) {
+  const raw = readTrimmedString(value);
+  const legacyStageMap: Record<string, string> = {
+    "College 1st Year": "Clg 1st",
+    "College 2nd Year": "Clg 2nd",
+    "College 3rd Year": "Clg 3rd",
+    "College 4th Year": "Clg 4th",
+    Graduate: "Graduated",
+  };
+  return legacyStageMap[raw] ?? raw;
+}
+
 function requiresCollegeAndUniversityFields(classLevel: string | null | undefined, board: string | null | undefined) {
-  return readTrimmedString(classLevel) === "Graduate" || readTrimmedString(board) === "UG University";
+  return COLLEGE_CLASS_LEVELS.has(readTrimmedString(classLevel)) || readTrimmedString(board) === COLLEGE_BOARD_VALUE;
 }
 
 function normalizeEmail(value: string) {
@@ -79,29 +94,12 @@ router.post("/auth/password-reset-link/validate", async (req, res): Promise<void
 });
 
 router.post("/auth/password-reset/finalize", async (req, res): Promise<void> => {
-  const oobCode = readTrimmedString(req.body?.oobCode);
-  const sig = readTrimmedString(req.body?.sig);
-  const expiresAtRaw = Number(req.body?.expiresAt);
   const email = normalizeEmail(readTrimmedString(req.body?.email));
+  const idToken = readTrimmedString(req.body?.idToken);
   const newPassword = typeof req.body?.newPassword === "string" ? req.body.newPassword.trim() : "";
 
-  if (!oobCode || !sig || !Number.isFinite(expiresAtRaw)) {
-    res.status(400).json({ error: "Reset link is invalid or incomplete." });
-    return;
-  }
-
-  if (!isPasswordResetLinkSignatureValid(oobCode, expiresAtRaw, sig)) {
-    res.status(400).json({ error: "Reset link signature is invalid." });
-    return;
-  }
-
-  if (expiresAtRaw <= Date.now()) {
-    res.status(400).json({ error: "This reset link has expired. Please request a new one." });
-    return;
-  }
-
-  if (!email) {
-    res.status(400).json({ error: "A valid email address is required." });
+  if (!idToken) {
+    res.status(400).json({ error: "Firebase reset session is required." });
     return;
   }
 
@@ -110,34 +108,59 @@ router.post("/auth/password-reset/finalize", async (req, res): Promise<void> => 
     return;
   }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(ilike(usersTable.email, email));
+  try {
+    const decoded = await verifyFirebaseIdToken(idToken);
+    const provider = decoded.firebase?.sign_in_provider;
+    const tokenEmail = normalizeEmail(typeof decoded.email === "string" ? decoded.email : "");
 
-  if (!user) {
-    res.status(404).json({ error: "This account was not found anymore. Please request a fresh reset link." });
-    return;
-  }
+    if (provider && provider !== "password") {
+      res.status(400).json({ error: "This reset session is not from Firebase email/password sign-in." });
+      return;
+    }
 
-  await db
-    .update(usersTable)
-    .set({
-      passwordHash: hashPassword(newPassword),
-      mustChangePassword: false,
-    })
-    .where(eq(usersTable.id, user.id));
+    if (!tokenEmail) {
+      res.status(400).json({ error: "A valid Firebase email session is required." });
+      return;
+    }
 
-  if (user.email && await hasBrevoAccounts()) {
-    queuePasswordChangedEmail({
-      accountName: user.fullName?.trim() || user.username,
-      email: user.email,
-      username: user.username,
-      roleLabel: getPasswordResetRoleLabel(user.role),
+    if (email && email !== tokenEmail) {
+      res.status(400).json({ error: "Reset email does not match the Firebase account." });
+      return;
+    }
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(ilike(usersTable.email, tokenEmail));
+
+    if (!user) {
+      res.status(404).json({ error: "This account was not found anymore. Please request a fresh reset link." });
+      return;
+    }
+
+    await db
+      .update(usersTable)
+      .set({
+        passwordHash: hashPassword(newPassword),
+        mustChangePassword: false,
+      })
+      .where(eq(usersTable.id, user.id));
+
+    if (user.email && await hasBrevoAccounts()) {
+      queuePasswordChangedEmail({
+        accountName: user.fullName?.trim() || user.username,
+        email: user.email,
+        username: user.username,
+        roleLabel: getPasswordResetRoleLabel(user.role),
+      });
+    }
+
+    res.json({ message: "Password reset completed." });
+  } catch (error) {
+    res.status(401).json({
+      error: error instanceof Error ? error.message : "Firebase reset session verification failed.",
     });
   }
-
-  res.json({ message: "Password reset completed." });
 });
 
 function sanitizeGoogleUsernameBase(email: string, name: string) {
@@ -236,7 +259,7 @@ function validateStudentOnboardingBody(body: unknown) {
       pincode: readTrimmedString(address.pincode),
     },
     preparation: {
-      classLevel: readTrimmedString(preparation.classLevel),
+      classLevel: normalizeCollegeClassLevel(preparation.classLevel),
       board: readTrimmedString(preparation.board),
       targetYear: readTrimmedString(preparation.targetYear),
       targetExam: readTrimmedString(preparation.targetExam) || subject,
@@ -254,6 +277,9 @@ function validateStudentOnboardingBody(body: unknown) {
     normalized.preparation.classLevel,
     normalized.preparation.board,
   );
+  if (!normalized.preparation.board && requiresUniversityFields) {
+    normalized.preparation.board = COLLEGE_BOARD_VALUE;
+  }
   const institutionName = readTrimmedString(preparation.institutionName);
   const collegeName = readTrimmedString(preparation.collegeName);
   normalized.preparation.institutionName = requiresUniversityFields ? "" : (institutionName || collegeName);
@@ -271,7 +297,7 @@ function validateStudentOnboardingBody(body: unknown) {
   if (!normalized.address.city) return { error: "City is required" } as const;
   if (!normalized.address.pincode) return { error: "Pincode is required" } as const;
   if (!normalized.preparation.classLevel) return { error: "Current stage is required" } as const;
-  if (!normalized.preparation.board) return { error: "Board is required" } as const;
+  if (!COLLEGE_CLASS_LEVELS.has(normalized.preparation.classLevel)) return { error: "Choose a valid current stage" } as const;
   if (requiresUniversityFields) {
     if (!normalized.preparation.collegeName) return { error: "College name is required" } as const;
     if (!normalized.preparation.universityName) return { error: "University name is required" } as const;
@@ -472,11 +498,6 @@ router.post("/auth/login", async (req, res): Promise<void> => {
     return;
   }
 
-  if (user.role === "student") {
-    res.status(403).json({ error: "Students must sign in with email/password or Google via Firebase." });
-    return;
-  }
-
   sendSessionResponse(res, user, "Login successful");
 });
 
@@ -574,7 +595,7 @@ router.post("/auth/forgot-password-request", async (req, res): Promise<void> => 
   const [user] = await db
     .select()
     .from(usersTable)
-    .where(or(eq(usersTable.username, identifier), eq(usersTable.email, identifier)));
+    .where(or(eq(usersTable.username, identifier), ilike(usersTable.email, normalizeEmail(identifier))));
 
   if (!user) {
     res.json({ message: "If this student account exists, a reset request has been sent." });
@@ -595,6 +616,11 @@ router.post("/auth/forgot-password-request", async (req, res): Promise<void> => 
 
       if (isFirebaseAdminConfigured() && await hasBrevoAccounts()) {
         try {
+          await ensureFirebaseEmailUserExists({
+            email: user.email,
+            password: randomBytes(32).toString("base64url"),
+            fullName: user.fullName?.trim() || user.username,
+          });
           const firebaseLink = await generateFirebasePasswordResetLink(user.email);
           const resetUrl = buildCustomPasswordResetUrl(firebaseLink);
           await sendPasswordResetEmail({

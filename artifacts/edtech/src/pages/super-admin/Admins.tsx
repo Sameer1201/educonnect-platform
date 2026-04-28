@@ -541,7 +541,10 @@ export default function SuperAdminAdmins() {
 
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-cyan-600 to-emerald-600 p-6 text-white shadow-lg">
+      <div
+        className="relative overflow-hidden rounded-2xl p-6 text-white shadow-[0_18px_40px_rgba(15,23,42,0.18)]"
+        style={{ background: "linear-gradient(135deg, #2563eb 0%, #0891b2 52%, #059669 100%)" }}
+      >
         <div className="relative z-10 flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-white/70 text-sm mb-1">
@@ -577,13 +580,14 @@ export default function SuperAdminAdmins() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[220px]">
-          <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <User size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, username, email, subject, or role…"
-            className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+            className="h-10 w-full rounded-xl border border-slate-300 bg-white py-2 pr-4 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100"
+            style={{ paddingLeft: "2.25rem" }}
           />
         </div>
 

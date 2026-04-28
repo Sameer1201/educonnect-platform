@@ -85,18 +85,15 @@ function toStatusLabel(status: string | null | undefined) {
 }
 
 function getPreparationInstitutionMeta(preparation: StudentProfileInsights["preparationSnapshot"]["preparation"]) {
-  const isUgUniversity = preparation.board.trim() === "UG University";
-  const institutionValue = (
-    isUgUniversity
-      ? preparation.collegeName.trim()
-      : preparation.institutionName.trim()
-  ) || preparation.institutionName.trim() || preparation.collegeName.trim() || "Not provided";
+  const collegeStages = new Set(["Clg 1st", "Clg 2nd", "Clg 3rd", "Clg 4th", "Graduated", "College 1st Year", "College 2nd Year", "College 3rd Year", "College 4th Year", "Graduate"]);
+  const isCollegePreparation = collegeStages.has(preparation.classLevel.trim()) || preparation.board.trim() === "UG University";
+  const institutionValue = preparation.collegeName.trim() || preparation.institutionName.trim() || "Not provided";
 
   return {
-    isUgUniversity,
-    institutionLabel: isUgUniversity ? "College" : "School / College",
+    isUgUniversity: isCollegePreparation,
+    institutionLabel: isCollegePreparation ? "College" : "School / College",
     institutionValue,
-    universityValue: isUgUniversity ? (preparation.universityName.trim() || "Not provided") : "",
+    universityValue: isCollegePreparation ? (preparation.universityName.trim() || "Not provided") : "",
   };
 }
 
@@ -569,12 +566,11 @@ export function StudentVerificationReviewDialog({
                   id="schooling-target"
                   className={`rounded-2xl border bg-white p-5 shadow-sm transition-all duration-500 ${highlightedSection === "schooling-target" ? "border-emerald-400 ring-2 ring-emerald-200" : "border-slate-100"}`}
                 >
-                  <SectionHeader icon={<GraduationCap className="h-4 w-4" />} title="Schooling & Target" iconBg="bg-emerald-50" iconColor="text-emerald-500" />
+                  <SectionHeader icon={<GraduationCap className="h-4 w-4" />} title="College & Target" iconBg="bg-emerald-50" iconColor="text-emerald-500" />
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                       <InfoCard icon={<BookOpen className="h-4 w-4" />} label="Current Stage" value={insights.preparationSnapshot.preparation.classLevel || "Not provided"} iconBg="bg-amber-50" iconColor="text-amber-500" hoverBorder="hover:border-amber-200" hoverBg="group-hover:bg-amber-100" />
                     </div>
-                    <InfoCard icon={<GraduationCap className="h-4 w-4" />} label="Board" value={insights.preparationSnapshot.preparation.board || "Not provided"} iconBg="bg-emerald-50" iconColor="text-emerald-500" hoverBorder="hover:border-emerald-200" hoverBg="group-hover:bg-emerald-100" />
                     <InfoCard icon={<Building2 className="h-4 w-4" />} label={preparationInstitution?.institutionLabel || "School / College"} value={preparationInstitution?.institutionValue || "Not provided"} iconBg="bg-sky-50" iconColor="text-sky-500" hoverBorder="hover:border-sky-200" hoverBg="group-hover:bg-sky-100" />
                     {preparationInstitution?.isUgUniversity ? (
                       <InfoCard icon={<Landmark className="h-4 w-4" />} label="University" value={preparationInstitution.universityValue} iconBg="bg-indigo-50" iconColor="text-indigo-500" hoverBorder="hover:border-indigo-200" hoverBg="group-hover:bg-indigo-100" />

@@ -134,9 +134,6 @@ export default function LoginPage() {
     e.preventDefault();
     setForgotLoading(true);
     try {
-      if (!firebaseAuthEnabled) {
-        throw new Error("Firebase password reset is not configured yet.");
-      }
       const response = await fetch(`${API_BASE}/api/auth/forgot-password-request`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,6 +145,9 @@ export default function LoginPage() {
       }
 
       if (payload.delivery === "client") {
+        if (!firebaseAuthEnabled) {
+          throw new Error("Firebase password reset is not configured yet.");
+        }
         await sendFirebasePasswordResetEmail(payload.email ?? forgotIdentifier);
       }
 
@@ -181,7 +181,7 @@ export default function LoginPage() {
             </div>
           </Link>
 
-          <Link href="/register" className="text-sm font-medium text-[#5B4DFF] hover:underline">
+          <Link href="/register" className="text-sm font-medium text-[#F97316] hover:underline">
             Student signup
           </Link>
         </div>
@@ -204,7 +204,7 @@ export default function LoginPage() {
               className="mx-auto w-full max-w-md rounded-[34px] border border-[#E5E7EB] bg-white p-8 shadow-[0_24px_60px_rgba(17,24,39,0.08)]"
             >
               <div className="space-y-2">
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#5B4DFF]">Portal Login</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-[#F97316]">Portal Login</p>
                 <h1 className="text-4xl font-black tracking-tight text-[#111827]">Welcome back</h1>
                 <p className="text-sm leading-6 text-[#6B7280]">
                   Sign in to continue.
@@ -250,7 +250,7 @@ export default function LoginPage() {
                 <div className="pt-1">
                   <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
                     <DialogTrigger asChild>
-                      <button type="button" className="text-sm font-medium text-[#5B4DFF] hover:underline">
+                      <button type="button" className="text-sm font-medium text-[#F97316] hover:underline">
                         Forgot password?
                       </button>
                     </DialogTrigger>
@@ -268,7 +268,11 @@ export default function LoginPage() {
                             required
                           />
                         </div>
-                        <Button type="submit" className="w-full" disabled={forgotLoading}>
+                        <Button
+                          type="submit"
+                          className="h-11 w-full rounded-2xl bg-[#F97316] text-white hover:bg-[#EA580C]"
+                          disabled={forgotLoading}
+                        >
                           {forgotLoading ? "Sending reset link..." : "Continue Reset"}
                         </Button>
                       </form>
@@ -278,7 +282,7 @@ export default function LoginPage() {
 
                 <Button
                   type="submit"
-                  className="h-12 w-full rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+                  className="h-12 w-full rounded-2xl bg-[#F97316] text-white hover:bg-[#EA580C]"
                   disabled={loginMutation.isPending || emailLoading || googleLoading}
                   data-testid="button-login"
                 >
@@ -317,7 +321,7 @@ export default function LoginPage() {
               <div className="mt-6 border-t border-[#F3F4F6] pt-4 text-center">
                 <p className="text-sm text-[#6B7280]">
                   New student?{" "}
-                  <Link href="/register" className="font-medium text-[#5B4DFF] hover:underline" data-testid="link-register">
+                  <Link href="/register" className="font-medium text-[#F97316] hover:underline" data-testid="link-register">
                     Register here
                   </Link>
                 </p>

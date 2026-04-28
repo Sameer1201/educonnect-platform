@@ -640,18 +640,27 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
   const street = typeof address.street === "string" ? address.street.trim() : "";
   const city = typeof address.city === "string" ? address.city.trim() : "";
   const pincode = typeof address.pincode === "string" ? address.pincode.trim() : "";
-  const classLevel = typeof preparation.classLevel === "string" ? preparation.classLevel.trim() : "";
+  const classLevelRaw = typeof preparation.classLevel === "string" ? preparation.classLevel.trim() : "";
+  const classLevelLegacyMap: Record<string, string> = {
+    "College 1st Year": "Clg 1st",
+    "College 2nd Year": "Clg 2nd",
+    "College 3rd Year": "Clg 3rd",
+    "College 4th Year": "Clg 4th",
+    Graduate: "Graduated",
+  };
+  const classLevel = classLevelLegacyMap[classLevelRaw] ?? classLevelRaw;
   const board = typeof preparation.board === "string" ? preparation.board.trim() : "";
   const targetYear = typeof preparation.targetYear === "string" ? preparation.targetYear.trim() : "";
   const targetExam = typeof preparation.targetExam === "string" && preparation.targetExam.trim()
     ? preparation.targetExam.trim()
     : (typeof user.subject === "string" ? user.subject.trim() : "");
-  const isUgUniversityBoard = board === "UG University";
+  const collegeStages = new Set(["Clg 1st", "Clg 2nd", "Clg 3rd", "Clg 4th", "Graduated", "College 1st Year", "College 2nd Year", "College 3rd Year", "College 4th Year", "Graduate"]);
+  const isCollegeStage = collegeStages.has(classLevel) || board === "UG University";
   const rawInstitutionName = typeof preparation.institutionName === "string" ? preparation.institutionName.trim() : "";
   const rawCollegeName = typeof preparation.collegeName === "string" ? preparation.collegeName.trim() : "";
-  const institutionName = isUgUniversityBoard ? (rawCollegeName || rawInstitutionName) : (rawInstitutionName || rawCollegeName);
-  const collegeName = isUgUniversityBoard ? (rawCollegeName || rawInstitutionName) : "";
-  const universityName = isUgUniversityBoard && typeof preparation.universityName === "string"
+  const institutionName = rawInstitutionName || rawCollegeName;
+  const collegeName = isCollegeStage ? (rawCollegeName || rawInstitutionName) : "";
+  const universityName = isCollegeStage && typeof preparation.universityName === "string"
     ? preparation.universityName.trim()
     : "";
   const learningModeName = typeof learningMode.mode === "string" ? learningMode.mode.trim() : "";
@@ -679,13 +688,12 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     },
     {
       key: "preparation",
-      label: "Schooling & target",
+      label: "College & target",
       complete: Boolean(
         classLevel
-        && board
         && targetYear
         && targetExam
-        && (isUgUniversityBoard ? (collegeName && universityName) : institutionName),
+        && (isCollegeStage ? (collegeName && universityName) : institutionName),
       ),
     },
     {

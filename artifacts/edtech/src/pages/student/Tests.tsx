@@ -427,7 +427,7 @@ function getStudentTestAccent(subject: string) {
     line: "bg-[#6D28D9]",
     dot: "bg-[#6D28D9]",
     pill: "border-[#DDD6FE] bg-[#F5F3FF] text-[#6D28D9]",
-    button: "bg-[#5B4DFF] hover:bg-[#4C3FF2] text-white",
+    button: "bg-[#F97316] hover:bg-[#EA580C] text-white",
   };
 }
 
@@ -451,9 +451,9 @@ function StudentTestsStatsBar({
       label: "Total Tests",
       rawValue: total,
       value: total,
-      accent: "bg-[#5B4DFF]",
-      line: "#5B4DFF",
-      glow: "bg-[#F5F3FF]",
+      accent: "bg-[#F97316]",
+      line: "#F97316",
+      glow: "bg-[#FFF7ED]",
       kind: "stack" as const,
     },
     {
@@ -1084,7 +1084,7 @@ function StudentTestsPreview() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-full border-[#D9D6FE] px-5 text-[#5B4DFF] hover:bg-[#EEF2FF]"
+                  className="rounded-full border-[#FED7AA] px-5 text-[#F97316] hover:bg-[#FFF7ED]"
                   onClick={() => {
                     setPreviewTestId(null);
                     setLocation("/student/pending-approval");
@@ -2078,7 +2078,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
             }}
             data-testid="button-top-wrong-bucket"
           >
-            <BookOpen className="mr-2 h-4 w-4 text-[#5B4DFF]" />
+            <BookOpen className="mr-2 h-4 w-4 text-[#F97316]" />
             Review Bucket
             {visibleReviewBucketEntries.length > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#EF4444] px-1 text-[10px] font-bold text-white">

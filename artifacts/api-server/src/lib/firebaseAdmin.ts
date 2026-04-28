@@ -1,6 +1,9 @@
 import { existsSync, statSync } from "node:fs";
-import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
+
+type FirebaseAppModule = typeof import("firebase-admin/app");
+type FirebaseAuthModule = typeof import("firebase-admin/auth");
+type FirebaseAdminApp = ReturnType<FirebaseAppModule["initializeApp"]>;
+type FirebaseAdminAuth = ReturnType<FirebaseAuthModule["getAuth"]>;
 
 type FirebaseServiceAccountConfig = {
   projectId?: string;
@@ -33,6 +36,45 @@ type FirebaseLookupUser = {
     providerId?: string;
   }>;
 };
+
+let firebaseAppModulePromise: Promise<FirebaseAppModule> | undefined;
+let firebaseAuthModulePromise: Promise<FirebaseAuthModule> | undefined;
+
+function loadFirebaseAppModule() {
+  firebaseAppModulePromise ??= import("firebase-admin/app");
+  return firebaseAppModulePromise;
+}
+
+function loadFirebaseAuthModule() {
+  firebaseAuthModulePromise ??= import("firebase-admin/auth");
+  return firebaseAuthModulePromise;
+}
+
+function isMissingFirebaseAdminModule(error: unknown) {
+  return Boolean(
+    error
+      && typeof error === "object"
+      && "code" in error
+      && (error as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND"
+      && String((error as { message?: unknown }).message ?? "").includes("firebase-admin"),
+  );
+}
+
+function firebaseAdminUnavailableError() {
+  const error = new Error("Firebase Admin SDK is not installed on the server. Rebuild and deploy the application package.");
+  (error as { code?: string }).code = "FIREBASE_ADMIN_UNAVAILABLE";
+  return error;
+}
+
+function isFirebaseAdminUnavailable(error: unknown) {
+  return isMissingFirebaseAdminModule(error)
+    || Boolean(
+      error
+        && typeof error === "object"
+        && "code" in error
+        && (error as { code?: unknown }).code === "FIREBASE_ADMIN_UNAVAILABLE",
+    );
+}
 
 function readTrimmedEnv(name: string) {
   const value = process.env[name];
@@ -106,7 +148,8 @@ export function isFirebaseTokenVerificationConfigured() {
   return isFirebaseAdminConfigured() || Boolean(readFirebaseWebApiKey());
 }
 
-function getFirebaseAdminApp() {
+async function getFirebaseAdminApp(): Promise<FirebaseAdminApp> {
+  const { applicationDefault, cert, getApps, initializeApp } = await loadFirebaseAppModule();
   const existing = getApps()[0];
   if (existing) return existing;
 
@@ -140,6 +183,18 @@ function getFirebaseAdminApp() {
     credential: applicationDefault(),
     ...(process.env.FIREBASE_PROJECT_ID ? { projectId: process.env.FIREBASE_PROJECT_ID } : {}),
   });
+}
+
+async function getFirebaseAdminAuth(): Promise<FirebaseAdminAuth> {
+  try {
+    const { getAuth } = await loadFirebaseAuthModule();
+    return getAuth(await getFirebaseAdminApp());
+  } catch (error) {
+    if (isMissingFirebaseAdminModule(error)) {
+      throw firebaseAdminUnavailableError();
+    }
+    throw error;
+  }
 }
 
 function decodeFirebaseJwtPayload(idToken: string) {
@@ -240,8 +295,16 @@ export async function verifyFirebaseIdToken(idToken: string) {
   if (!isFirebaseAdminConfigured()) {
     return verifyFirebaseIdTokenWithApiKey(idToken);
   }
-  const auth = getAuth(getFirebaseAdminApp());
-  return auth.verifyIdToken(idToken);
+
+  try {
+    const auth = await getFirebaseAdminAuth();
+    return auth.verifyIdToken(idToken);
+  } catch (error) {
+    if (isFirebaseAdminUnavailable(error) && readFirebaseWebApiKey()) {
+      return verifyFirebaseIdTokenWithApiKey(idToken);
+    }
+    throw error;
+  }
 }
 
 export async function createFirebaseEmailUser({
@@ -253,7 +316,7 @@ export async function createFirebaseEmailUser({
   password: string;
   fullName: string;
 }) {
-  const auth = getAuth(getFirebaseAdminApp());
+  const auth = await getFirebaseAdminAuth();
   return auth.createUser({
     email,
     password,
@@ -263,12 +326,12 @@ export async function createFirebaseEmailUser({
 }
 
 export async function deleteFirebaseUser(uid: string) {
-  const auth = getAuth(getFirebaseAdminApp());
+  const auth = await getFirebaseAdminAuth();
   await auth.deleteUser(uid);
 }
 
 export async function deleteFirebaseUserByEmail(email: string) {
-  const auth = getAuth(getFirebaseAdminApp());
+  const auth = await getFirebaseAdminAuth();
   try {
     const existing = await auth.getUserByEmail(email);
     await auth.deleteUser(existing.uid);
@@ -279,7 +342,7 @@ export async function deleteFirebaseUserByEmail(email: string) {
 }
 
 export async function generateFirebasePasswordResetLink(email: string) {
-  const auth = getAuth(getFirebaseAdminApp());
+  const auth = await getFirebaseAdminAuth();
   return auth.generatePasswordResetLink(email);
 }
 
@@ -292,7 +355,7 @@ export async function ensureFirebaseEmailUser({
   password: string;
   fullName: string;
 }) {
-  const auth = getAuth(getFirebaseAdminApp());
+  const auth = await getFirebaseAdminAuth();
   try {
     const existing = await auth.getUserByEmail(email);
     return auth.updateUser(existing.uid, {
@@ -300,6 +363,32 @@ export async function ensureFirebaseEmailUser({
       displayName: fullName,
     });
   } catch {
+    return auth.createUser({
+      email,
+      password,
+      displayName: fullName,
+      emailVerified: false,
+    });
+  }
+}
+
+export async function ensureFirebaseEmailUserExists({
+  email,
+  password,
+  fullName,
+}: {
+  email: string;
+  password: string;
+  fullName: string;
+}) {
+  const auth = await getFirebaseAdminAuth();
+  try {
+    return await auth.getUserByEmail(email);
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+    if (code && code !== "auth/user-not-found") throw error;
     return auth.createUser({
       email,
       password,

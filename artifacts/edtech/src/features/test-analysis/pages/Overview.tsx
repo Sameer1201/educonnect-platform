@@ -40,7 +40,7 @@ function StatTile({
     <div className={`rounded-3xl border px-4 py-4 shadow-sm ${tones[tone]}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6B7280]">{label}</div>
-        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white text-[#5B4DFF] shadow-sm">
+        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white text-[#F97316] shadow-sm">
           {icon}
         </div>
       </div>
@@ -77,7 +77,7 @@ function FocusCard({
         </div>
       </div>
       <div className="mt-4 flex items-center gap-2">
-        {valueIcon ? <span className="text-[#5B4DFF]">{valueIcon}</span> : null}
+        {valueIcon ? <span className="text-[#F97316]">{valueIcon}</span> : null}
         <p className="text-lg font-semibold text-[#111827]">{value}</p>
       </div>
       <p className="mt-2 text-sm leading-6 text-[#6B7280]">{detail}</p>
@@ -122,7 +122,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
         <section className="overflow-hidden rounded-[30px] border border-[#DDE7FF] bg-[linear-gradient(135deg,#EEF2FF_0%,#FFFFFF_48%,#F8FAFF_100%)] p-6 shadow-sm">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#5B4DFF]">Performance Snapshot</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#F97316]">Performance Snapshot</p>
               <h3 className="mt-3 text-3xl font-bold tracking-tight text-[#111827]">
                 {testData.overallScore}
                 <span className="text-xl font-semibold text-[#9CA3AF]"> / {testData.maxScore}</span>
@@ -346,7 +346,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
           {learnings.map((learning, index) => (
             <div key={index} className="rounded-2xl border border-[#E5E7EB] bg-[#FCFCFE] px-4 py-3">
               <div className="flex items-center gap-3">
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#EEF2FF] text-xs font-semibold text-[#5B4DFF]">
+                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#FFF7ED] text-xs font-semibold text-[#F97316]">
                   {index + 1}
                 </span>
                 <input
@@ -366,7 +366,7 @@ export default function Overview({ mode: _mode }: { mode?: string }) {
           {learnings.length < 3 ? (
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-full border border-dashed border-[#C7D2FE] px-4 py-2 text-sm font-medium text-[#5B4DFF] transition-colors hover:bg-[#F5F3FF]"
+              className="inline-flex items-center gap-2 rounded-full border border-dashed border-[#FED7AA] px-4 py-2 text-sm font-medium text-[#F97316] transition-colors hover:bg-[#FFF7ED]"
               onClick={() => setLearnings((current) => [...current, ""])}
             >
               <Plus className="h-4 w-4" />

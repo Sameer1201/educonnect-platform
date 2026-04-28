@@ -25,6 +25,24 @@ import {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+const KPI_BACKGROUNDS: Record<string, string> = {
+  "from-blue-600 to-cyan-600": "linear-gradient(135deg, #2563eb 0%, #0891b2 100%)",
+  "from-violet-600 to-purple-600": "linear-gradient(135deg, #7c3aed 0%, #9333ea 100%)",
+  "from-emerald-600 to-teal-600": "linear-gradient(135deg, #059669 0%, #0d9488 100%)",
+  "from-amber-500 to-orange-500": "linear-gradient(135deg, #f59e0b 0%, #f97316 100%)",
+  "from-fuchsia-600 to-pink-600": "linear-gradient(135deg, #c026d3 0%, #db2777 100%)",
+  "from-indigo-600 to-blue-600": "linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)",
+  "from-yellow-500 to-amber-600": "linear-gradient(135deg, #eab308 0%, #d97706 100%)",
+  "from-rose-600 to-pink-600": "linear-gradient(135deg, #e11d48 0%, #db2777 100%)",
+};
+
+const ACTION_ACCENTS: Record<string, { bg: string; color: string }> = {
+  "from-blue-600 to-cyan-600": { bg: "#eff6ff", color: "#2563eb" },
+  "from-violet-600 to-purple-600": { bg: "#f5f3ff", color: "#7c3aed" },
+  "from-amber-500 to-orange-500": { bg: "#fff7ed", color: "#ea580c" },
+  "from-rose-600 to-pink-600": { bg: "#fff1f2", color: "#e11d48" },
+};
+
 /* ─── helpers ─── */
 function getHour() { return new Date().getHours(); }
 function getGreeting() {
@@ -51,11 +69,13 @@ function KpiTile({
   onClick?: () => void;
 }) {
   const count = useCountUp(value, 900, true);
+  const background = KPI_BACKGROUNDS[`${from} ${to}`] ?? "linear-gradient(135deg, #334155 0%, #0f172a 100%)";
   return (
     <TiltCard>
     <div
       onClick={onClick}
-      className={`relative overflow-hidden rounded-2xl p-4 sm:p-5 bg-gradient-to-br ${from} ${to} text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)] ring-1 ring-white/15 hover:shadow-lg transition-all duration-200 ${onClick ? "cursor-pointer" : ""}`}
+      style={{ background }}
+      className={`relative min-h-[8.25rem] overflow-hidden rounded-2xl p-4 text-white shadow-[0_16px_32px_rgba(15,23,42,0.16)] ring-1 ring-black/5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_36px_rgba(15,23,42,0.2)] sm:p-5 ${onClick ? "cursor-pointer" : ""}`}
       data-testid={`kpi-${title.toLowerCase().replace(/\s/g, "-")}`}
     >
       {/* bg glow */}
@@ -73,9 +93,9 @@ function KpiTile({
             </span>
           )}
         </div>
-        <p className="text-[2.65rem] font-black leading-none tracking-tight sm:text-3xl">{count.toLocaleString()}</p>
-        <p className="mt-1 text-xs font-medium text-white/70 sm:mt-1.5">{title}</p>
-        {sub && <p className="mt-1 text-[10px] text-white/50">{sub}</p>}
+        <p className="text-3xl font-black leading-none tracking-tight">{count.toLocaleString()}</p>
+        <p className="mt-2 text-sm font-semibold text-white">{title}</p>
+        {sub && <p className="mt-1 text-xs text-white/75">{sub}</p>}
       </div>
     </div>
     </TiltCard>
@@ -86,18 +106,22 @@ function KpiTile({
 function QuickAction({ icon, label, desc, href, color }: {
   icon: React.ReactNode; label: string; desc: string; href: string; color: string;
 }) {
+  const accent = ACTION_ACCENTS[color] ?? { bg: "#f3f4f6", color: "#4b5563" };
   return (
     <TiltCard>
     <Link href={href}>
-      <div className={`group flex items-center gap-3 p-4 rounded-xl border border-border hover:border-transparent hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer bg-card hover:bg-gradient-to-br ${color}`}>
-        <div className="w-9 h-9 rounded-lg bg-muted group-hover:bg-white/20 flex items-center justify-center transition-colors shrink-0">
+      <div className="group flex cursor-pointer items-center gap-3 rounded-xl border border-[#E5E7EB] bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-[#CBD5E1] hover:shadow-md">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors"
+          style={{ backgroundColor: accent.bg, color: accent.color }}
+        >
           {icon}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold group-hover:text-white transition-colors">{label}</p>
-          <p className="text-xs text-muted-foreground group-hover:text-white/70 truncate transition-colors">{desc}</p>
+          <p className="text-sm font-semibold text-[#111827]">{label}</p>
+          <p className="truncate text-xs text-[#6B7280]">{desc}</p>
         </div>
-        <ChevronRight size={15} className="text-muted-foreground group-hover:text-white/70 transition-colors shrink-0" />
+        <ChevronRight size={15} className="shrink-0 text-[#9CA3AF] transition-colors group-hover:text-[#4B5563]" />
       </div>
     </Link>
     </TiltCard>
@@ -268,13 +292,13 @@ export default function SuperAdminDashboard() {
   if (!data) {
     return (
       <DashboardScene accent="from-orange-500/18 via-red-500/12 to-violet-500/12">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6 text-white shadow-[0_24px_56px_rgba(15,23,42,0.32)]">
+        <div className="rounded-2xl border border-[#E5E7EB] bg-white p-6 text-[#111827] shadow-sm">
           <h2 className="text-lg font-semibold">Dashboard data is not available yet</h2>
-          <p className="mt-2 text-sm text-white/65">
+          <p className="mt-2 text-sm text-[#6B7280]">
             Summary cards will appear as soon as dashboard data is available.
           </p>
           <div className="mt-4">
-            <Button onClick={() => refetch()} className="bg-white text-slate-900 hover:bg-white/90">
+            <Button onClick={() => refetch()}>
               Refresh
             </Button>
           </div>
@@ -303,7 +327,10 @@ export default function SuperAdminDashboard() {
     <div className="space-y-6">
 
       {/* ── Hero banner ── */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-red-950/60 to-orange-900 p-4 sm:p-6 text-white shadow-xl">
+      <div
+        className="relative overflow-hidden rounded-2xl p-4 text-white shadow-[0_18px_40px_rgba(15,23,42,0.2)] sm:p-6"
+        style={{ background: "linear-gradient(135deg, #111827 0%, #7f1d1d 52%, #c2410c 100%)" }}
+      >
         {/* Decorative blobs */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-orange-500/10 rounded-full -translate-y-24 translate-x-24 blur-2xl" />
         <div className="absolute bottom-0 left-20 w-48 h-48 bg-red-500/10 rounded-full translate-y-16 blur-2xl" />
@@ -312,38 +339,38 @@ export default function SuperAdminDashboard() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-2">
               <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs text-white/50 font-medium">Platform Live</span>
-              <span className="text-xs text-white/30 ml-2 sm:ml-4">
+              <span className="text-xs font-medium text-white/75">Platform Live</span>
+              <span className="ml-2 text-xs text-white/60 sm:ml-4">
                 {time.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
               {greeting}, <span className="text-orange-300">Sameer</span> 👋
             </h1>
-            <p className="text-white/50 text-sm mt-1">
+            <p className="mt-1 text-sm text-white/75">
               {APP_NAME} Platform — Super Administrator
             </p>
 
             {/* health badges */}
             <div className="flex flex-wrap gap-2 mt-4">
               {d.pendingStudents > 0 && (
-                <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400/30 rounded-full px-3 py-1 text-xs font-medium">
+                <div className="flex items-center gap-1.5 rounded-full border border-amber-300/35 bg-amber-400/20 px-3 py-1 text-xs font-medium text-white">
                   <Clock size={11} className="text-amber-400" />
                   <span>{d.pendingStudents} Pending Approval{d.pendingStudents > 1 ? "s" : ""}</span>
                 </div>
               )}
               {d.openTickets > 0 && (
-                <div className="flex items-center gap-1.5 bg-blue-500/20 border border-blue-400/30 rounded-full px-3 py-1 text-xs font-medium">
+                <div className="flex items-center gap-1.5 rounded-full border border-blue-300/35 bg-blue-400/20 px-3 py-1 text-xs font-medium text-white">
                   <LifeBuoy size={11} className="text-blue-400" />
                   <span>{d.openTickets} Open Ticket{d.openTickets > 1 ? "s" : ""}</span>
                 </div>
               )}
-              <div className="flex items-center gap-1.5 bg-emerald-500/20 border border-emerald-400/30 rounded-full px-3 py-1 text-xs font-medium">
+              <div className="flex items-center gap-1.5 rounded-full border border-emerald-300/35 bg-emerald-400/20 px-3 py-1 text-xs font-medium text-white">
                 <CheckCircle size={11} className="text-emerald-400" />
                 <span>{d.approvedStudents} Active Students</span>
               </div>
               {d.totalTests > 0 && (
-                <div className="flex items-center gap-1.5 bg-violet-500/20 border border-violet-400/30 rounded-full px-3 py-1 text-xs font-medium">
+                <div className="flex items-center gap-1.5 rounded-full border border-violet-300/35 bg-violet-400/20 px-3 py-1 text-xs font-medium text-white">
                   <ClipboardList size={11} className="text-violet-300" />
                   <span>{d.totalTests} Published Tests</span>
                 </div>
@@ -372,7 +399,7 @@ export default function SuperAdminDashboard() {
             </svg>
             <div className="text-center">
               <p className="text-xl font-black">{d.totalStudents}</p>
-              <p className="text-[9px] text-white/50 leading-tight">students</p>
+              <p className="text-[9px] leading-tight text-white/70">students</p>
             </div>
           </div>
         </div>
@@ -558,7 +585,7 @@ export default function SuperAdminDashboard() {
 
         {/* Sign-up trend chart */}
         <TiltCard className="lg:col-span-1">
-        <Card className="lg:col-span-1 border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <Card className="border-[#E5E7EB] bg-white shadow-sm lg:col-span-1">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <TrendingUp size={14} className="text-emerald-500" /> 7-Day Signup Trend
@@ -602,7 +629,7 @@ export default function SuperAdminDashboard() {
 
         {/* Teacher leaderboard */}
         <TiltCard>
-        <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <Card className="border-[#E5E7EB] bg-white shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm flex items-center gap-2">
@@ -631,7 +658,7 @@ export default function SuperAdminDashboard() {
 
         {/* Pending approvals */}
         <TiltCard>
-        <Card className="border-amber-200/60 dark:border-amber-800/30 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <Card className="border-amber-200/70 bg-white shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm flex items-center gap-2">
@@ -693,7 +720,7 @@ export default function SuperAdminDashboard() {
 
         {/* Recent admins */}
         <TiltCard>
-        <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <Card className="border-[#E5E7EB] bg-white shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm flex items-center gap-2">
@@ -731,7 +758,7 @@ export default function SuperAdminDashboard() {
 
         {/* Recent students */}
         <TiltCard>
-        <Card className="border-white/10 bg-white/[0.04] shadow-[0_20px_48px_rgba(15,23,42,0.28)] backdrop-blur-xl">
+        <Card className="border-[#E5E7EB] bg-white shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm flex items-center gap-2">

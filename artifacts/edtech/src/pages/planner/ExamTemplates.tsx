@@ -438,7 +438,7 @@ export default function PlannerExamTemplates() {
                 type="checkbox"
                 checked={templateShowInRegistration}
                 onChange={(e) => setTemplateShowInRegistration(e.target.checked)}
-                className="h-4 w-4 rounded border-[#CBD5E1] text-[#5B4DFF] focus:ring-[#5B4DFF]"
+                className="h-4 w-4 rounded border-[#CBD5E1] text-[#F97316] focus:ring-[#F97316]"
               />
               Show this exam in student registration
             </label>

@@ -619,7 +619,12 @@ export async function setBrevoProviderActiveState({
 }
 
 function readPortalUrl() {
-  return readTrimmedEnv("PUBLIC_APP_URL") || "https://educonnect-platform-production-b1ce.up.railway.app";
+  const configured = readTrimmedEnv("PUBLIC_APP_URL");
+  const productionUrl = "https://educonnect-platform-production-b1ce.up.railway.app";
+  if (process.env.NODE_ENV === "development" && (!configured || configured === productionUrl)) {
+    return "http://localhost:5173";
+  }
+  return configured || productionUrl;
 }
 
 function buildPortalUrl(path: string) {
@@ -1694,8 +1699,7 @@ export async function sendNewStudentReviewRequestEmail({
     `WhatsApp: ${studentSummary.whatsappNumber}`,
     `Address: ${studentSummary.addressLine}`,
     `Class level: ${studentSummary.classLevel}`,
-    `Board: ${studentSummary.board}`,
-    `${studentSummary.board === "UG University" ? "College" : "School / College"}: ${studentSummary.institutionName}`,
+    `College: ${studentSummary.institutionName}`,
     `University: ${studentSummary.universityName}`,
     `Target year: ${studentSummary.targetYear}`,
     `Learning mode: ${studentSummary.learningMode}`,
@@ -1723,8 +1727,7 @@ export async function sendNewStudentReviewRequestEmail({
     renderStudentReviewInfoRow("WhatsApp", studentSummary.whatsappNumber),
     renderStudentReviewInfoRow("Address", studentSummary.addressLine),
     renderStudentReviewInfoRow("Class level", studentSummary.classLevel),
-    renderStudentReviewInfoRow("Board", studentSummary.board),
-    renderStudentReviewInfoRow(studentSummary.board === "UG University" ? "College" : "School / College", studentSummary.institutionName),
+    renderStudentReviewInfoRow("College", studentSummary.institutionName),
     renderStudentReviewInfoRow("University", studentSummary.universityName),
     renderStudentReviewInfoRow("Target year", studentSummary.targetYear),
     renderStudentReviewInfoRow("Learning mode", studentSummary.learningMode),

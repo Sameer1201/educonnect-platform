@@ -70,7 +70,7 @@ export default function StudentPendingApproval() {
 
           <div className="mt-6 flex items-start gap-3">
             <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] ${
-              isRejected ? "bg-[#FEF2F2] text-[#DC2626]" : "bg-[#EEF2FF] text-[#5B4DFF]"
+              isRejected ? "bg-[#FEF2F2] text-[#DC2626]" : "bg-[#FFF7ED] text-[#F97316]"
             }`}>
               <ShieldCheck size={22} />
             </div>
@@ -98,7 +98,7 @@ export default function StudentPendingApproval() {
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
             <div className="rounded-[20px] border border-[#E5E7EB] bg-[#FAFBFF] p-4">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-[#6B7280]">
-                <Clock3 size={16} className="text-[#5B4DFF]" />
+                <Clock3 size={16} className="text-[#F97316]" />
                 Status
               </div>
               <p className="mt-2.5 text-[1.9rem] font-black leading-none text-[#111827]">
@@ -145,7 +145,7 @@ export default function StudentPendingApproval() {
             <div className="mt-5 rounded-[20px] border border-[#E5E7EB] bg-[#FAFBFF] p-4">
               <p className="text-sm font-semibold text-[#111827]">Need help?</p>
               <div className="mt-2.5 flex items-center gap-2 text-sm font-semibold text-[#111827]">
-                <Mail size={16} className="text-[#5B4DFF]" />
+                <Mail size={16} className="text-[#F97316]" />
                 <span>{STUDENT_VERIFICATION_CONTACT_EMAIL}</span>
               </div>
               <p className="mt-1.5 text-sm leading-6 text-[#6B7280]">
@@ -169,7 +169,7 @@ export default function StudentPendingApproval() {
                 type="button"
                 variant="outline"
                 onClick={() => setLocation("/student/dashboard")}
-                className="h-11 rounded-2xl border-[#D9D6FE] px-5 text-[#5B4DFF] hover:bg-[#EEF2FF]"
+                className="h-11 rounded-2xl border-[#FED7AA] px-5 text-[#F97316] hover:bg-[#FFF7ED]"
               >
                 Open preview dashboard
               </Button>
@@ -178,7 +178,7 @@ export default function StudentPendingApproval() {
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="h-11 rounded-2xl bg-[#5B4DFF] px-5 text-white hover:bg-[#4C3FFD]"
+              className="h-11 rounded-2xl bg-[#F97316] px-5 text-white hover:bg-[#EA580C]"
             >
               <RefreshCcw size={16} className={`mr-2 ${isFetching ? "animate-spin" : ""}`} />
               {isFetching ? "Checking..." : isRejected ? "Refresh" : "Check again"}

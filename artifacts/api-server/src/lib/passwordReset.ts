@@ -5,10 +5,15 @@ function readTrimmedString(value: unknown) {
 }
 
 export const PASSWORD_RESET_EMAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
-const DEFAULT_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
+const LOCAL_PUBLIC_APP_URL = "http://localhost:5173";
+const PRODUCTION_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
 
 export function readPublicAppUrl() {
-  return readTrimmedString(process.env.PUBLIC_APP_URL) || DEFAULT_PUBLIC_APP_URL;
+  const configured = readTrimmedString(process.env.PUBLIC_APP_URL);
+  if (process.env.NODE_ENV === "development" && (!configured || configured === PRODUCTION_PUBLIC_APP_URL)) {
+    return LOCAL_PUBLIC_APP_URL;
+  }
+  return configured || PRODUCTION_PUBLIC_APP_URL;
 }
 
 function readPasswordResetSigningSecret() {

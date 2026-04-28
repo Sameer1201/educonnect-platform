@@ -223,26 +223,23 @@ function isPendingStudentPreviewAnalysisPath(location: string) {
 
 function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactNode }) {
   const { user, isLoading } = useAuth();
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
 
   if (isLoading) {
     return <AppLoader />;
   }
 
   if (!user) {
-    setLocation("/");
-    return null;
+    return <RedirectTo href="/" />;
   }
 
   if (!roles.includes(user.role)) {
-    setLocation("/");
-    return null;
+    return <RedirectTo href="/" />;
   }
 
   if (user.role === "student") {
     if (studentNeedsOnboarding(user) && location !== "/student/profile") {
-      setLocation("/student/profile");
-      return null;
+      return <RedirectTo href="/student/profile" />;
     }
 
     if (
@@ -256,18 +253,15 @@ function ProtectedRoute({ roles, children }: { roles: string[]; children: ReactN
       ].includes(location)
       && !isPendingStudentPreviewAnalysisPath(location)
     ) {
-      setLocation("/student/dashboard");
-      return null;
+      return <RedirectTo href="/student/dashboard" />;
     }
 
     if (isStudentRejectedVerification(user) && location !== "/student/pending-approval" && location !== "/student/profile") {
-      setLocation("/student/pending-approval");
-      return null;
+      return <RedirectTo href="/student/pending-approval" />;
     }
 
     if (!studentNeedsOnboarding(user) && user.status === "approved" && location === "/student/pending-approval") {
-      setLocation("/student/dashboard");
-      return null;
+      return <RedirectTo href="/student/dashboard" />;
     }
   }
 

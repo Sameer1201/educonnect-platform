@@ -12,9 +12,12 @@ import { queueStudentApprovedEmail, queueStudentRejectedEmail } from "../lib/bre
 const router: IRouter = Router();
 
 function readPublicAppUrl() {
-  return typeof process.env.PUBLIC_APP_URL === "string" && process.env.PUBLIC_APP_URL.trim()
-    ? process.env.PUBLIC_APP_URL.trim()
-    : "http://localhost:5173";
+  const configured = typeof process.env.PUBLIC_APP_URL === "string" ? process.env.PUBLIC_APP_URL.trim() : "";
+  const productionUrl = "https://educonnect-platform-production-b1ce.up.railway.app";
+  if (process.env.NODE_ENV === "development" && (!configured || configured === productionUrl)) {
+    return "http://localhost:5173";
+  }
+  return configured || productionUrl;
 }
 
 function escapeHtml(value: string) {

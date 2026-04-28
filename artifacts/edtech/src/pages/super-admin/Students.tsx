@@ -182,19 +182,29 @@ export default function SuperAdminStudents() {
     },
   });
 
-  const restoreMutation = useMutation({
-    mutationFn: async (id: number) => {
+  const approveMutation = useMutation({
+    mutationFn: async ({ id }: { id: number; mode: "approve" | "restore"; name: string }) => {
       const response = await fetch(`${BASE}/api/users/${id}/approve`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "approved" }),
       });
-      if (!response.ok) throw new Error("Failed to restore access");
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to approve student");
+      }
+      return response.json() as Promise<User>;
     },
-    onSuccess: () => {
+    onSuccess: (updatedStudent, variables) => {
       refreshStudents();
-      toast({ title: "Access restored", description: "Student can log in again." });
+      if (selectedStudent?.id === updatedStudent.id) setSelectedStudent(updatedStudent);
+      toast({
+        title: variables.mode === "approve" ? "Student approved" : "Access restored",
+        description: variables.mode === "approve"
+          ? `${variables.name} can now access the platform.`
+          : `${variables.name} can log in again.`,
+      });
     },
   });
 
@@ -399,6 +409,34 @@ export default function SuperAdminStudents() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                    {student.status === "pending" && (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => approveMutation.mutate({ id: student.id, mode: "approve", name: student.fullName })}
+                          disabled={approveMutation.isPending}
+                          data-testid={`button-approve-${student.id}`}
+                        >
+                          <CheckCircle size={14} className="mr-1" />
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => {
+                            setRejectionDialog(student);
+                            setRejectionReason(student.rejectionReason ?? "");
+                          }}
+                          disabled={revokeMutation.isPending}
+                          data-testid={`button-reject-${student.id}`}
+                        >
+                          <XCircle size={14} className="mr-1" />
+                          Reject
+                        </Button>
+                      </>
+                    )}
+
                     {student.status === "approved" && (
                       <Button
                         size="sm"
@@ -486,7 +524,7 @@ export default function SuperAdminStudents() {
         errorMessage={studentInsightsQuery.isError ? (studentInsightsQuery.error instanceof Error ? studentInsightsQuery.error.message : "Could not load student profile.") : null}
         onPrimaryAction={
           selectedStudent?.status === "pending"
-            ? () => restoreMutation.mutate(selectedStudent.id)
+            ? () => approveMutation.mutate({ id: selectedStudent.id, mode: "approve", name: selectedStudent.fullName })
             : undefined
         }
         onSecondaryAction={
@@ -499,7 +537,7 @@ export default function SuperAdminStudents() {
         }
         primaryActionLabel="Approve"
         secondaryActionLabel="Reject"
-        primaryActionDisabled={restoreMutation.isPending}
+        primaryActionDisabled={approveMutation.isPending}
         secondaryActionDisabled={revokeMutation.isPending}
         settingsContent={
           selectedStudent ? (
@@ -556,8 +594,8 @@ export default function SuperAdminStudents() {
                   <Button
                     variant="outline"
                     className="justify-between border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                    onClick={() => restoreMutation.mutate(selectedStudent.id)}
-                    disabled={restoreMutation.isPending}
+                    onClick={() => approveMutation.mutate({ id: selectedStudent.id, mode: "restore", name: selectedStudent.fullName })}
+                    disabled={approveMutation.isPending}
                     data-testid={`button-restore-${selectedStudent.id}`}
                   >
                     <span className="inline-flex items-center gap-2">

@@ -44,7 +44,7 @@ export default function PendingVerificationDialog({
         <div className="overflow-hidden rounded-[28px]">
           <div className="bg-[linear-gradient(135deg,#EEF2FF_0%,#F8FAFC_100%)] px-6 py-5">
             <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#5B4DFF] text-white shadow-sm">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F97316] text-white shadow-sm">
                 <ShieldAlert className="h-5 w-5" />
               </div>
               <DialogHeader className="space-y-1 text-left">
@@ -60,7 +60,7 @@ export default function PendingVerificationDialog({
             <div className="rounded-2xl border border-[#E5E7EB] bg-[#FAFBFF] px-4 py-3">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9AA4B2]">Contact Admin</p>
               <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-[#111827]">
-                <Mail className="h-4 w-4 text-[#5B4DFF]" />
+                <Mail className="h-4 w-4 text-[#F97316]" />
                 <span>{STUDENT_VERIFICATION_CONTACT_EMAIL}</span>
               </div>
             </div>
@@ -83,7 +83,7 @@ export default function PendingVerificationDialog({
                   <Button
                     type="button"
                     variant="outline"
-                    className="rounded-2xl border-[#D9D6FE] text-[#5B4DFF] hover:bg-[#EEF2FF]"
+                    className="rounded-2xl border-[#FED7AA] text-[#F97316] hover:bg-[#FFF7ED]"
                     onClick={() => {
                       onOpenChange(false);
                       onCheckStatus();
@@ -94,7 +94,7 @@ export default function PendingVerificationDialog({
                 ) : null}
                 <Button
                   type="button"
-                  className="rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+                  className="rounded-2xl bg-[#F97316] text-white hover:bg-[#EA580C]"
                   onClick={handleEmailAdmin}
                 >
                   Email admin

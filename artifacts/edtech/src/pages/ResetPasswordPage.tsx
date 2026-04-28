@@ -7,7 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BrandLogo } from "@/components/ui/brand-logo";
-import { confirmFirebaseResetPassword, verifyFirebaseResetCode } from "@/lib/firebase";
+import {
+  confirmFirebaseResetPassword,
+  signInWithFirebaseEmailPassword,
+  verifyFirebaseResetCode,
+} from "@/lib/firebase";
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -72,32 +76,38 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [remainingMs, setRemainingMs] = useState(() => Math.max(0, expiresAt - Date.now()));
+  const hasSignedResetEnvelope = Boolean(sig && Number.isFinite(expiresAt) && expiresAt > 0);
 
   useEffect(() => {
     let active = true;
 
     async function verifyCode() {
-      if (!oobCode || !sig || !Number.isFinite(expiresAt) || expiresAt <= 0) {
+      if (!oobCode) {
         setStatus("invalid");
         setError(getReadableResetError(new Error("auth/invalid-action-code")));
         return;
       }
 
       try {
-        const response = await fetch(`${API_BASE}/api/auth/password-reset-link/validate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ oobCode, expiresAt, sig }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(payload.error ?? "This reset link has expired or is invalid.");
+        let nextRemainingMs = 0;
+
+        if (hasSignedResetEnvelope) {
+          const response = await fetch(`${API_BASE}/api/auth/password-reset-link/validate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ oobCode, expiresAt, sig }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.error ?? "This reset link has expired or is invalid.");
+          }
+          nextRemainingMs = Number(payload.remainingMs ?? Math.max(0, expiresAt - Date.now()));
         }
 
         const nextEmail = await verifyFirebaseResetCode(oobCode);
         if (!active) return;
         setEmail(nextEmail);
-        setRemainingMs(Number(payload.remainingMs ?? Math.max(0, expiresAt - Date.now())));
+        setRemainingMs(nextRemainingMs);
         setStatus("ready");
       } catch (verifyError) {
         if (!active) return;
@@ -110,10 +120,10 @@ export default function ResetPasswordPage() {
     return () => {
       active = false;
     };
-  }, [expiresAt, oobCode, sig]);
+  }, [expiresAt, hasSignedResetEnvelope, oobCode, sig]);
 
   useEffect(() => {
-    if (status !== "ready") return;
+    if (status !== "ready" || !hasSignedResetEnvelope) return;
 
     const timer = window.setInterval(() => {
       const nextRemaining = Math.max(0, expiresAt - Date.now());
@@ -126,7 +136,7 @@ export default function ResetPasswordPage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [expiresAt, status]);
+  }, [expiresAt, hasSignedResetEnvelope, status]);
 
   const passwordError = useMemo(() => {
     if (!password && !confirmPassword) return "";
@@ -139,7 +149,7 @@ export default function ResetPasswordPage() {
     event.preventDefault();
     if (status !== "ready") return;
 
-    if (remainingMs <= 0) {
+    if (hasSignedResetEnvelope && remainingMs <= 0) {
       setStatus("invalid");
       setError("This reset link has expired. Please request a new one.");
       return;
@@ -160,14 +170,13 @@ export default function ResetPasswordPage() {
 
     try {
       await confirmFirebaseResetPassword(oobCode, password);
+      const { idToken } = await signInWithFirebaseEmailPassword(email, password);
 
       const syncResponse = await fetch(`${API_BASE}/api/auth/password-reset/finalize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          oobCode,
-          sig,
-          expiresAt,
+          idToken,
           email,
           newPassword: password,
         }),
@@ -216,7 +225,7 @@ export default function ResetPasswordPage() {
               {status === "checking" ? (
                 <div className="flex min-h-[180px] items-center justify-center">
                   <div className="flex items-center gap-3 text-sm text-[#6B7280]">
-                    <Loader2 className="h-5 w-5 animate-spin text-[#5B4DFF]" />
+                    <Loader2 className="h-5 w-5 animate-spin text-[#F97316]" />
                     Verifying your reset link...
                   </div>
                 </div>
@@ -226,7 +235,7 @@ export default function ResetPasswordPage() {
                     <AlertDescription>{error || "This reset link is no longer valid."}</AlertDescription>
                   </Alert>
                   <Button
-                    className="h-12 w-full rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+                    className="h-12 w-full rounded-2xl bg-[#F97316] text-white hover:bg-[#EA580C]"
                     onClick={() => setLocation("/login")}
                   >
                     Back to Login
@@ -244,7 +253,7 @@ export default function ResetPasswordPage() {
                   </div>
                   <div className="flex flex-col gap-3 sm:flex-row">
                     <Button
-                      className="h-12 flex-1 rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+                      className="h-12 flex-1 rounded-2xl bg-[#F97316] text-white hover:bg-[#EA580C]"
                       onClick={() => setLocation("/login")}
                     >
                       Go to Login
@@ -268,14 +277,16 @@ export default function ResetPasswordPage() {
                     Resetting password for <span className="font-semibold">{email}</span>
                   </div>
 
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">Link expires in</span>
-                      <span className="rounded-full bg-white px-3 py-1 font-mono text-sm font-semibold tracking-[0.16em] text-[#D97706]">
-                        {formatCountdown(remainingMs)}
-                      </span>
+                  {hasSignedResetEnvelope ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">Link expires in</span>
+                        <span className="rounded-full bg-white px-3 py-1 font-mono text-sm font-semibold tracking-[0.16em] text-[#D97706]">
+                          {formatCountdown(remainingMs)}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   {error ? (
                     <Alert variant="destructive">
@@ -337,7 +348,7 @@ export default function ResetPasswordPage() {
                   <Button
                     type="submit"
                     disabled={saving || Boolean(passwordError)}
-                    className="h-12 w-full rounded-2xl bg-[#5B4DFF] text-white hover:bg-[#4C3FFD]"
+                    className="h-12 w-full rounded-2xl bg-[#F97316] text-white hover:bg-[#EA580C]"
                   >
                     {saving ? "Updating password..." : "Save New Password"}
                   </Button>

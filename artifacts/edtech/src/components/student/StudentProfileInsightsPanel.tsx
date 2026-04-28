@@ -233,18 +233,15 @@ function getStatusVariant(status: string): "default" | "outline" | "destructive"
 }
 
 function getPreparationInstitutionMeta(preparation: StudentProfileInsights["preparationSnapshot"]["preparation"]) {
-  const isUgUniversity = preparation.board.trim() === "UG University";
-  const institutionValue = (
-    isUgUniversity
-      ? preparation.collegeName.trim()
-      : preparation.institutionName.trim()
-  ) || preparation.institutionName.trim() || preparation.collegeName.trim() || "Not provided";
+  const collegeStages = new Set(["Clg 1st", "Clg 2nd", "Clg 3rd", "Clg 4th", "Graduated", "College 1st Year", "College 2nd Year", "College 3rd Year", "College 4th Year", "Graduate"]);
+  const isCollegePreparation = collegeStages.has(preparation.classLevel.trim()) || preparation.board.trim() === "UG University";
+  const institutionValue = preparation.collegeName.trim() || preparation.institutionName.trim() || "Not provided";
 
   return {
-    isUgUniversity,
-    institutionLabel: isUgUniversity ? "College" : "School / College",
+    isUgUniversity: isCollegePreparation,
+    institutionLabel: isCollegePreparation ? "College" : "School / College",
     institutionValue,
-    universityValue: isUgUniversity ? (preparation.universityName.trim() || "Not provided") : "",
+    universityValue: isCollegePreparation ? (preparation.universityName.trim() || "Not provided") : "",
   };
 }
 
@@ -458,7 +455,6 @@ export function StudentProfileInsightsPanel({
       ],
       preparation: [
         { label: "Stage", value: insights.preparationSnapshot.preparation.classLevel || "Not provided" },
-        { label: "Board", value: insights.preparationSnapshot.preparation.board || "Not provided" },
         { label: preparationInstitution.institutionLabel, value: preparationInstitution.institutionValue },
         ...(preparationInstitution.isUgUniversity
           ? [{ label: "University", value: preparationInstitution.universityValue }]
@@ -750,7 +746,7 @@ export function StudentProfileInsightsPanel({
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <GraduationCap size={18} className="text-amber-600" />
-                <span>Schooling & target</span>
+                <span>College & target</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -759,11 +755,6 @@ export function StudentProfileInsightsPanel({
                   label="Current stage"
                   value={insights.preparationSnapshot.preparation.classLevel || "Not provided"}
                   icon={<GraduationCap size={18} />}
-                />
-                <ReviewField
-                  label="Board"
-                  value={insights.preparationSnapshot.preparation.board || "Not provided"}
-                  icon={<BookOpen size={18} />}
                 />
                 <ReviewField
                   label={preparationInstitution.institutionLabel}
@@ -1463,7 +1454,6 @@ export function StudentProfileInsightsPanel({
                   <p className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-slate-400"><GraduationCap className="h-3 w-3 text-orange-500" /> Academics</p>
                   <div className="grid grid-cols-2 gap-2">
                     <SnapshotTile label="Stage" value={insights.preparationSnapshot.preparation.classLevel} />
-                    <SnapshotTile label="Board" value={insights.preparationSnapshot.preparation.board} />
                     <SnapshotTile label={preparationInstitution.institutionLabel} value={preparationInstitution.institutionValue} />
                     {preparationInstitution.isUgUniversity ? (
                       <SnapshotTile label="University" value={preparationInstitution.universityValue} />

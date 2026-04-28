@@ -18,7 +18,7 @@ export default function StudentPreviewLockBanner({
   eyebrow = "Verification Pending",
 }: StudentPreviewLockBannerProps) {
   return (
-    <div className="mx-auto w-full overflow-hidden rounded-[28px] border border-[#D9D6FE] bg-[linear-gradient(135deg,#F8F7FF_0%,#EEF2FF_100%)] shadow-[0_12px_32px_rgba(91,77,255,0.08)]">
+    <div className="mx-auto w-full overflow-hidden rounded-[28px] border border-[#FED7AA] bg-[linear-gradient(135deg,#FFF7ED_0%,#FFEDD5_100%)] shadow-[0_12px_32px_rgba(249,115,22,0.08)]">
       <div className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-6">
         <div className="flex max-w-[980px] items-center gap-4">
           <div className="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-[20px] bg-[#DC3D2F] text-white shadow-[0_10px_22px_rgba(220,61,47,0.28)]">
@@ -34,7 +34,7 @@ export default function StudentPreviewLockBanner({
               {description}
             </p>
             <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-[#111827]">
-              <Mail className="h-4 w-4 shrink-0 text-[#5B4DFF]" />
+              <Mail className="h-4 w-4 shrink-0 text-[#F97316]" />
               <span className="break-all sm:break-normal">{STUDENT_VERIFICATION_CONTACT_EMAIL}</span>
             </div>
           </div>
@@ -44,7 +44,7 @@ export default function StudentPreviewLockBanner({
           <Button
             type="button"
             variant="outline"
-            className="h-10 shrink-0 whitespace-nowrap rounded-[20px] border-[#D9D6FE] bg-white px-5 text-sm font-semibold text-[#5B4DFF] shadow-[0_8px_24px_rgba(91,77,255,0.06)] hover:bg-[#EEF2FF]"
+            className="h-10 shrink-0 whitespace-nowrap rounded-[20px] border-[#FED7AA] bg-white px-5 text-sm font-semibold text-[#F97316] shadow-[0_8px_24px_rgba(249,115,22,0.06)] hover:bg-[#FFF7ED]"
             onClick={onCheckStatus}
           >
             Check status

@@ -31,7 +31,8 @@ export type StudentReviewSummary = {
 const DEFAULT_SUPER_ADMIN_REVIEW_EMAIL = "sameermajhi339@gmail.com";
 const DEFAULT_EMAIL_REJECTION_REASON = "Application rejected from super admin email review. Please update your profile details and resubmit for approval.";
 const STUDENT_REVIEW_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
+const LOCAL_PUBLIC_APP_URL = "http://localhost:5173";
+const PRODUCTION_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
 
 function readTrimmedEnv(name: string) {
   const value = process.env[name];
@@ -46,7 +47,11 @@ function readStudentReviewSigningSecret() {
 }
 
 function readPublicAppUrl() {
-  return readTrimmedEnv("PUBLIC_APP_URL") || DEFAULT_PUBLIC_APP_URL;
+  const configured = readTrimmedEnv("PUBLIC_APP_URL");
+  if (process.env.NODE_ENV === "development" && (!configured || configured === PRODUCTION_PUBLIC_APP_URL)) {
+    return LOCAL_PUBLIC_APP_URL;
+  }
+  return configured || PRODUCTION_PUBLIC_APP_URL;
 }
 
 function readSuperAdminReviewEmail() {
@@ -205,13 +210,21 @@ export function buildStudentReviewSummary(user: {
 
   const targetExam = readTrimmedRecordValue(preparation, "targetExam") || user.subject?.trim() || "Not selected";
   const board = readTrimmedRecordValue(preparation, "board") || "Not provided";
-  const isUgUniversityBoard = board === "UG University";
+  const classLevelRaw = readTrimmedRecordValue(preparation, "classLevel");
+  const classLevelLegacyMap: Record<string, string> = {
+    "College 1st Year": "Clg 1st",
+    "College 2nd Year": "Clg 2nd",
+    "College 3rd Year": "Clg 3rd",
+    "College 4th Year": "Clg 4th",
+    Graduate: "Graduated",
+  };
+  const classLevel = classLevelLegacyMap[classLevelRaw] ?? (classLevelRaw || "Not provided");
+  const collegeStages = new Set(["Clg 1st", "Clg 2nd", "Clg 3rd", "Clg 4th", "Graduated", "College 1st Year", "College 2nd Year", "College 3rd Year", "College 4th Year", "Graduate"]);
+  const isCollegeStage = collegeStages.has(classLevel) || board === "UG University";
   const rawInstitutionName = readTrimmedRecordValue(preparation, "institutionName");
   const rawCollegeName = readTrimmedRecordValue(preparation, "collegeName");
-  const institutionName = isUgUniversityBoard
-    ? (rawCollegeName || rawInstitutionName || "Not provided")
-    : (rawInstitutionName || rawCollegeName || "Not provided");
-  const universityName = isUgUniversityBoard
+  const institutionName = rawCollegeName || rawInstitutionName || "Not provided";
+  const universityName = isCollegeStage
     ? (readTrimmedRecordValue(preparation, "universityName") || "Not provided")
     : "Not applicable";
   const learningModeName = readTrimmedRecordValue(learningMode, "mode") || "Not provided";
@@ -239,7 +252,7 @@ export function buildStudentReviewSummary(user: {
       ],
       "Not provided",
     ),
-    classLevel: readTrimmedRecordValue(preparation, "classLevel") || "Not provided",
+    classLevel,
     board,
     institutionName,
     universityName,

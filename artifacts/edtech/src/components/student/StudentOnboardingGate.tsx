@@ -24,7 +24,7 @@ interface RegistrationExamOption {
 const steps = [
   { title: "Personal Details", subtitle: "Basic account details" },
   { title: "Address", subtitle: "Current location" },
-  { title: "Schooling & Target", subtitle: "Preparation details" },
+  { title: "College & Target", subtitle: "Preparation details" },
   { title: "Learning Mode", subtitle: "Study setup" },
   { title: "Hear About Us", subtitle: "Discovery source" },
 ] as const;
@@ -48,26 +48,14 @@ const providerOptions = [
 ] as const;
 
 const classLevelOptions = [
-  "Class 10",
-  "Class 11",
-  "Class 12",
-  "12th Pass",
-  "First Time Dropper",
-  "Second Dropper",
-  "College 1st Year",
-  "College 2nd Year",
-  "College 3rd Year",
-  "Graduate",
+  "Clg 1st",
+  "Clg 2nd",
+  "Clg 3rd",
+  "Clg 4th",
+  "Graduated",
 ] as const;
 
-const boardOptions = [
-  "CBSE",
-  "ICSE",
-  "State Board",
-  "NIOS",
-  "UG University",
-  "Other",
-] as const;
+const COLLEGE_BOARD_VALUE = "UG University";
 
 const hearAboutOptions = [
   "YouTube",
@@ -174,12 +162,17 @@ function buildDistrictOptionsByState() {
 
 const districtOptionsByState = buildDistrictOptionsByState();
 
-function isUgUniversityBoard(board: string | null | undefined) {
-  return (board ?? "").trim() === "UG University";
-}
-
-function requiresCollegeAndUniversityFields(classLevel: string | null | undefined, board: string | null | undefined) {
-  return (classLevel ?? "").trim() === "Graduate" || isUgUniversityBoard(board);
+function normalizeCollegeStage(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  const legacyStageMap: Record<string, typeof classLevelOptions[number]> = {
+    "College 1st Year": "Clg 1st",
+    "College 2nd Year": "Clg 2nd",
+    "College 3rd Year": "Clg 3rd",
+    "College 4th Year": "Clg 4th",
+    Graduate: "Graduated",
+  };
+  const mapped = legacyStageMap[normalized] ?? normalized;
+  return classLevelOptions.includes(mapped as typeof classLevelOptions[number]) ? mapped : "";
 }
 
 function getInitials(name: string) {
@@ -193,9 +186,9 @@ function getInitials(name: string) {
 
 function buildInitialDetails(user: AuthUser): StudentProfileDetails {
   const existing = user.profileDetails;
-  const existingBoard = existing?.preparation?.board ?? "";
   const existingInstitutionName = existing?.preparation?.institutionName ?? "";
   const existingCollegeName = existing?.preparation?.collegeName ?? "";
+  const collegeName = existingCollegeName || existingInstitutionName;
   return {
     dateOfBirth: existing?.dateOfBirth ?? "",
     whatsappOnSameNumber: existing?.whatsappOnSameNumber ?? true,
@@ -209,12 +202,12 @@ function buildInitialDetails(user: AuthUser): StudentProfileDetails {
       pincode: existing?.address?.pincode ?? "",
     },
     preparation: {
-      classLevel: existing?.preparation?.classLevel ?? "",
-      board: existingBoard,
+      classLevel: normalizeCollegeStage(existing?.preparation?.classLevel),
+      board: COLLEGE_BOARD_VALUE,
       targetYear: existing?.preparation?.targetYear ?? "",
       targetExam: existing?.preparation?.targetExam ?? user.subject ?? "",
-      institutionName: existingInstitutionName || existingCollegeName,
-      collegeName: isUgUniversityBoard(existingBoard) ? (existingCollegeName || existingInstitutionName) : existingCollegeName,
+      institutionName: collegeName,
+      collegeName,
       universityName: existing?.preparation?.universityName ?? "",
     },
     learningMode: {
@@ -227,6 +220,12 @@ function buildInitialDetails(user: AuthUser): StudentProfileDetails {
 
 function mergeStudentProfileDetails(base: StudentProfileDetails, incoming: Partial<StudentProfileDetails> | null | undefined) {
   if (!incoming) return base;
+  const mergedPreparation = {
+    ...base.preparation,
+    ...(incoming.preparation ?? {}),
+  };
+  const collegeName = (mergedPreparation.collegeName || mergedPreparation.institutionName || "").trim();
+
   return {
     ...base,
     ...incoming,
@@ -235,8 +234,12 @@ function mergeStudentProfileDetails(base: StudentProfileDetails, incoming: Parti
       ...(incoming.address ?? {}),
     },
     preparation: {
-      ...base.preparation,
-      ...(incoming.preparation ?? {}),
+      ...mergedPreparation,
+      classLevel: normalizeCollegeStage(mergedPreparation.classLevel),
+      board: COLLEGE_BOARD_VALUE,
+      institutionName: collegeName,
+      collegeName,
+      universityName: mergedPreparation.universityName ?? "",
     },
     learningMode: {
       ...base.learningMode,
@@ -373,9 +376,6 @@ export default function StudentOnboardingGate() {
         const currentDistrict = normalizeLocationName(selectedDistrict);
         return currentDistrict && !options.includes(currentDistrict) ? [...options, currentDistrict] : options;
       })();
-  const selectedBoard = details?.preparation.board ?? "";
-  const selectedClassLevel = details?.preparation.classLevel ?? "";
-  const requiresUniversityFields = requiresCollegeAndUniversityFields(selectedClassLevel, selectedBoard);
   const usesCustomHearAboutSource = !!details?.hearAboutUs?.trim() && !hearAboutOptions.includes(details.hearAboutUs as typeof hearAboutOptions[number]);
   const selectedHearAboutSource = usesCustomHearAboutSource ? "Other" : details?.hearAboutUs ?? "";
   const hearAboutOtherValue = usesCustomHearAboutSource ? (details?.hearAboutUs ?? "") : "";
@@ -463,7 +463,14 @@ export default function StudentOnboardingGate() {
         phone: phone.trim(),
         avatarUrl: avatarPreview,
         step: nextStep,
-        profileDetails: details,
+        profileDetails: {
+          ...details,
+          preparation: {
+            ...details.preparation,
+            board: COLLEGE_BOARD_VALUE,
+            institutionName: details.preparation.collegeName.trim() || details.preparation.institutionName.trim(),
+          },
+        },
       }),
     });
 
@@ -493,13 +500,8 @@ export default function StudentOnboardingGate() {
     }
     if (step === 2) {
       if (!details.preparation.classLevel.trim()) return "Current stage is required.";
-      if (!details.preparation.board.trim()) return "Board is required.";
-      if (requiresUniversityFields) {
-        if (!details.preparation.collegeName.trim()) return "College name is required.";
-        if (!details.preparation.universityName.trim()) return "University name is required.";
-      } else if (!details.preparation.institutionName.trim()) {
-        return "School / college name is required.";
-      }
+      if (!details.preparation.collegeName.trim() && !details.preparation.institutionName.trim()) return "College name is required.";
+      if (!details.preparation.universityName.trim()) return "University name is required.";
       if (!details.preparation.targetYear.trim()) return "Target year is required.";
       if (!details.preparation.targetExam.trim()) return "Target exam is required.";
     }
@@ -548,7 +550,14 @@ export default function StudentOnboardingGate() {
           phone: phone.trim(),
           avatarUrl: avatarPreview,
           subject: details.preparation.targetExam.trim(),
-          profileDetails: details,
+          profileDetails: {
+            ...details,
+            preparation: {
+              ...details.preparation,
+              board: COLLEGE_BOARD_VALUE,
+              institutionName: details.preparation.collegeName.trim() || details.preparation.institutionName.trim(),
+            },
+          },
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -578,7 +587,7 @@ export default function StudentOnboardingGate() {
     <select
       value={details.preparation.targetExam}
       onChange={(event) => updateNestedDetails("preparation", "targetExam", event.target.value)}
-      className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+      className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
     >
       <option value="">Select your target exam</option>
       {examOptions.map((option) => (
@@ -604,7 +613,7 @@ export default function StudentOnboardingGate() {
         <div className="border-b border-[#EEF2F7] px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#5B4DFF]">Complete Setup</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#F97316]">Complete Setup</p>
               <h2 className="mt-1 text-xl font-bold text-[#111827] sm:text-2xl">
                 {rejectedResubmission ? "Update and resubmit your profile" : "Finish your student profile"}
               </h2>
@@ -614,7 +623,7 @@ export default function StudentOnboardingGate() {
                 </div>
               ) : null}
             </div>
-            <div className="rounded-full bg-[#EEF2FF] px-3 py-1 text-xs font-semibold text-[#5B4DFF]">
+            <div className="rounded-full bg-[#FFF7ED] px-3 py-1 text-xs font-semibold text-[#F97316]">
               Step {step + 1} of {steps.length}
             </div>
           </div>
@@ -628,16 +637,16 @@ export default function StudentOnboardingGate() {
                     <div
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${
                         state === "done"
-                          ? "border-[#5B4DFF] bg-[#5B4DFF] text-white"
+                          ? "border-[#F97316] bg-[#F97316] text-white"
                           : state === "current"
-                            ? "border-[#5B4DFF] bg-white text-[#5B4DFF]"
+                            ? "border-[#F97316] bg-white text-[#F97316]"
                             : "border-[#DCE3F1] bg-white text-[#9AA4B2]"
                       }`}
                     >
                       {state === "done" ? <Check size={14} /> : index + 1}
                     </div>
                     {index < steps.length - 1 && (
-                      <div className={`h-px flex-1 ${index < step ? "bg-[#5B4DFF]" : "bg-[#DCE3F1]"}`} />
+                      <div className={`h-px flex-1 ${index < step ? "bg-[#F97316]" : "bg-[#DCE3F1]"}`} />
                     )}
                   </div>
                   <p className="mt-2 text-xs font-semibold leading-tight text-[#111827]">{entry.title}</p>
@@ -793,7 +802,7 @@ export default function StudentOnboardingGate() {
                   <select
                     value={details.address.state}
                     onChange={(event) => handleStateChange(event.target.value)}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
                   >
                     <option value="">Select your state</option>
                     {indiaStateOptions.map((option) => (
@@ -807,7 +816,7 @@ export default function StudentOnboardingGate() {
                     value={details.address.district}
                     onChange={(event) => updateNestedDetails("address", "district", event.target.value)}
                     disabled={!details.address.state}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF] disabled:bg-[#F8FAFC] disabled:text-[#9AA4B2]"
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316] disabled:bg-[#F8FAFC] disabled:text-[#9AA4B2]"
                   >
                     <option value="">{details.address.state ? "Select your district" : "Select state first"}</option>
                     {districtOptions.map((option) => (
@@ -849,7 +858,7 @@ export default function StudentOnboardingGate() {
           {step === 2 ? (
             <div className="space-y-4">
               <div>
-                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">Schooling and target</p>
+                <p className="text-2xl font-bold tracking-tight text-[#111827] sm:text-3xl">College and target</p>
                 <p className="mt-2 text-sm text-[#6B7280]">Your target exam is required so we can match tests, analysis, and question banks correctly.</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -862,26 +871,19 @@ export default function StudentOnboardingGate() {
                       setDetails((prev) => {
                         if (!prev) return prev;
                         const previousPreparation = prev.preparation;
-                        const nextRequiresUniversityFields = requiresCollegeAndUniversityFields(nextClassLevel, previousPreparation.board);
-                        const fallbackInstitutionName =
-                          previousPreparation.institutionName.trim() || previousPreparation.collegeName.trim();
                         return {
                           ...prev,
                           preparation: {
                             ...previousPreparation,
                             classLevel: nextClassLevel,
-                            institutionName: nextRequiresUniversityFields
-                              ? previousPreparation.institutionName
-                              : fallbackInstitutionName,
-                            collegeName: nextRequiresUniversityFields
-                              ? (previousPreparation.collegeName.trim() || fallbackInstitutionName)
-                              : "",
-                            universityName: nextRequiresUniversityFields ? previousPreparation.universityName : "",
+                            board: COLLEGE_BOARD_VALUE,
+                            institutionName: previousPreparation.collegeName.trim() || previousPreparation.institutionName.trim(),
+                            collegeName: previousPreparation.collegeName.trim() || previousPreparation.institutionName.trim(),
                           },
                         };
                       });
                     }}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
                   >
                     <option value="">Select current stage</option>
                     {classLevelOptions.map((option) => (
@@ -890,81 +892,43 @@ export default function StudentOnboardingGate() {
                   </select>
                 </div>
                 <div>
-                  <Label className="mb-2 block text-sm font-medium text-[#374151]">Board</Label>
-                  <select
-                    value={details.preparation.board}
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">College name</Label>
+                  <Input
+                    value={details.preparation.collegeName}
                     onChange={(event) => {
-                      const nextBoard = event.target.value;
+                      const nextCollegeName = event.target.value;
                       setDetails((prev) => {
                         if (!prev) return prev;
-                        const previousPreparation = prev.preparation;
-                        const nextRequiresUniversityFields = requiresCollegeAndUniversityFields(previousPreparation.classLevel, nextBoard);
-                        const fallbackInstitutionName =
-                          previousPreparation.institutionName.trim() || previousPreparation.collegeName.trim();
                         return {
                           ...prev,
                           preparation: {
-                            ...previousPreparation,
-                            board: nextBoard,
-                            institutionName: nextRequiresUniversityFields
-                              ? previousPreparation.institutionName
-                              : fallbackInstitutionName,
-                            collegeName: nextRequiresUniversityFields
-                              ? (previousPreparation.collegeName.trim() || fallbackInstitutionName)
-                              : "",
-                            universityName: nextRequiresUniversityFields ? previousPreparation.universityName : "",
+                            ...prev.preparation,
+                            board: COLLEGE_BOARD_VALUE,
+                            institutionName: nextCollegeName,
+                            collegeName: nextCollegeName,
                           },
                         };
                       });
                     }}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
-                  >
-                    <option value="">Select board</option>
-                    {boardOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
+                    placeholder="Enter your college name"
+                    className="h-12 rounded-2xl border-[#DCE3F1]"
+                  />
                 </div>
-                {details.preparation.board ? (
-                  requiresUniversityFields ? (
-                    <>
-                      <div>
-                        <Label className="mb-2 block text-sm font-medium text-[#374151]">College name</Label>
-                        <Input
-                          value={details.preparation.collegeName}
-                          onChange={(event) => updateNestedDetails("preparation", "collegeName", event.target.value)}
-                          placeholder="Enter your college name"
-                          className="h-12 rounded-2xl border-[#DCE3F1]"
-                        />
-                      </div>
-                      <div>
-                        <Label className="mb-2 block text-sm font-medium text-[#374151]">University name</Label>
-                        <Input
-                          value={details.preparation.universityName}
-                          onChange={(event) => updateNestedDetails("preparation", "universityName", event.target.value)}
-                          placeholder="Enter your university name"
-                          className="h-12 rounded-2xl border-[#DCE3F1]"
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="sm:col-span-2">
-                      <Label className="mb-2 block text-sm font-medium text-[#374151]">School / College name</Label>
-                      <Input
-                        value={details.preparation.institutionName}
-                        onChange={(event) => updateNestedDetails("preparation", "institutionName", event.target.value)}
-                        placeholder="Enter your school or college name"
-                        className="h-12 rounded-2xl border-[#DCE3F1]"
-                      />
-                    </div>
-                  )
-                ) : null}
+                <div>
+                  <Label className="mb-2 block text-sm font-medium text-[#374151]">University name</Label>
+                  <Input
+                    value={details.preparation.universityName}
+                    onChange={(event) => updateNestedDetails("preparation", "universityName", event.target.value)}
+                    placeholder="Enter your university name"
+                    className="h-12 rounded-2xl border-[#DCE3F1]"
+                  />
+                </div>
                 <div>
                   <Label className="mb-2 block text-sm font-medium text-[#374151]">Target year</Label>
                   <select
                     value={details.preparation.targetYear}
                     onChange={(event) => updateNestedDetails("preparation", "targetYear", event.target.value)}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
                   >
                     <option value="">Select target year</option>
                     {yearOptions.map((option) => (
@@ -997,7 +961,7 @@ export default function StudentOnboardingGate() {
                         updateNestedDetails("learningMode", "provider", "");
                       }
                     }}
-                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                    className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
                   >
                     <option value="">How are you preparing?</option>
                     {preparationModes.map((option) => (
@@ -1011,7 +975,7 @@ export default function StudentOnboardingGate() {
                     <select
                       value={details.learningMode.provider}
                       onChange={(event) => updateNestedDetails("learningMode", "provider", event.target.value)}
-                      className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                      className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
                     >
                       <option value="">Select your platform</option>
                       {providerOptions.map((option) => (
@@ -1038,7 +1002,7 @@ export default function StudentOnboardingGate() {
                     const nextValue = event.target.value;
                     updateDetails("hearAboutUs", nextValue === "Other" ? "" : nextValue);
                   }}
-                  className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#5B4DFF]"
+                  className="h-12 w-full rounded-2xl border border-[#DCE3F1] bg-white px-4 text-sm text-[#111827] outline-none transition focus:border-[#F97316]"
                 >
                   <option value="">Select source</option>
                   {hearAboutOptions.map((option) => (
@@ -1078,7 +1042,7 @@ export default function StudentOnboardingGate() {
             type="button"
             onClick={handleNext}
             disabled={saving}
-            className="w-full rounded-2xl bg-[#5B4DFF] hover:bg-[#4A3EE0] sm:w-auto sm:min-w-[180px]"
+            className="w-full rounded-2xl bg-[#F97316] hover:bg-[#EA580C] sm:w-auto sm:min-w-[180px]"
           >
             {saving ? (
               <>
