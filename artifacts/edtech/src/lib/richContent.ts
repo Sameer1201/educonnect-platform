@@ -85,5 +85,14 @@ export function stripRichHtmlToText(content: string | null | undefined) {
   if (!content?.trim()) return "";
   if (!looksLikeRichHtmlContent(content) || typeof DOMParser === "undefined") return stripImageMarkers(content);
   const documentParser = new DOMParser().parseFromString(`<div>${content}</div>`, "text/html");
-  return stripImageMarkers(documentParser.body.textContent || "");
+  const collectText = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_NODE) return "";
+    const element = node as Element;
+    const tagName = element.tagName?.toLowerCase();
+    if (tagName === "br") return "\n";
+    const text = Array.from(node.childNodes).map(collectText).join("");
+    return tagName === "p" || tagName === "div" ? `\n${text}\n` : text;
+  };
+  return stripImageMarkers(collectText(documentParser.body));
 }

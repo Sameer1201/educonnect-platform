@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
-import { looksLikeRichHtmlContent, sanitizeRichHtml, stripImageMarkers } from "@/lib/richContent";
+import { looksLikeRichHtmlContent, sanitizeRichHtml, stripImageMarkers, stripRichHtmlToText } from "@/lib/richContent";
 
 interface RichQuestionContentProps {
   content?: string | null;
@@ -76,6 +76,10 @@ function stripMathDelimiters(value: string) {
     .replace(/\\\)/g, "")
     .replace(/\$\$/g, "")
     .trim();
+}
+
+function containsLatexishSyntax(value: string) {
+  return /\\(?:\[|\]|\(|\)|frac|sqrt|text|to|rightarrow|leftarrow|times|cdot|alpha|beta|gamma|delta|theta|lambda|mu|pi|sigma|omega|Delta|Sigma|Omega|leq|geq|neq|infty)|\$\$|[_^]\{/.test(value);
 }
 
 function shouldRenderFormulaBlock(value: string) {
@@ -212,12 +216,14 @@ function PlainQuestionContent({ value, className }: { value: string; className?:
 export function RichQuestionContent({ content, className }: RichQuestionContentProps) {
   const value = stripImageMarkers(content?.trim() ?? "");
   const isRich = looksLikeRichHtmlContent(value);
-  const sanitized = useMemo(() => (isRich ? sanitizeRichHtml(value) : ""), [isRich, value]);
+  const renderRichAsPlain = isRich && containsLatexishSyntax(value) && !/<img\b/i.test(value);
+  const sanitized = useMemo(() => (isRich && !renderRichAsPlain ? sanitizeRichHtml(value) : ""), [isRich, renderRichAsPlain, value]);
+  const richPlainText = useMemo(() => (renderRichAsPlain ? stripRichHtmlToText(value) : ""), [renderRichAsPlain, value]);
 
   if (!value) return null;
 
-  if (!isRich) {
-    return <PlainQuestionContent value={value} className={className} />;
+  if (!isRich || renderRichAsPlain) {
+    return <PlainQuestionContent value={renderRichAsPlain ? richPlainText : value} className={className} />;
   }
 
   return (
