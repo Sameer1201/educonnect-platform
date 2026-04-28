@@ -143,6 +143,7 @@ interface ExamTemplate {
   key: string;
   name: string;
   description?: string | null;
+  isSystem?: boolean | null;
   examHeader?: string | null;
   examSubheader?: string | null;
   instructions?: string | null;
@@ -942,6 +943,23 @@ function getExamTemplateOptions(templates: ExamTemplate[]) {
   return Array.from(options.values());
 }
 
+function getSuperAdminExamTemplateOptions(templates: ExamTemplate[]) {
+  const options = new Map<string, ExamTemplate>();
+
+  templates
+    .filter((template) => template.isSystem === false)
+    .forEach((template, index) => {
+      const key =
+        normalizeExamTemplateKey(template.key) ||
+        normalizeExamTemplateKey(template.name) ||
+        `exam-${index + 1}`;
+      if (!key || options.has(key)) return;
+      options.set(key, { ...template, key });
+    });
+
+  return Array.from(options.values());
+}
+
 function makeSectionDraft(input?: Partial<SectionDraft>): SectionDraft {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1011,6 +1029,7 @@ export default function AdminTests() {
     staleTime: 60_000,
   });
   const examTemplateOptions = useMemo(() => getExamTemplateOptions(examTemplates), [examTemplates]);
+  const importExamTemplateOptions = useMemo(() => getSuperAdminExamTemplateOptions(examTemplates), [examTemplates]);
 
   const prefetchBuilderResources = (testId: number) => {
     void Promise.all([
@@ -1062,6 +1081,18 @@ export default function AdminTests() {
       if (firstTemplate) applyPreset(firstTemplate.key);
     }
   }, [createOpen, examTemplateOptions, newExamType]);
+
+  useEffect(() => {
+    if (!importOpen) return;
+    if (importExamTemplateOptions.length === 0) {
+      if (importExamType) setImportExamType("");
+      return;
+    }
+    const templateExists = importExamTemplateOptions.some((template) => template.key === importExamType);
+    if (!importExamType || !templateExists) {
+      setImportExamType(importExamTemplateOptions[0].key);
+    }
+  }, [importOpen, importExamTemplateOptions, importExamType]);
 
   const totalTests = tests.length;
   const publishedTests = tests.filter((test) => test.isPublished).length;
@@ -1539,8 +1570,8 @@ export default function AdminTests() {
       setImportExamType(
         normalizeExamTypeSelection(
           parsed.test.examType ?? parsed.source?.examType ?? parsed.test.examHeader ?? parsed.test.title ?? "",
-          examTemplateOptions,
-        ) || examTemplateOptions[0]?.key || "",
+          importExamTemplateOptions,
+        ) || importExamTemplateOptions[0]?.key || "",
       );
       setImportScheduled(formatDateTimeLocalValue(parsed.test.scheduledAt ?? null));
       setImportOpen(true);
@@ -2105,19 +2136,19 @@ export default function AdminTests() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Part Of Exam</Label>
-                <Select value={importExamType} onValueChange={setImportExamType}>
+                <Select value={importExamType} onValueChange={setImportExamType} disabled={importExamTemplateOptions.length === 0}>
                   <SelectTrigger className="h-11 rounded-xl border-[#eadfcd] bg-white">
-                    <SelectValue placeholder="Select exam" />
+                    <SelectValue placeholder={importExamTemplateOptions.length === 0 ? "No exam template" : "Select exam"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {examTemplateOptions.map((template) => (
+                    {importExamTemplateOptions.map((template) => (
                       <SelectItem key={template.key} value={template.key}>
                         {template.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-500">This determines which exam stream the imported test belongs to.</p>
+                <p className="text-xs text-slate-500">Only super admin-created exam templates are available here.</p>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule Date</Label>
