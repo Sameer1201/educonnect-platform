@@ -124,6 +124,35 @@ function normalizeExamKey(value: unknown): string | null {
   return compact.replace(/\s+/g, "-");
 }
 
+async function findExamTemplateBySelection(selection: unknown) {
+  const raw = typeof selection === "string" ? selection.trim() : "";
+  const normalized = normalizeExamKey(raw);
+  if (!raw || !normalized || normalized === "custom") return null;
+
+  for (const candidate of Array.from(new Set([raw, normalized]))) {
+    const [template] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.key, candidate)).limit(1);
+    if (template) return template;
+  }
+
+  const templates = await db.select().from(examTemplatesTable);
+  return templates.find((template) => {
+    const candidates = [
+      template.key,
+      template.name,
+      template.examHeader ?? "",
+      template.examSubheader ?? "",
+      `${template.name} Pattern`,
+    ];
+    return candidates.some((candidate) => normalizeExamKey(candidate) === normalized);
+  }) ?? null;
+}
+
+function resolveExamTypeValue(selection: unknown, template: typeof examTemplatesTable.$inferSelect | null) {
+  if (template?.key) return template.key;
+  const raw = typeof selection === "string" ? selection.trim() : "";
+  return normalizeExamKey(raw) ?? (raw || "custom");
+}
+
 function getStudentExamKeys(user: { subject?: string | null; additionalExams?: unknown[] | null }) {
   const examKeys = new Set<string>();
   const primaryExamKey = normalizeExamKey(user.subject);
@@ -1588,10 +1617,7 @@ async function syncTestSectionsFromTemplate(testId: number, examType: unknown, r
     meta: safeParseJson(section.meta, null),
   }));
 
-  const examKey = normalizeExamKey(examType);
-  if (!examKey) return parsedSections;
-
-  const [template] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.key, examKey)).limit(1);
+  const template = await findExamTemplateBySelection(examType);
   if (!template) return parsedSections;
 
   const templateSections = normalizeArrayValue<Record<string, unknown>>(template.sections, []);
@@ -2681,10 +2707,9 @@ router.post("/tests", requireAuth, async (req, res) => {
     const { title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt, sections } = req.body;
     if (!title) return res.status(400).json({ error: "title required" });
 
-    const resolvedExamType = examType ? String(examType) : "custom";
-    const [template] = resolvedExamType && resolvedExamType !== "custom"
-      ? await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.key, resolvedExamType))
-      : [null];
+    const selectedTemplate = await findExamTemplateBySelection(examType);
+    const resolvedExamType = resolveExamTypeValue(examType, selectedTemplate);
+    const template = selectedTemplate;
 
     const resolvedDuration = durationMinutes ? Number(durationMinutes) : template?.durationMinutes ?? 30;
     const resolvedInstructions = typeof instructions === "string"
@@ -2746,10 +2771,8 @@ router.post("/tests/import", requireAuth, async (req, res) => {
     const importedSections = Array.isArray(test.sections) ? test.sections : [];
     const questions = Array.isArray(test.questions) ? test.questions : [];
     const importedExamConfig = normalizeObjectValue<Record<string, unknown> | null>(test.examConfig, null);
-    const normalizedExamType = normalizeExamKey(test.examType) ?? (typeof test.examType === "string" && test.examType.trim() ? test.examType.trim() : "custom");
-    const [matchedTemplate] = normalizedExamType && normalizedExamType !== "custom"
-      ? await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.key, normalizedExamType)).limit(1)
-      : [null];
+    const matchedTemplate = await findExamTemplateBySelection(test.examType);
+    const normalizedExamType = resolveExamTypeValue(test.examType, matchedTemplate);
 
     const preserveImportedSections = importedSections.length > 0;
     const storedExamConfig = preserveImportedSections
@@ -3368,12 +3391,10 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     if (title) updates.title = String(title);
     if (description !== undefined) updates.description = description ? String(description) : null;
     let selectedTemplate: any = null;
-    const normalizedPatchExamKey = examType !== undefined ? normalizeExamKey(examType) : null;
-    if (normalizedPatchExamKey) {
-      const [matchedTemplate] = await db.select().from(examTemplatesTable).where(eq(examTemplatesTable.key, normalizedPatchExamKey)).limit(1);
-      selectedTemplate = matchedTemplate ?? null;
+    if (examType !== undefined) {
+      selectedTemplate = await findExamTemplateBySelection(examType);
     }
-    if (examType !== undefined) updates.examType = normalizedPatchExamKey ?? (examType ? String(examType) : "custom");
+    if (examType !== undefined) updates.examType = resolveExamTypeValue(examType, selectedTemplate);
     if (examHeader !== undefined) updates.examHeader = examHeader ? String(examHeader) : null;
     if (examSubheader !== undefined) updates.examSubheader = examSubheader ? String(examSubheader) : null;
     if (instructions !== undefined) updates.instructions = instructions ? String(instructions) : null;

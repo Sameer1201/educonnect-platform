@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -334,9 +334,23 @@ function formatApiErrorMessage(rawMessage: string, fallbackMessage: string) {
   return normalized || fallbackMessage;
 }
 
-function normalizeExamTypeSelection(value: unknown, templates: ExamTemplate[]) {
+function normalizeExamTemplateKey(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return "";
-  const normalized = value.trim().toLowerCase();
+  const compact = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!compact) return "";
+  if (compact.includes("iit jam")) return "iit-jam";
+  if (compact.includes("jee main") || compact === "jee" || compact.includes("jee pattern")) return "jee-main";
+  if (compact.includes("gate")) return "gate";
+  if (compact.includes("cuet")) return "cuet";
+  if (compact.includes("neet")) return "neet";
+  if (compact.includes("cat")) return "cat";
+  if (compact === "custom") return "";
+  return compact.replace(/\s+/g, "-");
+}
+
+function normalizeExamTypeSelection(value: unknown, templates: ExamTemplate[]) {
+  const normalized = normalizeExamTemplateKey(value);
+  if (!normalized) return "";
   const matched = templates.find((template) => {
     const candidates = [
       template.key,
@@ -344,7 +358,7 @@ function normalizeExamTypeSelection(value: unknown, templates: ExamTemplate[]) {
       template.examHeader ?? "",
       template.examSubheader ?? "",
     ];
-    return candidates.some((candidate) => candidate.trim().toLowerCase() === normalized);
+    return candidates.some((candidate) => normalizeExamTemplateKey(candidate) === normalized);
   });
   return matched?.key ?? "";
 }
@@ -913,6 +927,21 @@ const FALLBACK_TEMPLATES: ExamTemplate[] = Object.entries(EXAM_PRESETS).map(([ke
   })),
 }));
 
+function getExamTemplateOptions(templates: ExamTemplate[]) {
+  const options = new Map<string, ExamTemplate>();
+
+  [...templates, ...FALLBACK_TEMPLATES].forEach((template, index) => {
+    const key =
+      normalizeExamTemplateKey(template.key) ||
+      normalizeExamTemplateKey(template.name) ||
+      `exam-${index + 1}`;
+    if (!key || options.has(key)) return;
+    options.set(key, { ...template, key });
+  });
+
+  return Array.from(options.values());
+}
+
 function makeSectionDraft(input?: Partial<SectionDraft>): SectionDraft {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -976,11 +1005,12 @@ export default function AdminTests() {
     refetchOnReconnect: true,
   });
 
-  const { data: examTemplates = FALLBACK_TEMPLATES } = useQuery<ExamTemplate[]>({
+  const { data: examTemplates = [] } = useQuery<ExamTemplate[]>({
     queryKey: ["exam-templates"],
     queryFn: fetchExamTemplatesList,
     staleTime: 60_000,
   });
+  const examTemplateOptions = useMemo(() => getExamTemplateOptions(examTemplates), [examTemplates]);
 
   const prefetchBuilderResources = (testId: number) => {
     void Promise.all([
@@ -1004,7 +1034,7 @@ export default function AdminTests() {
 
   const applyPreset = (preset: string) => {
     setNewExamType(preset);
-    const template = examTemplates.find((item) => item.key === preset) ?? FALLBACK_TEMPLATES.find((item) => item.key === preset);
+    const template = examTemplateOptions.find((item) => item.key === preset);
     if (!template) return;
     setNewExamHeader(template.examHeader ?? template.name);
     setNewExamSubheader(template.examSubheader ?? `${template.name} Mock Assessment`);
@@ -1026,12 +1056,12 @@ export default function AdminTests() {
 
   useEffect(() => {
     if (!createOpen) return;
-    const templateExists = examTemplates.some((template) => template.key === newExamType);
+    const templateExists = examTemplateOptions.some((template) => template.key === newExamType);
     if (!newExamType || !templateExists) {
-      const firstTemplate = examTemplates[0] ?? FALLBACK_TEMPLATES[0];
+      const firstTemplate = examTemplateOptions[0];
       if (firstTemplate) applyPreset(firstTemplate.key);
     }
-  }, [createOpen, examTemplates, newExamType]);
+  }, [createOpen, examTemplateOptions, newExamType]);
 
   const totalTests = tests.length;
   const publishedTests = tests.filter((test) => test.isPublished).length;
@@ -1223,7 +1253,7 @@ export default function AdminTests() {
       });
       if (!r.ok) {
         const message = await r.text();
-        throw new Error(message || "Failed to import test");
+        throw new Error(formatApiErrorMessage(message, "Failed to import test"));
       }
       return r.json();
     },
@@ -1508,9 +1538,9 @@ export default function AdminTests() {
       setImportFilename(file.name);
       setImportExamType(
         normalizeExamTypeSelection(
-          parsed.test.examType ?? parsed.source?.examType ?? "",
-          examTemplates,
-        ),
+          parsed.test.examType ?? parsed.source?.examType ?? parsed.test.examHeader ?? parsed.test.title ?? "",
+          examTemplateOptions,
+        ) || examTemplateOptions[0]?.key || "",
       );
       setImportScheduled(formatDateTimeLocalValue(parsed.test.scheduledAt ?? null));
       setImportOpen(true);
@@ -2002,8 +2032,8 @@ export default function AdminTests() {
                     <Select value={newExamType} onValueChange={(value) => applyPreset(value)}>
                       <SelectTrigger><SelectValue placeholder="Select structure" /></SelectTrigger>
                       <SelectContent>
-                        {examTemplates.map((template) => (
-                          <SelectItem key={template.id} value={template.key}>
+                        {examTemplateOptions.map((template) => (
+                          <SelectItem key={template.key} value={template.key}>
                             {template.name}
                           </SelectItem>
                         ))}
@@ -2080,8 +2110,8 @@ export default function AdminTests() {
                     <SelectValue placeholder="Select exam" />
                   </SelectTrigger>
                   <SelectContent>
-                    {examTemplates.map((template) => (
-                      <SelectItem key={template.id} value={template.key}>
+                    {examTemplateOptions.map((template) => (
+                      <SelectItem key={template.key} value={template.key}>
                         {template.name}
                       </SelectItem>
                     ))}
