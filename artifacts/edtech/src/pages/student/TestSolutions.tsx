@@ -4,10 +4,12 @@ import { useLocation, useParams } from "wouter";
 import {
   ArrowLeft,
   BookOpen,
+  Calculator,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Flag,
+  Filter,
 } from "lucide-react";
 import { QuestionAnalysisSummary } from "@/components/student/QuestionAnalysisSummary";
 import { Button } from "@/components/ui/button";
@@ -40,6 +42,8 @@ type SolutionQuestion = {
   correctAnswerMulti?: number[] | null;
   correctAnswerMin?: number | null;
   correctAnswerMax?: number | null;
+  points?: number | null;
+  negativeMarks?: number | null;
   solutionText?: string | null;
   solutionImageData?: string | null;
   solutionSource?: "teacher" | "ai" | "none";
@@ -157,6 +161,13 @@ const FILTER_ACCENTS: Record<FilterKey, FilterAccent> = {
     badgeText: "#334155",
   },
 };
+
+const MOBILE_FILTERS: Array<{ key: FilterKey; label: string; dotClass: string }> = [
+  { key: "all", label: "All", dotClass: "bg-violet-500" },
+  { key: "correct", label: "Correct", dotClass: "bg-emerald-500" },
+  { key: "incorrect", label: "Incorrect", dotClass: "bg-rose-500" },
+  { key: "unattempted", label: "Unattempted", dotClass: "bg-zinc-400" },
+];
 
 function renderCorrectAnswer(question: SolutionQuestion) {
   const type = String(question.questionType ?? "mcq").toLowerCase();
@@ -311,6 +322,41 @@ function getReportStatusMeta(status?: string | null) {
   };
 }
 
+function formatCompactSeconds(seconds: number) {
+  const safe = Math.max(0, Math.round(Number(seconds) || 0));
+  if (safe <= 0) return "—";
+  if (safe < 60) return `${safe}s`;
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`;
+}
+
+function formatMarkValue(value: unknown, fallback: number) {
+  const numberValue = Number(value);
+  const safe = Number.isFinite(numberValue) ? numberValue : fallback;
+  return safe.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function getQuestionMarkingScheme(question: EnrichedQuestion | null | undefined) {
+  const points = formatMarkValue(question?.points, 1);
+  const negative = formatMarkValue(Math.abs(Number(question?.negativeMarks ?? 0)), 0);
+  return `+${points} / ${negative === "0" ? "0" : `-${negative}`}`;
+}
+
+function getMobileQuestionButtonClass(active: boolean, status: EnrichedQuestion["userStatus"]) {
+  const base = "flex h-10 items-center justify-center rounded-md border text-[13px] font-medium transition-all active:scale-95";
+  if (active) return `${base} border-zinc-900 bg-zinc-900 text-white`;
+  if (status === "incorrect") return `${base} border-rose-100 bg-rose-50 text-rose-600`;
+  if (status === "correct") return `${base} border-emerald-100 bg-emerald-50 text-emerald-600`;
+  return `${base} border-zinc-200 bg-white text-zinc-700`;
+}
+
+function percentOf(value: number | undefined, total: number | undefined) {
+  const safeTotal = Number(total ?? 0);
+  if (!safeTotal) return 0;
+  return ((Number(value ?? 0) / safeTotal) * 100);
+}
+
 export default function StudentTestSolutions() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -323,6 +369,8 @@ export default function StudentTestSolutions() {
   const [hoveredFilter, setHoveredFilter] = useState<FilterKey | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
+  const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
+  const [mobileQuestionVisible, setMobileQuestionVisible] = useState(false);
   const [isAtSolutionSection, setIsAtSolutionSection] = useState(false);
   const [pendingReportQuestion, setPendingReportQuestion] = useState<EnrichedQuestion | null>(null);
   const [reportReason, setReportReason] = useState("");
@@ -481,6 +529,11 @@ export default function StudentTestSolutions() {
     [selectedQuestionId, visibleItems],
   );
 
+  useEffect(() => {
+    setMobilePaletteOpen(false);
+    setMobileQuestionVisible(false);
+  }, [currentQuestion?.id]);
+
   const currentIndex = currentQuestion ? visibleItems.findIndex((entry) => entry.id === currentQuestion.id) : -1;
   const previousQuestion = currentIndex > 0 ? visibleItems[currentIndex - 1] : null;
   const nextQuestion = currentIndex >= 0 && currentIndex < visibleItems.length - 1 ? visibleItems[currentIndex + 1] : null;
@@ -517,6 +570,14 @@ export default function StudentTestSolutions() {
     const selectedIndex = grouped.findIndex((subject) => subject.label === selectedSubject?.label);
     return getSubjectAccent(selectedSubject?.label ?? "General", selectedIndex >= 0 ? selectedIndex : 0);
   }, [grouped, selectedSubject]);
+
+  const mobileAllottedSeconds = Number((currentQuestion?.meta as Record<string, unknown> | null)?.estimatedTimeSeconds ?? 0) || 0;
+  const mobileAttemptedCount = currentQuestion?.classAttemptedCount ?? 0;
+  const mobileRightPercent = percentOf(currentQuestion?.classCorrectCount, mobileAttemptedCount);
+  const mobileWrongPercent = percentOf(currentQuestion?.classWrongCount, mobileAttemptedCount);
+  const mobileTotalResponses = mobileAttemptedCount + (currentQuestion?.classSkippedCount ?? 0);
+  const mobileSkippedPercent = percentOf(currentQuestion?.classSkippedCount, mobileTotalResponses);
+  const mobileMarkingScheme = getQuestionMarkingScheme(currentQuestion);
 
   const loading = analysisQuery.isLoading || solutionsQuery.isLoading;
   const errorMessage =
@@ -560,8 +621,200 @@ export default function StudentTestSolutions() {
   }
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-[#F8FAFC] text-[#111827]">
-      <div className="flex h-full min-h-0 flex-col overflow-hidden font-sans">
+    <div className="min-h-[100dvh] bg-zinc-200 text-[#111827] lg:h-[100dvh] lg:overflow-hidden lg:bg-[#F8FAFC]">
+      <div className="flex min-h-[100dvh] justify-center bg-zinc-200 lg:hidden">
+        <div className="relative min-h-[100dvh] w-full max-w-[420px] bg-zinc-50 pb-32 font-sans text-zinc-900 antialiased shadow-xl">
+          <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white">
+            <div className="flex items-start gap-3 px-4 pb-3 pt-3">
+              <button
+                type="button"
+                onClick={() => setLocation(`/student/tests/${id}/analysis`)}
+                className="-ml-1 mt-0.5 rounded-md p-1 text-zinc-600 transition hover:bg-zinc-100 active:bg-zinc-200"
+                aria-label="Back to Analysis"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Solutions</div>
+                <h1 className="truncate text-[13px] font-semibold leading-snug text-zinc-900">
+                  {analysisQuery.data?.test?.title ?? "Solutions"}
+                </h1>
+              </div>
+            </div>
+          </header>
+
+          <div className="border-b border-zinc-200 bg-white px-4">
+            <div className="inline-flex items-center gap-2 rounded-t-md border-t-2 border-orange-500 bg-orange-50/40 px-3 py-2">
+              <Calculator className="h-3.5 w-3.5 text-orange-500" />
+              <span className="text-[12px] font-semibold text-orange-600">{mobileMarkingScheme}</span>
+            </div>
+          </div>
+
+          {currentQuestion ? (
+            <>
+              <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="text-[14px] font-bold text-zinc-900">Q{currentQuestion.displayNumber}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+                    {getDifficulty(currentQuestion)}
+                  </span>
+                  {currentQuestion.report?.status === "rejected" ? (
+                    <span className="ml-1 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                      Report rejected
+                    </span>
+                  ) : currentQuestion.report?.status === "open" ? (
+                    <span className="ml-1 whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                      Reported
+                    </span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingReportQuestion(currentQuestion);
+                    setReportReason("");
+                  }}
+                  disabled={currentQuestion.report?.status === "open" || reportQuestionMutation.isPending}
+                  className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 transition hover:bg-zinc-50 active:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Flag className="h-3 w-3" />
+                  {currentQuestion.report?.status === "open" ? "Reported" : currentQuestion.report ? "Report again" : "Report"}
+                </button>
+              </div>
+
+              <main className="space-y-4 px-4">
+                {mobileQuestionVisible ? (
+                  <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                    <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Question</div>
+                    <RichQuestionContent content={currentQuestion.question} className="text-[14px] leading-relaxed text-zinc-800" />
+                    {currentQuestion.imageData ? (
+                      <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                        <img src={currentQuestion.imageData} alt="" className="max-h-72 rounded object-contain" />
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                <section className="space-y-2">
+                  <div className="mb-1 mt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">Explanation</div>
+                  {currentQuestion.solutionText?.trim() || currentQuestion.solutionImageData ? (
+                    <>
+                      {currentQuestion.solutionText?.trim() ? (
+                        <RichQuestionContent content={currentQuestion.solutionText} className="text-[13px] leading-relaxed text-zinc-600" />
+                      ) : null}
+                      {currentQuestion.solutionImageData ? (
+                        <div className="rounded-lg border border-zinc-200 bg-white p-3">
+                          <img src={currentQuestion.solutionImageData} alt="" className="max-h-96 rounded object-contain" />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="text-[13px] leading-relaxed text-zinc-600">No teacher solution was attached to this question.</p>
+                  )}
+                </section>
+
+                <section className="grid grid-cols-2 gap-2 pt-2">
+                  <MobileStatCard
+                    label="Time spent"
+                    sub="Out of allotted time"
+                    value={`${formatCompactSeconds(currentQuestion.myTime ?? 0)} / ${formatCompactSeconds(mobileAllottedSeconds)}`}
+                    valueClass={(currentQuestion.myTime ?? 0) > mobileAllottedSeconds * 0.7 && mobileAllottedSeconds > 0 ? "text-rose-500" : "text-orange-500"}
+                  />
+                  <MobileStatCard
+                    label="Average time"
+                    sub=" "
+                    value={formatCompactSeconds(currentQuestion.classAvgTime ?? 0)}
+                    valueClass="text-zinc-900"
+                  />
+                  <MobileStatCard
+                    label="Got it right"
+                    sub="Of those who attempted"
+                    value={`${mobileRightPercent.toFixed(2)}%`}
+                    valueClass="text-emerald-600"
+                  />
+                  <MobileStatCard
+                    label="Got it wrong"
+                    sub="Of those who attempted"
+                    value={`${mobileWrongPercent.toFixed(2)}%`}
+                    valueClass="text-rose-500"
+                  />
+                  <div className="col-span-2">
+                    <MobileStatCard
+                      label="Skipped"
+                      sub=" "
+                      value={`${mobileSkippedPercent.toFixed(2)}%`}
+                      valueClass="text-zinc-900"
+                    />
+                  </div>
+                </section>
+              </main>
+
+              <div className="pointer-events-none fixed inset-x-0 bottom-24 z-30 flex justify-center">
+                <div className="flex w-full max-w-[420px] justify-end px-4">
+                  <button
+                    type="button"
+                    onClick={() => setMobilePaletteOpen(true)}
+                    className="pointer-events-auto flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2.5 text-white shadow-lg shadow-zinc-900/25 transition-transform active:scale-95"
+                  >
+                    <Filter className="h-4 w-4" />
+                    <span className="text-[12px] font-semibold">All Questions</span>
+                    <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[11px]">{subjectSummary.all}</span>
+                  </button>
+                </div>
+              </div>
+
+              <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[420px] -translate-x-1/2 border-t border-zinc-200 bg-white">
+                <div className="grid grid-cols-3 items-center gap-2 px-3 py-3">
+                  <button
+                    type="button"
+                    onClick={() => previousQuestion && setSelectedQuestionId(previousQuestion.id)}
+                    disabled={!previousQuestion}
+                    className="h-11 rounded-full border border-zinc-200 text-[13px] font-medium transition disabled:bg-zinc-50 disabled:text-zinc-400 enabled:bg-white enabled:text-zinc-700 enabled:hover:bg-zinc-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileQuestionVisible((value) => !value)}
+                    className="flex h-11 items-center justify-center gap-1.5 rounded-full bg-zinc-900 text-[13px] font-semibold text-white shadow transition-transform active:scale-[0.98]"
+                  >
+                    {mobileQuestionVisible ? "Hide Question" : "View Question"}
+                    {mobileQuestionVisible ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => nextQuestion && setSelectedQuestionId(nextQuestion.id)}
+                    disabled={!nextQuestion}
+                    className="h-11 rounded-full border border-zinc-200 text-[13px] font-medium transition disabled:bg-zinc-50 disabled:text-zinc-400 enabled:bg-white enabled:text-zinc-700 enabled:hover:bg-zinc-50"
+                  >
+                    Next
+                  </button>
+                </div>
+                <div style={{ height: "env(safe-area-inset-bottom)" }} />
+              </nav>
+
+              <MobilePaletteSheet
+                open={mobilePaletteOpen}
+                onClose={() => setMobilePaletteOpen(false)}
+                markingScheme={mobileMarkingScheme}
+                activeQuestionId={currentQuestion.id}
+                filter={filter}
+                setFilter={setFilter}
+                counts={subjectSummary}
+                questions={visibleItems}
+                onSelect={(questionId) => {
+                  setSelectedQuestionId(questionId);
+                  setMobilePaletteOpen(false);
+                }}
+              />
+            </>
+          ) : (
+            <div className="px-6 py-20 text-center text-sm text-zinc-500">No questions match the selected filter.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="hidden h-full min-h-0 flex-col overflow-hidden font-sans lg:flex">
         <header className="border-b border-[#E2E8F0] bg-white px-4 py-3">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-2">
@@ -993,6 +1246,125 @@ export default function StudentTestSolutions() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MobileStatCard({
+  label,
+  sub,
+  value,
+  valueClass,
+}: {
+  label: string;
+  sub: string;
+  value: string;
+  valueClass: string;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white px-3 py-3 shadow-[0_1px_0_rgba(0,0,0,0.02)]">
+      <div className="text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{label}</div>
+      <div className="min-h-[12px] text-[10px] leading-tight text-zinc-400">{sub}</div>
+      <div className={`mt-1.5 text-[15px] font-bold ${valueClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function MobilePaletteSheet({
+  open,
+  onClose,
+  markingScheme,
+  activeQuestionId,
+  filter,
+  setFilter,
+  counts,
+  questions,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  markingScheme: string;
+  activeQuestionId: number | null;
+  filter: FilterKey;
+  setFilter: (key: FilterKey) => void;
+  counts: Record<FilterKey, number>;
+  questions: EnrichedQuestion[];
+  onSelect: (questionId: number) => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-40 bg-zinc-900/40 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        className="absolute bottom-0 left-1/2 flex max-h-[85dvh] w-full max-w-[420px] -translate-x-1/2 flex-col rounded-t-2xl bg-white"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex flex-col items-center border-b border-zinc-100 pb-3 pt-2">
+          <div className="mb-3 h-1 w-10 rounded-full bg-zinc-200" />
+          <div className="flex w-full items-center justify-between px-4">
+            <div className="text-[14px] font-semibold text-zinc-900">All {markingScheme} Questions</div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex items-center gap-1 text-[12px] font-semibold text-blue-600"
+            >
+              Hide
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-2 border-b border-zinc-100 px-4 pb-3 pt-3">
+          {MOBILE_FILTERS.map((item) => {
+            const active = filter === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setFilter(item.key)}
+                className={`flex flex-col items-center gap-1 rounded-lg border py-2 transition-colors ${
+                  active ? "border-violet-300 bg-violet-50" : "border-zinc-200 bg-white"
+                }`}
+              >
+                <span className={`text-[10px] font-semibold uppercase tracking-wide ${active ? "text-violet-700" : "text-zinc-500"}`}>
+                  {item.label}
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className={`h-1.5 w-1.5 rounded-full ${item.dotClass}`} />
+                  <span className="text-[12px] font-bold text-zinc-900">{counts[item.key]}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          {questions.length > 0 ? (
+            <div className="grid grid-cols-5 gap-2">
+              {questions.map((question) => (
+                <button
+                  key={question.id}
+                  type="button"
+                  onClick={() => onSelect(question.id)}
+                  className={getMobileQuestionButtonClass(question.id === activeQuestionId, question.userStatus)}
+                  aria-label={`Question ${question.displayNumber}`}
+                >
+                  {question.displayNumber}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="px-6 py-10 text-center">
+              <div className="text-[14px] font-semibold text-zinc-900">No questions here</div>
+              <p className="mt-1 text-[12px] text-zinc-500">Try another filter bucket.</p>
+            </div>
+          )}
+          <div className="h-6" />
+        </div>
+      </div>
     </div>
   );
 }
