@@ -170,6 +170,9 @@ function iconKeyForLabel(label: string) {
 function colorForLabel(label: string, index = 0) {
   const value = label.toLowerCase();
   if (value === "overall") return "#6366f1";
+  if (value.includes("physical")) return "#0ea5e9";
+  if (value.includes("organic")) return "#22c55e";
+  if (value.includes("inorganic")) return "#8b5cf6";
   if (value.includes("physics")) return "#22c55e";
   if (value.includes("chem")) return "#f97316";
   if (value.includes("math")) return "#3b82f6";
@@ -231,6 +234,93 @@ function getQuestionDetailedSubjectLabel(question: AnalysisQuestion, sectionsByI
   }
 
   return sectionLabel;
+}
+
+function normalizeAnalysisKey(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function isMarksOnlyLabel(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return true;
+  return /^[+-]?\d+(?:\.\d+)?\s*\/\s*-?\d+(?:\.\d+)?$/.test(normalized) ||
+    /^[+-]?\d+(?:\.\d+)?\s*marks?\s*\/\s*-?\d+(?:\.\d+)?/i.test(normalized);
+}
+
+function isCpetExam(response: AnalysisResponse) {
+  const text = [
+    response.test.examType,
+    response.test.title,
+    response.test.examHeader,
+    response.test.examSubheader,
+    response.test.description,
+  ].map((value) => normalizeAnalysisKey(value)).join(" ");
+
+  return /\bcpet\b/.test(text) || text.includes("common p g entrance") || text.includes("common pg entrance");
+}
+
+function classifyCpetChemistrySubject(...values: Array<string | null | undefined>) {
+  const text = normalizeAnalysisKey(values.filter(Boolean).join(" "));
+  if (!text) return null;
+
+  if (/\b(organic|goc|hydrocarbon|alkane|alkene|alkyne|alkyl|aryl|aromatic|benzene|haloalkane|haloarene|alcohol|phenol|ether|aldehyde|ketone|carbonyl|carboxylic|amine|amide|ester|biomolecule|polymer|isomerism|stereochemistry|reaction mechanism|named reaction|grignard|diazonium|nitro|aniline)\b/.test(text)) {
+    return "Organic Chemistry";
+  }
+
+  if (/\b(inorganic|coordination|coordinate|complex|complexes|crystal field|ligand|periodic|periodicity|s block|p block|d block|f block|metallurgy|ore|qualitative|salt analysis|chemical bonding|molecular orbital|bond order|vsepr|fajan|hybridization|organometallic|bioinorganic)\b/.test(text)) {
+    return "Inorganic Chemistry";
+  }
+
+  if (/\b(physical|atomic structure|hydrogen spectrum|electronic transition|quantum|electron configuration|mole|stoichiometry|gaseous|liquid|solid state|thermodynamics|thermochemistry|equilibrium|equilibria|ionic equilibrium|acid base|buffer|solubility|ksp|solution|molarity|molality|colligative|electrochemistry|kinetics|rate law|surface chemistry|adsorption|catalysis|phase rule|nuclear|radioactivity|redox|conductance)\b/.test(text)) {
+    return "Physical Chemistry";
+  }
+
+  return null;
+}
+
+function resolveSubjectLabelForAnalysis({
+  response,
+  sectionSubject,
+  detailSubject,
+  chapter,
+  topic,
+  question,
+  expandTechnical,
+}: {
+  response: AnalysisResponse;
+  sectionSubject: string;
+  detailSubject: string;
+  chapter: string;
+  topic: string;
+  question: AnalysisQuestion;
+  expandTechnical?: boolean;
+}) {
+  const baseSubject = expandTechnical && isTechnicalSectionLabel(sectionSubject)
+    ? detailSubject
+    : sectionSubject;
+
+  if (isCpetExam(response)) {
+    const classified = classifyCpetChemistrySubject(
+      chapter,
+      topic,
+      question.subjectName,
+      String(question.meta?.subjectName ?? ""),
+      question.subjectLabel,
+      sectionSubject,
+      question.question,
+    );
+    if (classified) return classified;
+    if (isMarksOnlyLabel(baseSubject) || normalizeAnalysisKey(baseSubject).includes("cpet")) return "Chemistry";
+  }
+
+  if (isMarksOnlyLabel(baseSubject)) {
+    return isMarksOnlyLabel(detailSubject) ? safeLabel(chapter, "Section") : detailSubject;
+  }
+
+  return baseSubject;
 }
 
 function getAttemptQuality(question: {
@@ -382,9 +472,31 @@ export function buildAnalysisDataset(response: AnalysisResponse, options: BuildA
     .map((question) => {
       const sectionSubject = getQuestionSectionLabel(question, sectionsById, response.test.title || "Section");
       const detailSubject = getQuestionDetailedSubjectLabel(question, sectionsById, response.test.title || "Section");
-      const subject = options.expandTechnical && isTechnicalSectionLabel(sectionSubject)
-        ? detailSubject
-        : sectionSubject;
+      const chapter = safeLabel(
+        firstTrimmedLabel(
+          question.chapterName,
+          String(question.meta?.chapterName ?? ""),
+        ),
+        "Unspecified",
+      );
+      const topic = safeLabel(
+        firstTrimmedLabel(
+          question.topicTag,
+          String(question.meta?.topicTag ?? ""),
+          String(question.meta?.topicName ?? ""),
+          String(question.meta?.topic ?? ""),
+        ),
+        "General",
+      );
+      const subject = resolveSubjectLabelForAnalysis({
+        response,
+        sectionSubject,
+        detailSubject,
+        chapter,
+        topic,
+        question,
+        expandTechnical: options.expandTechnical,
+      });
       const difficulty = getDifficulty(question.meta);
       const idealSeconds = getIdealSeconds(question.meta, difficulty);
       const timeSpent = Number(question.myTime || 0);
@@ -427,22 +539,8 @@ export function buildAnalysisDataset(response: AnalysisResponse, options: BuildA
           review,
         }),
         scoreImpact: question.isCorrect ? Number(question.points || 0) : attempted ? -Number(question.negativeMarks || 0) : 0,
-        chapter: safeLabel(
-          firstTrimmedLabel(
-            question.chapterName,
-            String(question.meta?.chapterName ?? ""),
-          ),
-          "Unspecified",
-        ),
-        topic: safeLabel(
-          firstTrimmedLabel(
-            question.topicTag,
-            String(question.meta?.topicTag ?? ""),
-            String(question.meta?.topicName ?? ""),
-            String(question.meta?.topic ?? ""),
-          ),
-          "General",
-        ),
+        chapter,
+        topic,
         typeLabel: getQuestionTypeLabel(question.questionType),
         interactionTime: pickFinalEventTime(question.id, interactionLog, timeSpent, cumulativeTime),
       };

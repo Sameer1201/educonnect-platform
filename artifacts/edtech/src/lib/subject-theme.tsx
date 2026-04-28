@@ -126,6 +126,24 @@ const subjectDefinitions: SubjectDefinition[] = [
     aliases: ["physics"],
   },
   {
+    key: "physical-chemistry",
+    color: palette.teal,
+    icon: Orbit,
+    aliases: ["physical chemistry", "physical"],
+  },
+  {
+    key: "organic-chemistry",
+    color: palette.green,
+    icon: Braces,
+    aliases: ["organic chemistry", "organic"],
+  },
+  {
+    key: "inorganic-chemistry",
+    color: palette.violet,
+    icon: FlaskConical,
+    aliases: ["inorganic chemistry", "inorganic"],
+  },
+  {
     key: "chemistry",
     color: palette.orange,
     icon: FlaskConical,
