@@ -70,6 +70,14 @@ type SolutionSection = {
   items: SolutionQuestion[];
 };
 
+type SolutionTestMeta = {
+  title?: string | null;
+  description?: string | null;
+  examType?: string | null;
+  examHeader?: string | null;
+  examSubheader?: string | null;
+};
+
 type QuestionState = {
   classAttemptedCount?: number;
   classAvgTime?: number;
@@ -195,6 +203,41 @@ function getTopicLine(question: EnrichedQuestion) {
         : "";
   if (chapter && topic) return `${chapter} • ${topic}`;
   return chapter || topic || question.sectionLabel;
+}
+
+function normalizeSolutionKey(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9.+/-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isMarksOnlySectionLabel(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return true;
+  return /^[+-]?\d+(?:\.\d+)?\s*\/\s*-?\d+(?:\.\d+)?(?:\s*questions?)?$/i.test(normalized) ||
+    /^[+-]?\d+(?:\.\d+)?\s*marks?\s*\/\s*-?\d+(?:\.\d+)?/i.test(normalized);
+}
+
+function isCpetTest(test: SolutionTestMeta | null | undefined) {
+  const text = [
+    test?.examType,
+    test?.title,
+    test?.examHeader,
+    test?.examSubheader,
+    test?.description,
+  ].map((value) => normalizeSolutionKey(value)).join(" ");
+
+  return /\bcpet\b/.test(text) || text.includes("common p g entrance") || text.includes("common pg entrance");
+}
+
+function getSolutionSectionLabel(section: SolutionSection, test: SolutionTestMeta | null | undefined) {
+  const raw = String(section.subjectLabel ?? section.title ?? "").trim();
+  if (isCpetTest(test) && (isMarksOnlySectionLabel(raw) || normalizeSolutionKey(raw).includes("cpet"))) {
+    return "Chemistry";
+  }
+  return raw || "Section";
 }
 
 function isCorrectOption(question: EnrichedQuestion, optionIndex: number) {
@@ -366,11 +409,12 @@ export default function StudentTestSolutions() {
 
   const grouped = useMemo(() => {
     let runningNumber = 1;
+    const testMeta = analysisQuery.data?.test as SolutionTestMeta | null | undefined;
     return ((solutionsQuery.data?.sections ?? []) as SolutionSection[])
       .slice()
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       .map((section) => {
-        const label = section.subjectLabel ?? section.title;
+        const label = getSolutionSectionLabel(section, testMeta);
         const items = (section.items ?? []).map((question) => {
           const state = questionStateMap.get(question.id);
           const userStatus: EnrichedQuestion["userStatus"] = state?.isSkipped
@@ -402,7 +446,7 @@ export default function StudentTestSolutions() {
           items,
         };
       });
-  }, [questionStateMap, solutionsQuery.data?.sections]);
+  }, [analysisQuery.data?.test, questionStateMap, solutionsQuery.data?.sections]);
 
   useEffect(() => {
     if (!grouped.length) {
