@@ -82,6 +82,20 @@ function isQuestionBankLocked(cls: QuestionBankClassRow) {
   return Boolean(cls.isLocked);
 }
 
+function parseBooleanInput(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "lock", "locked"].includes(normalized)) return true;
+    if (["false", "0", "no", "unlock", "unlocked"].includes(normalized)) return false;
+  }
+  return null;
+}
+
 function safeParseArray<T>(value: string | null | undefined, fallback: T[]): T[] {
   if (!value) return fallback;
   try {
@@ -786,7 +800,11 @@ router.patch("/question-bank/cards/:id/lock", async (req, res) => {
     return res.status(404).json({ error: "Question bank card not found" });
   }
 
-  const lockValue = Boolean(req.body?.isLocked);
+  const lockValue = parseBooleanInput(req.body?.isLocked);
+  if (lockValue === null) {
+    return res.status(400).json({ error: "isLocked must be true or false" });
+  }
+
   const updatedResult = await db.execute(sql<{ id: number; isLocked: boolean }>`
     update classes
     set is_locked = ${lockValue}, updated_at = now()

@@ -419,17 +419,31 @@ export default function PlannerQuestionBank() {
 
       return response.json();
     },
-    onSuccess: (_payload, variables) => {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["planner-question-bank-cards"] });
+      const previousCards = queryClient.getQueryData<PlannerQuestionBankCard[]>(["planner-question-bank-cards"]);
+      queryClient.setQueryData<PlannerQuestionBankCard[]>(["planner-question-bank-cards"], (current = []) =>
+        current.map((card) => card.id === variables.cardId ? { ...card, isLocked: variables.isLocked } : card),
+      );
+      return { previousCards };
+    },
+    onSuccess: (payload: { id: number; isLocked: boolean }, variables) => {
+      queryClient.setQueryData<PlannerQuestionBankCard[]>(["planner-question-bank-cards"], (current = []) =>
+        current.map((card) => card.id === payload.id ? { ...card, isLocked: payload.isLocked } : card),
+      );
       queryClient.invalidateQueries({ queryKey: ["planner-question-bank-cards"] });
       queryClient.invalidateQueries({ queryKey: ["planner-question-bank-detail", variables.cardId] });
       toast({
-        title: variables.isLocked ? "Question bank locked" : "Question bank unlocked",
-        description: variables.isLocked
+        title: payload.isLocked ? "Question bank locked" : "Question bank unlocked",
+        description: payload.isLocked
           ? "Editing is now disabled for this question bank."
           : "Editing is enabled again for this question bank.",
       });
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _variables, context) => {
+      if (context?.previousCards) {
+        queryClient.setQueryData(["planner-question-bank-cards"], context.previousCards);
+      }
       toast({
         title: "Could not update lock state",
         description: error.message,
@@ -736,6 +750,7 @@ export default function PlannerQuestionBank() {
           <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
             {filteredCards.map((card) => {
               const progress = getProgress(card);
+              const lockActionLabel = card.isLocked ? "Unlock question bank" : "Lock question bank";
               return (
                 <Card key={card.id} className="flex flex-col hover:shadow-md transition-shadow">
                   <CardHeader>
@@ -802,10 +817,10 @@ export default function PlannerQuestionBank() {
                         className="shrink-0"
                         onClick={() => toggleQuestionBankLock.mutate({ cardId: card.id, isLocked: !card.isLocked })}
                         disabled={toggleQuestionBankLock.isPending}
-                        aria-label={card.isLocked ? `Unlock ${card.title}` : `Lock ${card.title}`}
-                        title={card.isLocked ? "Locked question bank" : "Unlocked question bank"}
+                        aria-label={`${lockActionLabel}: ${card.title}`}
+                        title={lockActionLabel}
                       >
-                        {card.isLocked ? <Lock className="h-4 w-4" /> : <LockOpen className="h-4 w-4" />}
+                        {card.isLocked ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
                       </Button>
                       <Button
                         type="button"

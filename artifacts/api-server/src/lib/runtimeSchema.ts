@@ -9,6 +9,7 @@ const statements = [
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS default_positive_marks real NOT NULL DEFAULT 1`,
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS default_negative_marks real NOT NULL DEFAULT 0`,
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS scheduled_at timestamptz`,
+  `ALTER TABLE classes ADD COLUMN IF NOT EXISTS is_locked boolean NOT NULL DEFAULT false`,
   `CREATE TABLE IF NOT EXISTS test_sections (
     id serial PRIMARY KEY,
     test_id integer NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
