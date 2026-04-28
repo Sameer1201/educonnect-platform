@@ -6,6 +6,7 @@ import { seedDefaultUsers } from "./seed";
 import { createLiveServer, handleUpgrade } from "./live";
 import { startDigestScheduler } from "./lib/digestScheduler";
 import { startPendingReviewScheduler } from "./lib/pendingReviewScheduler";
+import { ensureRuntimeSchema } from "./lib/runtimeSchema";
 
 const rawPort = process.env["PORT"];
 
@@ -28,7 +29,8 @@ server.on("upgrade", (req, socket, head) => {
   handleUpgrade(wss, req, socket, head);
 });
 
-seedDefaultUsers()
+ensureRuntimeSchema()
+  .then(() => seedDefaultUsers())
   .then(() => {
     server.listen(port, (err?: Error) => {
       if (err) {
