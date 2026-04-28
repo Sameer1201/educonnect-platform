@@ -817,42 +817,54 @@ function formatTimeLabel(totalSeconds: number) {
 
 function LiveTimeIndicator({
   initialSeconds,
+  deadlineAtMs,
   onTick,
   onExpire,
   className,
 }: {
   initialSeconds: number;
+  deadlineAtMs?: number | null;
   onTick: (seconds: number) => void;
   onExpire: () => void;
   className: string;
 }) {
   const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
   const didExpireRef = useRef(false);
+  const onTickRef = useRef(onTick);
+  const onExpireRef = useRef(onExpire);
+
+  useEffect(() => {
+    onTickRef.current = onTick;
+  }, [onTick]);
+
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  }, [onExpire]);
 
   useEffect(() => {
     setSecondsLeft(initialSeconds);
-    onTick(initialSeconds);
+    onTickRef.current(initialSeconds);
     didExpireRef.current = false;
 
     const startedAt = Date.now();
     const seed = initialSeconds;
+    const deadline = deadlineAtMs ?? startedAt + seed * 1000;
 
     const update = () => {
-      const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
-      const nextSeconds = Math.max(0, seed - elapsedSeconds);
-      onTick(nextSeconds);
+      const nextSeconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      onTickRef.current(nextSeconds);
       setSecondsLeft((current) => (current === nextSeconds ? current : nextSeconds));
 
       if (nextSeconds === 0 && !didExpireRef.current) {
         didExpireRef.current = true;
-        onExpire();
+        onExpireRef.current();
       }
     };
 
     update();
     const intervalId = window.setInterval(update, 250);
     return () => window.clearInterval(intervalId);
-  }, [initialSeconds, onExpire, onTick]);
+  }, [deadlineAtMs, initialSeconds]);
 
   return (
     <div className={`${className} ${secondsLeft <= 300 ? "animate-pulse text-red-700" : "text-[#2b2b2b]"}`}>
@@ -1135,6 +1147,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
   const [answers, setAnswers] = useState<Record<number, AnswerValue>>({});
   const [savedAnswers, setSavedAnswers] = useState<Record<number, AnswerValue>>({});
   const [timerInitialSeconds, setTimerInitialSeconds] = useState(0);
+  const [timerDeadlineMs, setTimerDeadlineMs] = useState<number | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [visitedSet, setVisitedSet] = useState<Set<number>>(new Set());
   const [reviewSet, setReviewSet] = useState<Set<number>>(new Set());
@@ -1153,7 +1166,9 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
   const [questionTimings, setQuestionTimings] = useState<Record<number, number>>({});
   const timingActiveRef = useRef<{ qId: number; startMs: number } | null>(null);
   const timeLeftRef = useRef(0);
+  const timerDeadlineMsRef = useRef<number | null>(null);
   const autoSubmitTriggeredRef = useRef(false);
+  const autoSubmitRetryAtRef = useRef(0);
   const activeTestRef = useRef<TestDetail | null>(null);
   const answersRef = useRef<Record<number, AnswerValue>>({});
   const savedAnswersRef = useRef<Record<number, AnswerValue>>({});
@@ -1204,9 +1219,27 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
   const saveDraft = (test: TestDetail, draft: SavedTestDraft) => {
     localStorage.setItem(getDraftKey(test.id), JSON.stringify(draft));
   };
+  const getCurrentTimeLeftSeconds = () => {
+    const deadline = timerDeadlineMsRef.current;
+    if (!deadline) return Math.max(0, timeLeftRef.current);
+    return Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+  };
+  const seedAttemptTimer = (initialSeconds: number) => {
+    const normalizedSeconds = Math.max(0, Math.floor(initialSeconds));
+    const deadline = Date.now() + normalizedSeconds * 1000;
+    timeLeftRef.current = normalizedSeconds;
+    timerDeadlineMsRef.current = deadline;
+    setTimerInitialSeconds(normalizedSeconds);
+    setTimerDeadlineMs(deadline);
+  };
+  const clearAttemptTimer = () => {
+    timeLeftRef.current = 0;
+    timerDeadlineMsRef.current = null;
+    setTimerDeadlineMs(null);
+  };
   const buildCurrentDraft = (overrides?: Partial<SavedTestDraft>): SavedTestDraft => ({
     answers: savedAnswers,
-    timeLeft: timeLeftRef.current,
+    timeLeft: getCurrentTimeLeftSeconds(),
     currentQuestionIndex,
     visitedQuestionIds: Array.from(visitedSet),
     reviewQuestionIds: Array.from(reviewSet),
@@ -1483,9 +1516,9 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
     setAnswers(initialSavedAnswers);
     setSavedAnswers(initialSavedAnswers);
     const initialSeconds = shouldResume ? Math.max(parsedDraft?.timeLeft ?? cleanTest.durationMinutes * 60, 0) : cleanTest.durationMinutes * 60;
-    timeLeftRef.current = initialSeconds;
-    setTimerInitialSeconds(initialSeconds);
+    seedAttemptTimer(initialSeconds);
     autoSubmitTriggeredRef.current = false;
+    autoSubmitRetryAtRef.current = 0;
     setQuestionTimings(shouldResume ? parsedDraft?.questionTimings ?? {} : {});
     setInteractionLog(
       shouldResume
@@ -1533,9 +1566,9 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
         setAnswers(initialSavedAnswers);
         setSavedAnswers(initialSavedAnswers);
         const initialSeconds = Math.max(parsedDraft.timeLeft ?? cleanTest.durationMinutes * 60, 0);
-        timeLeftRef.current = initialSeconds;
-        setTimerInitialSeconds(initialSeconds);
+        seedAttemptTimer(initialSeconds);
         autoSubmitTriggeredRef.current = false;
+        autoSubmitRetryAtRef.current = 0;
         setQuestionTimings(parsedDraft.questionTimings ?? {});
         setInteractionLog(parsedDraft.interactionLog ?? []);
         timingActiveRef.current = null;
@@ -1669,6 +1702,8 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
     onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: ["student-tests"] });
       autoSubmitTriggeredRef.current = false;
+      autoSubmitRetryAtRef.current = 0;
+      clearAttemptTimer();
       clearDraft(result.testId);
       setShowSubmitReview(false);
       setActiveTest(null);
@@ -1676,11 +1711,19 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
       setPaletteCollapsed(false);
       toast({ title: result.isAuto ? "Time is over. Test submitted automatically" : "Test submitted successfully" });
     },
-    onError: () => {
+    onError: (_error, payload) => {
+      if (payload?.isAuto) {
+        autoSubmitRetryAtRef.current = Date.now() + 5000;
+      }
       autoSubmitTriggeredRef.current = false;
       toast({ title: "Submission failed", variant: "destructive" });
     },
   });
+  const submitMutationRef = useRef(submitMutation);
+
+  useEffect(() => {
+    submitMutationRef.current = submitMutation;
+  }, [submitMutation]);
 
   const totalQ = activeTest?.questions.length ?? 0;
   const allQuestionEntries = activeTest
@@ -1942,6 +1985,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
     const finalTimings = finalizeTimings();
     saveDraft(activeTest, buildCurrentDraft({ questionTimings: finalTimings }));
     autoSubmitTriggeredRef.current = false;
+    clearAttemptTimer();
     setMobilePaletteOpen(false);
     setShowCalculator(false);
     setActiveTest(null);
@@ -1986,12 +2030,15 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
   }, []);
   const handleTimerExpire = useCallback(() => {
     const test = activeTestRef.current;
-    if (!test || submitMutation.isPending || autoSubmitTriggeredRef.current) return;
+    const submitter = submitMutationRef.current;
+    if (!test || submitter.isPending || autoSubmitTriggeredRef.current) return;
+    if (Date.now() < autoSubmitRetryAtRef.current) return;
     autoSubmitTriggeredRef.current = true;
+    timeLeftRef.current = 0;
     const current = test.questions[currentQuestionIndexRef.current];
     const finalVisitedSet = new Set(visitedSetRef.current);
     if (current) finalVisitedSet.add(current.id);
-    submitMutation.mutate({
+    submitter.mutate({
       answers: getCommittedAnswersSnapshot(),
       questionTimings: finalizeTimings(),
       visitedQuestionIds: Array.from(finalVisitedSet),
@@ -1999,7 +2046,20 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
       interactionLog: interactionLogRef.current,
       isAuto: true,
     });
-  }, [submitMutation]);
+  }, []);
+
+  useEffect(() => {
+    if (!activeTest || activeTest.submission) return;
+    const intervalId = window.setInterval(() => {
+      const nextSeconds = getCurrentTimeLeftSeconds();
+      timeLeftRef.current = nextSeconds;
+      if (nextSeconds <= 0) {
+        handleTimerExpire();
+      }
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeTest, handleTimerExpire]);
 
   const applyIntegerEdit = (transform: (value: string, start: number, end: number) => { value: string; caret: number }) => {
     if (!currentQuestion || currentQuestion.questionType !== "integer") return;
@@ -2435,6 +2495,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
                             {isCompactMobileRunner ? (
                               <LiveTimeIndicator
                                 initialSeconds={timerInitialSeconds}
+                                deadlineAtMs={timerDeadlineMs}
                                 onTick={handleTimerTick}
                                 onExpire={handleTimerExpire}
                                 className="max-w-full shrink-0 rounded-sm bg-white/60 px-2 py-1 font-mono text-[12px] font-bold sm:text-[14px]"
@@ -2625,6 +2686,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
                           <div className="flex shrink-0 items-center gap-2">
                             <LiveTimeIndicator
                               initialSeconds={timerInitialSeconds}
+                              deadlineAtMs={timerDeadlineMs}
                               onTick={handleTimerTick}
                               onExpire={handleTimerExpire}
                               className="rounded-md bg-[#eef3f8] px-2 py-1 font-mono text-[12px] font-bold text-[#1f2937]"
@@ -2765,6 +2827,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
                           {!isCompactMobileRunner ? (
                             <LiveTimeIndicator
                               initialSeconds={timerInitialSeconds}
+                              deadlineAtMs={timerDeadlineMs}
                               onTick={handleTimerTick}
                               onExpire={handleTimerExpire}
                               className="hidden h-[48px] shrink-0 items-center px-3 text-[13px] font-bold md:flex"
