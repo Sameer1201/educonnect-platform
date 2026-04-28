@@ -48,13 +48,11 @@ const withSslMode = (connectionString: string) => {
 const drizzleDatabaseUrl =
   databaseProvider === "aws" ||
   databaseProvider === "rds" ||
-  isAwsRdsUrl(databaseUrl)
+  databaseProvider === "neon" ||
+  isAwsRdsUrl(databaseUrl) ||
+  isNeonUrl(databaseUrl)
     ? withSslMode(databaseUrl)
     : databaseUrl;
-
-if (isNeonUrl(databaseUrl)) {
-  throw new Error("Neon database URLs are not supported. Use AWS RDS only.");
-}
 
 if (
   (databaseProvider === "aws" || databaseProvider === "rds") &&
@@ -62,6 +60,12 @@ if (
 ) {
   throw new Error(
     "DATABASE_PROVIDER is set to AWS/RDS, but DATABASE_URL is not an AWS RDS endpoint.",
+  );
+}
+
+if (databaseProvider === "neon" && !isNeonUrl(databaseUrl)) {
+  throw new Error(
+    "DATABASE_PROVIDER is set to Neon, but DATABASE_URL is not a Neon endpoint.",
   );
 }
 

@@ -8,17 +8,9 @@ import {
   isStudentReviewActionSignatureValid,
 } from "../lib/studentReview";
 import { queueStudentApprovedEmail, queueStudentRejectedEmail } from "../lib/brevo";
+import { readPublicAppUrl } from "../lib/publicAppUrl";
 
 const router: IRouter = Router();
-
-function readPublicAppUrl() {
-  const configured = typeof process.env.PUBLIC_APP_URL === "string" ? process.env.PUBLIC_APP_URL.trim() : "";
-  const productionUrl = "https://educonnect-platform-production-b1ce.up.railway.app";
-  if (process.env.NODE_ENV === "development" && (!configured || configured === productionUrl)) {
-    return "http://localhost:5173";
-  }
-  return configured || productionUrl;
-}
 
 function escapeHtml(value: string) {
   return value

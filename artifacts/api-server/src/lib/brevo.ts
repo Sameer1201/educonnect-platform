@@ -7,6 +7,7 @@ import {
   type StudentReviewRecipient,
   type StudentReviewSummary,
 } from "./studentReview";
+import { buildPublicAppUrl, readPublicAppUrl } from "./publicAppUrl";
 
 const PENDING_STUDENT_ESCALATION_EMAIL = "sameermajhi339@gmail.com";
 
@@ -619,20 +620,11 @@ export async function setBrevoProviderActiveState({
 }
 
 function readPortalUrl() {
-  const configured = readTrimmedEnv("PUBLIC_APP_URL");
-  const productionUrl = "https://educonnect-platform-production-b1ce.up.railway.app";
-  if (process.env.NODE_ENV === "development" && (!configured || configured === productionUrl)) {
-    return "http://localhost:5173";
-  }
-  return configured || productionUrl;
+  return readPublicAppUrl();
 }
 
 function buildPortalUrl(path: string) {
-  try {
-    return new URL(path, readPortalUrl()).toString();
-  } catch {
-    return readPortalUrl();
-  }
+  return buildPublicAppUrl(path);
 }
 
 function buildStudentTestAnalysisUrl(testId: number) {

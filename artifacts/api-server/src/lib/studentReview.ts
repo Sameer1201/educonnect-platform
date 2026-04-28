@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { readPublicAppUrl } from "./publicAppUrl";
 
 export type StudentReviewRecipient = {
   reviewerId: number | null;
@@ -31,8 +32,6 @@ export type StudentReviewSummary = {
 const DEFAULT_SUPER_ADMIN_REVIEW_EMAIL = "sameermajhi339@gmail.com";
 const DEFAULT_EMAIL_REJECTION_REASON = "Application rejected from super admin email review. Please update your profile details and resubmit for approval.";
 const STUDENT_REVIEW_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const LOCAL_PUBLIC_APP_URL = "http://localhost:5173";
-const PRODUCTION_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
 
 function readTrimmedEnv(name: string) {
   const value = process.env[name];
@@ -44,14 +43,6 @@ function readStudentReviewSigningSecret() {
     || readTrimmedEnv("PASSWORD_RESET_LINK_SECRET")
     || readTrimmedEnv("BREVO_API_KEY")
     || "rank-pulse-student-review-secret";
-}
-
-function readPublicAppUrl() {
-  const configured = readTrimmedEnv("PUBLIC_APP_URL");
-  if (process.env.NODE_ENV === "development" && (!configured || configured === PRODUCTION_PUBLIC_APP_URL)) {
-    return LOCAL_PUBLIC_APP_URL;
-  }
-  return configured || PRODUCTION_PUBLIC_APP_URL;
 }
 
 function readSuperAdminReviewEmail() {

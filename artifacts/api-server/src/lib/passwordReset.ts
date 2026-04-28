@@ -1,20 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { readPublicAppUrl } from "./publicAppUrl";
 
 function readTrimmedString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
 export const PASSWORD_RESET_EMAIL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
-const LOCAL_PUBLIC_APP_URL = "http://localhost:5173";
-const PRODUCTION_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
-
-export function readPublicAppUrl() {
-  const configured = readTrimmedString(process.env.PUBLIC_APP_URL);
-  if (process.env.NODE_ENV === "development" && (!configured || configured === PRODUCTION_PUBLIC_APP_URL)) {
-    return LOCAL_PUBLIC_APP_URL;
-  }
-  return configured || PRODUCTION_PUBLIC_APP_URL;
-}
 
 function readPasswordResetSigningSecret() {
   return readTrimmedString(process.env.PASSWORD_RESET_LINK_SECRET)
