@@ -26,6 +26,7 @@ import {
 } from "../lib/brevo";
 import { logger } from "../lib/logger";
 import { pushNotificationToMany } from "../lib/pushNotification";
+import { buildPublicAppUrl, readPublicAppUrl } from "../lib/publicAppUrl";
 import { ensureStudentFeatureUnlocked } from "../lib/studentFeatureAccess";
 import { eq, and, inArray, isNull, or, asc, desc, sql } from "drizzle-orm";
 
@@ -152,17 +153,11 @@ function canStudentAccessTest(
 }
 
 function getPortalUrl() {
-  return typeof process.env.PUBLIC_APP_URL === "string" && process.env.PUBLIC_APP_URL.trim()
-    ? process.env.PUBLIC_APP_URL.trim()
-    : "http://localhost:5173";
+  return readPublicAppUrl();
 }
 
 function buildPortalUrl(path: string) {
-  try {
-    return new URL(path, getPortalUrl()).toString();
-  } catch {
-    return getPortalUrl();
-  }
+  return buildPublicAppUrl(path);
 }
 
 function getDisplayName(user: { fullName?: string | null; username?: string | null } | null | undefined, fallback: string) {

@@ -1,4 +1,5 @@
 const LOCAL_PUBLIC_APP_URL = "http://localhost:5173";
+const DEFAULT_PUBLIC_APP_URL = "https://rankpulse.up.railway.app";
 const LEGACY_PUBLIC_APP_URL = "https://educonnect-platform-production-b1ce.up.railway.app";
 
 function readTrimmedEnv(name: string) {
@@ -20,20 +21,14 @@ export function readPublicAppUrl() {
   const configured = normalizePublicUrl(readTrimmedEnv("PUBLIC_APP_URL"));
   const railwayPublicDomain = normalizePublicUrl(readTrimmedEnv("RAILWAY_PUBLIC_DOMAIN"));
   const railwayStaticUrl = normalizePublicUrl(readTrimmedEnv("RAILWAY_STATIC_URL"));
-  const productionFallback = railwayPublicDomain || railwayStaticUrl;
+  const productionFallback = railwayPublicDomain || railwayStaticUrl || DEFAULT_PUBLIC_APP_URL;
 
   if (process.env.NODE_ENV === "development" && (!configured || configured === LEGACY_PUBLIC_APP_URL)) {
     return LOCAL_PUBLIC_APP_URL;
   }
 
   if (configured) return configured;
-  if (productionFallback) return productionFallback;
-
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("PUBLIC_APP_URL or RAILWAY_PUBLIC_DOMAIN must be set in production.");
-  }
-
-  return LOCAL_PUBLIC_APP_URL;
+  return productionFallback;
 }
 
 export function buildPublicAppUrl(path: string) {
