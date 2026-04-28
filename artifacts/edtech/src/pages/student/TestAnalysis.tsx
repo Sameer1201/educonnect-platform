@@ -52,6 +52,13 @@ const comparativeMobileTabs = [
   "difficulty",
 ] as const;
 
+const mobileSummaryItems = [
+  { key: "scoreLabel", label: "Score" },
+  { key: "accuracyLabel", label: "Accuracy" },
+  { key: "attemptedLabel", label: "Attempted" },
+  { key: "timeLabel", label: "Time" },
+] as const;
+
 function isGateExamTest(test: {
   examType?: string | null;
   examHeader?: string | null;
@@ -244,21 +251,69 @@ export default function StudentTestAnalysis() {
             onBack={() => setLocation("/student/tests")}
           />
         </div>
-        <main className="flex-1 overflow-auto p-3 sm:p-5 lg:h-full lg:overflow-y-auto lg:p-7">
-        <div className="mb-4 space-y-3 lg:hidden">
-          <div className="flex items-start justify-start">
+        <main className="flex-1 overflow-auto p-2.5 sm:p-5 lg:h-full lg:overflow-y-auto lg:p-7">
+          <style>{`
+            @media (max-width: 640px) {
+              .analysis-mobile-scope {
+                --analysis-card-radius: 1.25rem;
+              }
+              .analysis-mobile-scope .rounded-\\[28px\\],
+              .analysis-mobile-scope .rounded-\\[30px\\],
+              .analysis-mobile-scope .rounded-\\[32px\\],
+              .analysis-mobile-scope .rounded-\\[34px\\] {
+                border-radius: var(--analysis-card-radius) !important;
+              }
+              .analysis-mobile-scope section,
+              .analysis-mobile-scope .bg-white.rounded-xl {
+                box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+              }
+              .analysis-mobile-scope .recharts-wrapper,
+              .analysis-mobile-scope .recharts-surface {
+                max-width: 100% !important;
+              }
+              .analysis-mobile-scope table {
+                font-size: 12px;
+              }
+              .analysis-mobile-scope th,
+              .analysis-mobile-scope td {
+                padding: 10px 12px !important;
+              }
+            }
+          `}</style>
+          <div className="sticky top-0 z-20 -mx-2.5 mb-4 space-y-3 border-b border-[#E5E7EB]/70 bg-[#F5F7FB]/95 px-2.5 pb-3 pt-2 backdrop-blur lg:hidden">
+          <div className="flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => setLocation("/student/tests")}
-              className="inline-flex items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-4 py-2 text-sm font-semibold text-[#475569] shadow-sm transition hover:border-[#CBD5E1] hover:bg-[#F8FAFC] hover:text-[#111827]"
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-[#E5E7EB] bg-white px-4 text-sm font-semibold text-[#475569] shadow-sm transition hover:border-[#CBD5E1] hover:bg-[#F8FAFC] hover:text-[#111827]"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
             </button>
+            {!isSamplePreview ? (
+              <button
+                type="button"
+                onClick={() => setLocation(`/student/tests/${id}/solutions`)}
+                disabled={!analysisData?.sections?.length}
+                className="chip-orange-solid inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Solution
+              </button>
+            ) : null}
           </div>
-          <div className="rounded-3xl border border-[#E5E7EB] bg-white p-4 shadow-sm">
+          <div className="rounded-[22px] border border-[#E5E7EB] bg-white p-3.5 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#6B7280]">Test Analysis</p>
-            <h1 className="mt-2 text-xl font-bold text-[#111827]">{analysisData?.test?.title ?? "Analysis"}</h1>
+            <h1 className="mt-1.5 line-clamp-2 text-lg font-bold leading-snug text-[#111827]">{analysisData?.test?.title ?? "Analysis"}</h1>
+            {headerSummary ? (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {mobileSummaryItems.map((item) => (
+                  <div key={item.key} className="rounded-2xl border border-[#EEF2F7] bg-[#F8FAFC] px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6B7280]">{item.label}</p>
+                    <p className="mt-1 truncate text-sm font-bold text-[#111827]">{headerSummary[item.key]}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="mt-3 flex rounded-full bg-[#F3F5F9] p-1">
               <button
                 type="button"
@@ -293,20 +348,10 @@ export default function StudentTestAnalysis() {
                 Comparative
               </button>
             </div>
-            {!isSamplePreview ? (
-              <button
-                type="button"
-                onClick={() => setLocation(`/student/tests/${id}/solutions`)}
-                disabled={!analysisData?.sections?.length}
-                className="chip-orange-solid mt-3 inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                View Solution
-              </button>
-            ) : null}
           </div>
 
-          <div className="-mx-1 overflow-x-auto px-1 pb-1">
-            <div className="flex gap-2">
+          <div className="-mx-2.5 overflow-x-auto px-2.5 pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex min-w-max gap-2">
               {mobileTabs.map((tabId) => {
                 const active = activeTab === tabId;
                 return (
@@ -314,11 +359,11 @@ export default function StudentTestAnalysis() {
                     key={tabId}
                     type="button"
                     onClick={() => setActiveTab(tabId)}
-                    className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-all ${
+                    className={`snap-start whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold shadow-sm transition-all ${
                       active
-                        ? "border-[#1F2937] bg-[#1F2937] text-white"
+                        ? "border-[#111827] bg-[#111827] text-white"
                         : "border-[#E5E7EB] bg-white text-[#1F2937]"
-                    } snap-start`}
+                    }`}
                   >
                     {pageTitles[tabId]}
                   </button>
@@ -339,7 +384,10 @@ export default function StudentTestAnalysis() {
             onExpandTechnicalChange={setExpandTechnical}
           />
         </div>
-        <div key={`${activeTab}-${mode}-${datasetVersion}-${expandTechnical ? "expanded" : "collapsed"}`}>
+        <div
+          className="analysis-mobile-scope max-w-full overflow-hidden"
+          key={`${activeTab}-${mode}-${datasetVersion}-${expandTechnical ? "expanded" : "collapsed"}`}
+        >
           {renderPage(activeTab, mode)}
         </div>
         </main>

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { qsByQsData, completeBreakdownData, type QStatus, type QQuality } from "@/data/testData";
+import { qsByQsData, completeBreakdownData, type BreakdownRow, type QStatus, type QQuality } from "@/data/testData";
 import { SubjectSectionIcon } from "@/components/ui/subject-section-icon";
 import { getSubjectTheme } from "@/lib/subject-theme";
 
@@ -133,6 +133,114 @@ function parseTime(t: string): number {
   return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
 }
 
+function DifficultyBadge({ difficulty }: { difficulty: BreakdownRow["difficulty"] }) {
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 6,
+      background: difficulty === "Easy" ? "#dcfce7" : difficulty === "Moderate" ? "#ffedd5" : "#fee2e2",
+      color: difficulty === "Easy" ? "#16a34a" : difficulty === "Moderate" ? "#ea580c" : "#dc2626",
+    }}>
+      {difficulty}
+    </span>
+  );
+}
+
+function EvaluationMark({ evaluation }: { evaluation: BreakdownRow["evaluation"] }) {
+  if (evaluation === "correct") {
+    return (
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#ECFDF5] text-[#16A34A]">
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 12l5 5 11-11" />
+        </svg>
+      </span>
+    );
+  }
+  if (evaluation === "wrong") {
+    return (
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#FEF2F2] text-[#EF4444]">
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6l-12 12" />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#F8FAFC] text-[#CBD5E1]">
+      <span className="text-sm font-bold">-</span>
+    </span>
+  );
+}
+
+function OverviewBadge({ value }: { value: string | null }) {
+  if (!value) {
+    return <span className="text-sm font-semibold text-[#CBD5E1]">-</span>;
+  }
+  const color = value === "Perfect" ? "#16a34a" : value === "Overtime" ? "#f97316" : "#64748b";
+  const bg = value === "Perfect" ? "#F0FDF4" : value === "Overtime" ? "#FFF7ED" : "#F8FAFC";
+  return (
+    <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ color, background: bg }}>
+      {value}
+    </span>
+  );
+}
+
+function DetailTile({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-[#EEF2F7] bg-[#F8FAFC] px-3 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#7C8798]">{label}</p>
+      <div className="mt-1 text-sm font-semibold leading-snug text-[#1F2937]">{value}</div>
+    </div>
+  );
+}
+
+function BreakdownMobileCard({ row }: { row: BreakdownRow }) {
+  const theme = subjectTheme(row.subject);
+
+  return (
+    <article className="rounded-[22px] border border-[#E5E7EB] bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7C8798]">Question {row.qNo}</p>
+          <div className="mt-2 flex min-w-0 items-center gap-2">
+            <span
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border"
+              style={{
+                backgroundColor: theme.softBgStrong,
+                borderColor: theme.softBorder,
+                color: theme.color,
+              }}
+            >
+              <SubjectSectionIcon label={row.subject} className="h-4 w-4" />
+            </span>
+            <p className="truncate text-base font-bold text-[#111827]">{row.subject}</p>
+          </div>
+        </div>
+        <EvaluationMark evaluation={row.evaluation} />
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-[#EEF2F7] bg-[#FCFCFE] px-3 py-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#7C8798]">Topic</p>
+        <p className="mt-1 text-sm font-semibold leading-6 text-[#111827]">{row.topic}</p>
+        <p className="mt-2 text-sm leading-5 text-[#64748B]">{row.chapter}</p>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <DetailTile label="Difficulty" value={<DifficultyBadge difficulty={row.difficulty} />} />
+        <DetailTile label="Time" value={row.timeSpent} />
+        <DetailTile
+          label="Status"
+          value={
+            <span className={row.status === "Answered" ? "text-[#16A34A]" : "text-[#64748B]"}>
+              {row.status}
+            </span>
+          }
+        />
+        <DetailTile label="Overview" value={<OverviewBadge value={row.overview} />} />
+      </div>
+    </article>
+  );
+}
+
 export default function QsByQsAnalysis() {
   const tabs = useMemo(() => ["All Subjects", ...qsByQsData.map((subject) => subject.name)], [qsByQsData]);
   const tabColors = useMemo(
@@ -199,10 +307,10 @@ export default function QsByQsAnalysis() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-100 p-5" style={{ borderTop: "3px solid #111827" }}>
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-white rounded-xl border border-gray-100 p-3.5 sm:p-5" style={{ borderTop: "3px solid #111827" }}>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-base font-semibold text-gray-800">All Question Analysis</h2>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
+          <label className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-2xl border border-[#E5E7EB] bg-[#F8FAFC] px-3 py-2 sm:justify-start sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
             <span className="text-sm text-gray-600">Show Quality of Attempt</span>
             <button
               role="switch"
@@ -309,7 +417,7 @@ export default function QsByQsAnalysis() {
           )}
         </div>
 
-        <div className="space-y-8">
+        <div className="space-y-7 sm:space-y-8">
           {visibleSubjects.map((subject) => {
             const theme = subjectTheme(subject.name);
 
@@ -334,7 +442,7 @@ export default function QsByQsAnalysis() {
                   {subject.sections.map((section) => (
                     <div key={section.label}>
                       <p className="text-xs text-gray-400 font-medium mb-3">{section.label}</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2">
                         {section.questions.map((q) => (
                           <QuestionBubble
                             key={q.no}
@@ -360,11 +468,26 @@ export default function QsByQsAnalysis() {
         style={{ border: "1px solid #e5e7eb", borderTop: "3px solid #111827" }}
         onClick={() => openFilter && setOpenFilter(null)}
       >
-        <div style={{ padding: "16px 24px", borderBottom: "1px solid #e5e7eb" }}>
-          <h2 className="text-base font-bold text-gray-900">Complete Breakdown</h2>
-          <p className="text-xs text-gray-400 mt-0.5">This table lists all the questions and your performance of each question. You can click on any row to view the question.</p>
+        <div className="flex items-start justify-between gap-3 border-b border-[#E5E7EB] px-4 py-4 sm:px-6">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Complete Breakdown</h2>
+            <p className="mt-0.5 text-xs leading-5 text-gray-400">This table lists all the questions and your performance of each question. You can click on any row to view the question.</p>
+          </div>
+          <span className="shrink-0 rounded-full border border-[#E5E7EB] bg-[#F8FAFC] px-3 py-1 text-xs font-bold text-[#475569] sm:hidden">
+            {filteredRows.length} Qs
+          </span>
         </div>
-        <div className="overflow-x-auto">
+        <div className="grid gap-3 bg-[#F8FAFC] px-3 py-3 sm:hidden">
+          {filteredRows.map((row) => (
+            <BreakdownMobileCard key={row.qNo} row={row} />
+          ))}
+          {filteredRows.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-[#CBD5E1] bg-white px-4 py-8 text-center text-sm font-semibold text-[#94A3B8]">
+              No questions match the selected filters.
+            </div>
+          )}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
             <thead>
               <tr style={{ background: "#f9fafb" }}>
@@ -426,11 +549,7 @@ export default function QsByQsAnalysis() {
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>{row.chapter}</td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>{row.topic}</td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", textAlign: "center" }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-                      background: row.difficulty === "Easy" ? "#dcfce7" : row.difficulty === "Moderate" ? "#ffedd5" : "#fee2e2",
-                      color: row.difficulty === "Easy" ? "#16a34a" : row.difficulty === "Moderate" ? "#ea580c" : "#dc2626",
-                    }}>{row.difficulty}</span>
+                    <DifficultyBadge difficulty={row.difficulty} />
                   </td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#6b7280", whiteSpace: "nowrap" }}>{row.timeSpent}</td>
                   <td style={{ border: "1px solid #e5e7eb", padding: "12px 16px", fontSize: 13, color: "#374151" }}>{row.status}</td>
