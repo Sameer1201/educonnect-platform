@@ -61,6 +61,7 @@ const statements = [
   `ALTER TABLE exam_templates ADD COLUMN IF NOT EXISTS is_system boolean NOT NULL DEFAULT false`,
   `ALTER TABLE exam_templates ADD COLUMN IF NOT EXISTS is_locked boolean NOT NULL DEFAULT false`,
   `ALTER TABLE exam_templates ADD COLUMN IF NOT EXISTS show_in_registration boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE exam_templates ADD COLUMN IF NOT EXISTS created_by integer REFERENCES users(id) ON DELETE SET NULL`,
   `ALTER TABLE exam_templates ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now()`,
 ];
 

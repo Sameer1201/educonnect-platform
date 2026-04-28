@@ -1,6 +1,6 @@
 import path from "path";
 import { fileURLToPath } from "url";
-import express, { type Express } from "express";
+import express, { type ErrorRequestHandler, type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
@@ -34,6 +34,26 @@ app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use(cookieParser());
 
 app.use("/api", router);
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "API route not found" });
+});
+
+const apiErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  if (!req.path.startsWith("/api")) {
+    next(err);
+    return;
+  }
+
+  logger.error({ err, path: req.path }, "API request failed");
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+
+  res.status(500).json({ error: "Internal server error" });
+};
+
+app.use(apiErrorHandler);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
