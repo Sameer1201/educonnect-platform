@@ -215,6 +215,11 @@ function getStudentVisibleTestDescription(description: string | null | undefined
   return trimmed;
 }
 
+function formatMarkValue(value: number) {
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
+}
+
 function getResolvedTestCategory(
   test: Pick<TestItem, "title" | "description" | "examHeader" | "examSubheader" | "subjectName" | "chapterName">,
   detail?: Pick<TestDetail, "examConfig" | "sections"> | null,
@@ -630,10 +635,6 @@ function StudentTestSeriesCard({
   const completionPercent = detail?.submission?.percentage != null ? Math.round(detail.submission.percentage) : null;
   const scoredMarks = detail?.submission?.score;
   const totalMarks = detail?.submission?.totalPoints;
-  const formatMarkValue = (value: number) => {
-    const rounded = Math.round(value * 100) / 100;
-    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/\.?0+$/, "");
-  };
   const completedSummary = scoredMarks != null && totalMarks != null && completionPercent != null
     ? `${formatMarkValue(scoredMarks)}/${formatMarkValue(totalMarks)} (${completionPercent}%)`
     : completionPercent != null
@@ -1427,20 +1428,9 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
     : null;
   const previewQuestionCount = previewTest ? questionCountByTestId[previewTest.id] ?? null : null;
   const previewTestCategory = previewTest ? getResolvedTestCategory(previewTest, previewDetail) : null;
-  const previewAnsweredCount = (() => {
-    if (!previewDetail?.submission?.answers) return 0;
-    try {
-      const parsed = JSON.parse(previewDetail.submission.answers) as Record<string, AnswerValue>;
-      return previewDetail.questions.filter((question) => {
-        const answer = parsed[String(question.id)];
-        if (question.questionType === "multi") return Array.isArray(answer) && answer.length > 0;
-        if (question.questionType === "integer") return hasMeaningfulNumericAnswer(answer);
-        return answer !== undefined && answer !== null && answer !== "";
-      }).length;
-    } catch {
-      return 0;
-    }
-  })();
+  const previewScoreValue = previewDetail?.submission ? formatMarkValue(previewDetail.submission.score) : "--";
+  const previewTotalScoreValue = previewDetail?.submission ? formatMarkValue(previewDetail.submission.totalPoints) : "--";
+  const previewScorePercent = previewDetail?.submission ? Math.round(previewDetail.submission.percentage) : null;
 
   const testStats = useMemo(() => {
     const counts = tests.reduce(
@@ -2274,22 +2264,22 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
       <Dialog open={previewTest !== null} onOpenChange={(open) => !open && setPreviewTestId(null)}>
         <DialogContent
           hideClose
-          className="max-h-[calc(100dvh-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[24px] border border-[#D8DEEF] bg-white p-0 shadow-[0_20px_56px_rgba(15,23,42,0.16)] sm:max-h-[44rem] sm:max-w-[820px] sm:rounded-[28px]"
+          className="max-h-[calc(100dvh-1.5rem)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[24px] border border-[#D8DEEF] bg-white p-0 shadow-[0_20px_56px_rgba(15,23,42,0.16)] sm:max-w-[760px] sm:rounded-[28px]"
         >
           {previewTest && (
-            <div className="max-h-[calc(100dvh-1rem)] overflow-y-auto bg-white sm:max-h-[44rem]">
-              <div className="flex flex-col gap-4 border-b border-[#ECEEF8] px-4 pb-5 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-8 sm:pb-7 sm:pt-6">
+            <div className="bg-white">
+              <div className="flex flex-col gap-3 border-b border-[#ECEEF8] px-4 pb-4 pt-4 sm:flex-row sm:items-start sm:justify-between sm:px-7 sm:pb-5 sm:pt-5">
                 <div>
                   <div className="inline-flex rounded-full border border-[#1F2937] px-3.5 py-1 text-sm font-semibold text-[#1F2937]">
                     {getStudentTestSubject(previewTest)}
                   </div>
                   {previewTestCategory ? (
-                    <div className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getTestCategoryTone(previewTestCategory).chip}`}>
+                    <div className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getTestCategoryTone(previewTestCategory).chip}`}>
                       {getTestCategoryLabel(previewTestCategory)}
                     </div>
                   ) : null}
-                  <h2 className="mt-4 max-w-[540px] text-[20px] font-bold tracking-tight text-[#111827] sm:mt-5 sm:text-[24px]">{previewTest.title}</h2>
-                  <p className="mt-3 text-[14px] text-[#6B7280] sm:mt-4 sm:text-[15px]">
+                  <h2 className="mt-3 max-w-[500px] text-[20px] font-bold tracking-tight text-[#111827] sm:text-[23px]">{previewTest.title}</h2>
+                  <p className="mt-2 text-[13px] text-[#6B7280] sm:text-[14px]">
                     {getStudentVisibleTestDescription(previewTest.description) || `${getStudentTestSubject(previewTest)} practice test with exam-style timing and section flow.`}
                   </p>
                 </div>
@@ -2332,73 +2322,73 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
                 </div>
               </div>
 
-              <div className="border-b border-[#ECEEF8] bg-[#F8F9FF] px-4 py-5 sm:px-8 sm:py-6">
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div className="flex items-center gap-5">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#EEF2FF] text-[#6366F1]">
-                      <ClipboardList className="h-6 w-6" />
+              <div className="border-b border-[#ECEEF8] bg-[#F8F9FF] px-4 py-4 sm:px-7">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EEF2FF] text-[#6366F1]">
+                      <ClipboardList className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-[14px] font-medium uppercase tracking-[0.14em] text-[#6B7280]">Questions</p>
-                      <p className="mt-1 text-[18px] font-bold text-[#111827]">{previewQuestionCount ?? "--"} Total</p>
+                      <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#6B7280]">Questions</p>
+                      <p className="mt-0.5 text-[17px] font-bold text-[#111827]">{previewQuestionCount ?? "--"} Total</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-5">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-[#111827]">
-                      <Clock className="h-6 w-6" />
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-[#111827]">
+                      <Clock className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-[14px] font-medium uppercase tracking-[0.14em] text-[#6B7280]">Duration</p>
-                      <p className="mt-1 text-[18px] font-bold text-[#111827]">{previewTest.durationMinutes} Minutes</p>
+                      <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#6B7280]">Duration</p>
+                      <p className="mt-0.5 text-[17px] font-bold text-[#111827]">{previewTest.durationMinutes} Minutes</p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="px-4 py-4 sm:px-8">
-                <div className="grid gap-4 border-b border-[#ECEEF8] py-5 md:grid-cols-[220px_1fr]">
-                  <p className="text-[16px] text-[#6B7280]">Scheduled Date</p>
-                  <p className="text-left text-[16px] font-semibold text-[#111827] md:text-right md:text-[17px]">
+              <div className="px-4 py-3 sm:px-7">
+                <div className="grid gap-2 border-b border-[#ECEEF8] py-3 md:grid-cols-[180px_1fr]">
+                  <p className="text-[14px] text-[#6B7280]">Scheduled Date</p>
+                  <p className="text-left text-[14px] font-semibold text-[#111827] md:text-right md:text-[15px]">
                     {previewTest.scheduledAt ? format(new Date(previewTest.scheduledAt), "MMMM do, yyyy 'at' h:mm aa") : "Available now"}
                   </p>
                 </div>
 
                 {previewAction === "result" && previewDetail?.submission && (
                   <>
-                    <div className="grid gap-4 border-b border-[#ECEEF8] py-5 md:grid-cols-[220px_1fr]">
-                      <p className="text-[16px] text-[#6B7280]">Completed Date</p>
-                      <p className="text-left text-[16px] font-semibold text-[#111827] md:text-right md:text-[17px]">
+                    <div className="grid gap-2 border-b border-[#ECEEF8] py-3 md:grid-cols-[180px_1fr]">
+                      <p className="text-[14px] text-[#6B7280]">Completed Date</p>
+                      <p className="text-left text-[14px] font-semibold text-[#111827] md:text-right md:text-[15px]">
                         {format(new Date(previewDetail.submission.submittedAt), "MMMM do, yyyy 'at' h:mm aa")}
                       </p>
                     </div>
-                    <div className="mt-6 rounded-[24px] border border-[#ECEEF8] bg-white px-5 py-5">
+                    <div className="mt-4 rounded-[20px] border border-[#ECEEF8] bg-white px-4 py-4">
                       <div className="flex items-end justify-between gap-4">
-                        <p className="text-[14px] font-semibold uppercase tracking-[0.16em] text-[#6B7280]">Final Score</p>
-                        <p className="text-[18px] font-medium text-[#6B7280]">
-                          <span className="text-[32px] font-bold text-[#6366F1]">{previewAnsweredCount}</span>
+                        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[#6B7280]">Final Score</p>
+                        <p className="text-[16px] font-medium text-[#6B7280]">
+                          <span className="text-[28px] font-bold text-[#6366F1]">{previewScoreValue}</span>
                           {" / "}
-                          {previewQuestionCount ?? Math.round(previewDetail.submission.totalPoints)}
+                          {previewTotalScoreValue}
                         </p>
                       </div>
-                      <div className="mt-5 h-4 overflow-hidden rounded-full bg-[#E9E7FF]">
+                      <div className="mt-3 h-3 overflow-hidden rounded-full bg-[#E9E7FF]">
                         <div
                           className="h-full rounded-full bg-[#6366F1]"
                           style={{ width: `${Math.max(0, Math.min(previewDetail.submission.percentage, 100))}%` }}
                         />
                       </div>
-                      <p className="mt-4 text-right text-[15px] font-medium text-[#6B7280]">
-                        {Math.round(previewDetail.submission.percentage)}% Accuracy
+                      <p className="mt-3 text-right text-[13px] font-medium text-[#6B7280]">
+                        {previewScorePercent}% Score
                       </p>
                     </div>
                   </>
                 )}
               </div>
 
-                <div className="flex flex-col-reverse gap-3 px-4 pb-5 pt-2 sm:flex-row sm:items-center sm:justify-end sm:gap-4 sm:px-8 sm:pb-7">
+                <div className="flex flex-col-reverse gap-3 px-4 pb-4 pt-1 sm:flex-row sm:items-center sm:justify-end sm:gap-3 sm:px-7 sm:pb-5">
                   <button
                     type="button"
                     onClick={() => setPreviewTestId(null)}
-                    className="w-full rounded-[18px] border-2 border-[#1F2937] px-7 py-2.5 text-[15px] font-semibold text-[#1F2937] transition hover:bg-[#F8FAFC] sm:w-auto sm:text-[16px]"
+                    className="w-full rounded-[16px] border-2 border-[#1F2937] px-6 py-2.5 text-[14px] font-semibold text-[#1F2937] transition hover:bg-[#F8FAFC] sm:w-auto"
                   >
                     Close
                   </button>
@@ -2415,7 +2405,7 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
                     }
                     await openTestWithMode(currentTest.id, currentAction === "resume" ? "resume" : "fresh");
                   }}
-                  className="w-full rounded-[18px] bg-[#6366F1] px-7 py-2.5 text-[15px] font-semibold text-white transition hover:bg-[#5558E8] sm:w-auto sm:text-[16px]"
+                  className="w-full rounded-[16px] bg-[#6366F1] px-6 py-2.5 text-[14px] font-semibold text-white transition hover:bg-[#5558E8] sm:w-auto"
                 >
                   {previewAction === "result" ? "Full Analysis" : previewAction === "resume" ? "Resume Test" : "Start Test"}
                 </button>

@@ -370,7 +370,7 @@ export default function StudentTestSolutions() {
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
-  const [mobileQuestionVisible, setMobileQuestionVisible] = useState(false);
+  const [mobileQuestionVisible, setMobileQuestionVisible] = useState(true);
   const [isAtSolutionSection, setIsAtSolutionSection] = useState(false);
   const [pendingReportQuestion, setPendingReportQuestion] = useState<EnrichedQuestion | null>(null);
   const [reportReason, setReportReason] = useState("");
@@ -531,7 +531,7 @@ export default function StudentTestSolutions() {
 
   useEffect(() => {
     setMobilePaletteOpen(false);
-    setMobileQuestionVisible(false);
+    setMobileQuestionVisible(true);
   }, [currentQuestion?.id]);
 
   const currentIndex = currentQuestion ? visibleItems.findIndex((entry) => entry.id === currentQuestion.id) : -1;
