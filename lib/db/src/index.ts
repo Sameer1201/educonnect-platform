@@ -44,13 +44,24 @@ const isNeonUrl = (connectionString: string) => {
   }
 };
 
+const isSupabaseUrl = (connectionString: string) => {
+  try {
+    const host = new URL(connectionString).hostname.toLowerCase();
+    return host.endsWith(".supabase.co") || host.endsWith(".supabase.com");
+  } catch {
+    return false;
+  }
+};
+
 const useDatabaseSsl =
   isEnabled(databaseSslMode) ||
   databaseProvider === "aws" ||
   databaseProvider === "rds" ||
   databaseProvider === "neon" ||
+  databaseProvider === "supabase" ||
   isAwsRdsUrl(databaseUrl) ||
-  isNeonUrl(databaseUrl);
+  isNeonUrl(databaseUrl) ||
+  isSupabaseUrl(databaseUrl);
 
 if (
   (databaseProvider === "aws" || databaseProvider === "rds") &&
@@ -64,6 +75,12 @@ if (
 if (databaseProvider === "neon" && !isNeonUrl(databaseUrl)) {
   throw new Error(
     "DATABASE_PROVIDER is set to Neon, but DATABASE_URL is not a Neon endpoint.",
+  );
+}
+
+if (databaseProvider === "supabase" && !isSupabaseUrl(databaseUrl)) {
+  throw new Error(
+    "DATABASE_PROVIDER is set to Supabase, but DATABASE_URL is not a Supabase endpoint.",
   );
 }
 
