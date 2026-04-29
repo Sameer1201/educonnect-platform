@@ -2363,11 +2363,14 @@ function ApprovedStudentTests({ featureLocked = false }: { featureLocked?: boole
                     </div>
                     <div className="mt-4 rounded-[20px] border border-[#ECEEF8] bg-white px-4 py-4">
                       <div className="flex items-end justify-between gap-4">
-                        <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[#6B7280]">Final Score</p>
-                        <p className="text-[16px] font-medium text-[#6B7280]">
+                        <div>
+                          <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-[#6B7280]">Final Score</p>
+                          <p className="mt-1 text-[12px] font-medium text-[#6B7280]">Out of {previewTotalScoreValue} marks</p>
+                        </div>
+                        <p className="text-right text-[16px] font-semibold text-[#6B7280]">
                           <span className="text-[28px] font-bold text-[#6366F1]">{previewScoreValue}</span>
-                          {" / "}
-                          {previewTotalScoreValue}
+                          {" "}
+                          Marks
                         </p>
                       </div>
                       <div className="mt-3 h-3 overflow-hidden rounded-full bg-[#E9E7FF]">
