@@ -8,6 +8,8 @@ const statements = [
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS exam_config text`,
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS default_positive_marks real NOT NULL DEFAULT 1`,
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS default_negative_marks real NOT NULL DEFAULT 0`,
+  `ALTER TABLE tests ADD COLUMN IF NOT EXISTS sync_question_bank_on_publish boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE tests ADD COLUMN IF NOT EXISTS is_student_visible boolean NOT NULL DEFAULT true`,
   `ALTER TABLE tests ADD COLUMN IF NOT EXISTS scheduled_at timestamptz`,
   `ALTER TABLE classes ADD COLUMN IF NOT EXISTS is_locked boolean NOT NULL DEFAULT false`,
   `CREATE TABLE IF NOT EXISTS test_sections (

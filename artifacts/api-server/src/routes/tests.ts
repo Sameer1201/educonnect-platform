@@ -1890,10 +1890,12 @@ router.get("/tests", requireAuth, async (req, res) => {
         title: testsTable.title,
         chapterId: testsTable.chapterId,
         examConfig: testsTable.examConfig,
-        durationMinutes: testsTable.durationMinutes,
-        passingScore: testsTable.passingScore,
-        isPublished: testsTable.isPublished,
-        questionCount: sql<number>`count(${testQuestionsTable.id})::int`,
+          durationMinutes: testsTable.durationMinutes,
+          passingScore: testsTable.passingScore,
+          isPublished: testsTable.isPublished,
+          syncQuestionBankOnPublish: testsTable.syncQuestionBankOnPublish,
+          isStudentVisible: testsTable.isStudentVisible,
+          questionCount: sql<number>`count(${testQuestionsTable.id})::int`,
         scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt,
         className: classesTable.title, chapterName: chaptersTable.title, subjectName: subjectsTable.title,
       }).from(testsTable)
@@ -1907,10 +1909,12 @@ router.get("/tests", requireAuth, async (req, res) => {
           testsTable.title,
           testsTable.chapterId,
           testsTable.examConfig,
-          testsTable.durationMinutes,
-          testsTable.passingScore,
-          testsTable.isPublished,
-          testsTable.scheduledAt,
+            testsTable.durationMinutes,
+            testsTable.passingScore,
+            testsTable.isPublished,
+            testsTable.syncQuestionBankOnPublish,
+            testsTable.isStudentVisible,
+            testsTable.scheduledAt,
           testsTable.createdAt,
           classesTable.title,
           chaptersTable.title,
@@ -1928,10 +1932,12 @@ router.get("/tests", requireAuth, async (req, res) => {
         examConfig: testsTable.examConfig,
         durationMinutes: testsTable.durationMinutes,
       defaultPositiveMarks: testsTable.defaultPositiveMarks,
-      defaultNegativeMarks: testsTable.defaultNegativeMarks,
-      passingScore: testsTable.passingScore,
-      isPublished: testsTable.isPublished,
-        questionCount: sql<number>`count(${testQuestionsTable.id})::int`,
+        defaultNegativeMarks: testsTable.defaultNegativeMarks,
+        passingScore: testsTable.passingScore,
+        isPublished: testsTable.isPublished,
+        syncQuestionBankOnPublish: testsTable.syncQuestionBankOnPublish,
+        isStudentVisible: testsTable.isStudentVisible,
+          questionCount: sql<number>`count(${testQuestionsTable.id})::int`,
         scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt,
         className: classesTable.title, chapterName: chaptersTable.title, subjectName: subjectsTable.title,
       }).from(testsTable)
@@ -1949,10 +1955,12 @@ router.get("/tests", requireAuth, async (req, res) => {
           testsTable.examConfig,
           testsTable.durationMinutes,
           testsTable.defaultPositiveMarks,
-          testsTable.defaultNegativeMarks,
-          testsTable.passingScore,
-          testsTable.isPublished,
-          testsTable.scheduledAt,
+            testsTable.defaultNegativeMarks,
+            testsTable.passingScore,
+            testsTable.isPublished,
+            testsTable.syncQuestionBankOnPublish,
+            testsTable.isStudentVisible,
+            testsTable.scheduledAt,
           testsTable.createdAt,
           classesTable.title,
           chaptersTable.title,
@@ -1982,10 +1990,11 @@ router.get("/tests", requireAuth, async (req, res) => {
       description: testsTable.description,
       examType: testsTable.examType,
       examHeader: testsTable.examHeader,
-      examSubheader: testsTable.examSubheader,
-      durationMinutes: testsTable.durationMinutes,
-      passingScore: testsTable.passingScore,
-      scheduledAt: testsTable.scheduledAt,
+        examSubheader: testsTable.examSubheader,
+        durationMinutes: testsTable.durationMinutes,
+        passingScore: testsTable.passingScore,
+        isStudentVisible: testsTable.isStudentVisible,
+        scheduledAt: testsTable.scheduledAt,
       className: classesTable.title, chapterName: chaptersTable.title, subjectName: subjectsTable.title,
     }).from(testsTable)
       .leftJoin(classesTable, eq(testsTable.classId, classesTable.id))
@@ -1994,7 +2003,10 @@ router.get("/tests", requireAuth, async (req, res) => {
       .where(eq(testsTable.isPublished, true))
       .orderBy(testsTable.scheduledAt);
 
-    const visibleTests = tests.filter((test) => submittedTestIds.has(test.id) || canStudentAccessTest(test, access));
+      const visibleTests = tests.filter((test) =>
+        submittedTestIds.has(test.id) ||
+        (test.isStudentVisible !== false && canStudentAccessTest(test, access)),
+      );
 
     return res.json(visibleTests.map((t) => ({ ...t, alreadySubmitted: submittedTestIds.has(t.id) })));
   } catch { return res.status(500).json({ error: "Internal server error" }); }
@@ -2483,10 +2495,12 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
       examConfig: testsTable.examConfig,
       durationMinutes: testsTable.durationMinutes,
       passingScore: testsTable.passingScore,
-      defaultPositiveMarks: testsTable.defaultPositiveMarks,
-      defaultNegativeMarks: testsTable.defaultNegativeMarks,
-      isPublished: testsTable.isPublished,
-      scheduledAt: testsTable.scheduledAt,
+        defaultPositiveMarks: testsTable.defaultPositiveMarks,
+        defaultNegativeMarks: testsTable.defaultNegativeMarks,
+        isPublished: testsTable.isPublished,
+        syncQuestionBankOnPublish: testsTable.syncQuestionBankOnPublish,
+        isStudentVisible: testsTable.isStudentVisible,
+        scheduledAt: testsTable.scheduledAt,
       createdBy: testsTable.createdBy,
       createdAt: testsTable.createdAt,
       className: classesTable.title,
@@ -2529,7 +2543,7 @@ router.get("/tests/:id", requireAuth, async (req, res) => {
         enrolledClassIds: await getStudentEnrolledClassIds(userId),
         examKeys: getStudentExamKeys(user),
       };
-      const canAccess = submission !== null || (Boolean(test.isPublished) && canStudentAccessTest(test, access));
+        const canAccess = submission !== null || (Boolean(test.isPublished) && test.isStudentVisible !== false && canStudentAccessTest(test, access));
       if (!canAccess) return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -2618,10 +2632,12 @@ router.get("/tests/:id/export", requireAuth, async (req, res) => {
         instructions: test.instructions ?? null,
         examConfig: normalizeObjectValue(test.examConfig, null),
         durationMinutes: test.durationMinutes,
-        passingScore: test.passingScore ?? null,
-        defaultPositiveMarks: test.defaultPositiveMarks,
-        defaultNegativeMarks: test.defaultNegativeMarks,
-        scheduledAt: test.scheduledAt ? new Date(test.scheduledAt).toISOString() : null,
+          passingScore: test.passingScore ?? null,
+          defaultPositiveMarks: test.defaultPositiveMarks,
+          defaultNegativeMarks: test.defaultNegativeMarks,
+          syncQuestionBankOnPublish: test.syncQuestionBankOnPublish,
+          isStudentVisible: test.isStudentVisible,
+          scheduledAt: test.scheduledAt ? new Date(test.scheduledAt).toISOString() : null,
         sections: sections.map((section, index) => ({
           exportRef: `section-${section.id}`,
           title: section.title,
@@ -2704,7 +2720,7 @@ router.post("/tests", requireAuth, async (req, res) => {
     const user = await getUser(userId);
     if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
 
-    const { title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt, sections } = req.body;
+      const { title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt, syncQuestionBankOnPublish, isStudentVisible, sections } = req.body;
     if (!title) return res.status(400).json({ error: "title required" });
 
     const selectedTemplate = await findExamTemplateBySelection(examType);
@@ -2726,12 +2742,14 @@ router.post("/tests", requireAuth, async (req, res) => {
       instructions: resolvedInstructions,
       examConfig: examConfig ? JSON.stringify(examConfig) : null,
       durationMinutes: resolvedDuration,
-      passingScore: passingScore === undefined || passingScore === null || String(passingScore).trim() === ""
-        ? template?.passingScore ?? null
-        : Number(passingScore),
-      defaultPositiveMarks: defaultPositiveMarks !== undefined ? Number(defaultPositiveMarks) : template?.defaultPositiveMarks ?? 1,
-      defaultNegativeMarks: defaultNegativeMarks !== undefined ? Number(defaultNegativeMarks) : template?.defaultNegativeMarks ?? 0,
-      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+        passingScore: passingScore === undefined || passingScore === null || String(passingScore).trim() === ""
+          ? template?.passingScore ?? null
+          : Number(passingScore),
+        defaultPositiveMarks: defaultPositiveMarks !== undefined ? Number(defaultPositiveMarks) : template?.defaultPositiveMarks ?? 1,
+        defaultNegativeMarks: defaultNegativeMarks !== undefined ? Number(defaultNegativeMarks) : template?.defaultNegativeMarks ?? 0,
+        syncQuestionBankOnPublish: syncQuestionBankOnPublish !== undefined ? Boolean(syncQuestionBankOnPublish) : true,
+        isStudentVisible: isStudentVisible !== undefined ? Boolean(isStudentVisible) : true,
+        scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       createdBy: userId,
     }).returning();
     if (Array.isArray(sections) && sections.length > 0) {
@@ -2815,10 +2833,12 @@ router.post("/tests/import", requireAuth, async (req, res) => {
       instructions: typeof test.instructions === "string" && test.instructions.trim() ? test.instructions.trim() : null,
       examConfig: storedExamConfig ? JSON.stringify(storedExamConfig) : null,
       durationMinutes: Number(test.durationMinutes) || matchedTemplate?.durationMinutes || 30,
-      passingScore: test.passingScore === undefined || test.passingScore === null || String(test.passingScore).trim() === "" ? null : Number(test.passingScore),
-      defaultPositiveMarks: test.defaultPositiveMarks !== undefined ? Number(test.defaultPositiveMarks) : matchedTemplate?.defaultPositiveMarks ?? 1,
-      defaultNegativeMarks: test.defaultNegativeMarks !== undefined ? Number(test.defaultNegativeMarks) : matchedTemplate?.defaultNegativeMarks ?? 0,
-      scheduledAt: typeof test.scheduledAt === "string" && test.scheduledAt.trim() ? new Date(test.scheduledAt) : null,
+        passingScore: test.passingScore === undefined || test.passingScore === null || String(test.passingScore).trim() === "" ? null : Number(test.passingScore),
+        defaultPositiveMarks: test.defaultPositiveMarks !== undefined ? Number(test.defaultPositiveMarks) : matchedTemplate?.defaultPositiveMarks ?? 1,
+        defaultNegativeMarks: test.defaultNegativeMarks !== undefined ? Number(test.defaultNegativeMarks) : matchedTemplate?.defaultNegativeMarks ?? 0,
+        syncQuestionBankOnPublish: test.syncQuestionBankOnPublish !== undefined ? Boolean(test.syncQuestionBankOnPublish) : true,
+        isStudentVisible: test.isStudentVisible !== undefined ? Boolean(test.isStudentVisible) : true,
+        scheduledAt: typeof test.scheduledAt === "string" && test.scheduledAt.trim() ? new Date(test.scheduledAt) : null,
       createdBy: userId,
       isPublished: false,
     }).returning();
@@ -3377,17 +3397,22 @@ router.post("/tests/:id/import-question-metadata", requireAuth, async (req, res)
 // PATCH /api/tests/:id — update test
 router.patch("/tests/:id", requireAuth, async (req, res) => {
   try {
-    const testId = parseInt(req.params.id, 10);
-    const userId = parseInt(req.cookies.userId, 10);
-    const user = await getUser(userId);
-    if (!user || user.role !== "admin") return res.status(403).json({ error: "Forbidden" });
+      const testId = parseInt(req.params.id, 10);
+      const userId = parseInt(req.cookies.userId, 10);
+      const user = await getUser(userId);
+      if (!user || (user.role !== "admin" && user.role !== "super_admin")) return res.status(403).json({ error: "Forbidden" });
 
-    const [beforeTest] = await db.select().from(testsTable).where(eq(testsTable.id, testId));
-    if (!beforeTest) return res.status(404).json({ error: "Test not found" });
+      const [beforeTest] = await db.select().from(testsTable).where(eq(testsTable.id, testId));
+      if (!beforeTest) return res.status(404).json({ error: "Test not found" });
+      if (user.role === "admin" && beforeTest.createdBy !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
 
-    const { isPublished, title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt } = req.body;
-    const updates: any = {};
-    if (isPublished !== undefined) updates.isPublished = Boolean(isPublished);
+      const { isPublished, title, description, examType, examHeader, examSubheader, instructions, examConfig, durationMinutes, passingScore, defaultPositiveMarks, defaultNegativeMarks, scheduledAt, syncQuestionBankOnPublish, isStudentVisible } = req.body;
+      const updates: any = {};
+      if (isPublished !== undefined) updates.isPublished = Boolean(isPublished);
+      if (syncQuestionBankOnPublish !== undefined) updates.syncQuestionBankOnPublish = Boolean(syncQuestionBankOnPublish);
+      if (isStudentVisible !== undefined) updates.isStudentVisible = Boolean(isStudentVisible);
     if (title) updates.title = String(title);
     if (description !== undefined) updates.description = description ? String(description) : null;
     let selectedTemplate: any = null;
@@ -3407,8 +3432,7 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     if (defaultNegativeMarks !== undefined) updates.defaultNegativeMarks = Number(defaultNegativeMarks);
     if (scheduledAt !== undefined) updates.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
 
-    const preserveSections = shouldPreserveImportedSections(beforeTest?.examConfig);
-    const publishExamType = updates.examType ?? beforeTest.examType;
+      const preserveSections = shouldPreserveImportedSections(beforeTest?.examConfig);
 
     if (selectedTemplate && !preserveSections) {
       updates.examType = selectedTemplate.key;
@@ -3432,19 +3456,23 @@ router.patch("/tests/:id", requireAuth, async (req, res) => {
     const syncedSections = shouldPreserveImportedSections(test.examConfig)
       ? rawSections.map((section) => ({ ...section, meta: safeParseJson(section.meta, null) }))
       : await syncTestSectionsFromTemplate(testId, test.examType, rawSections);
-    const questionBankSync =
-      updates.isPublished === true
-        ? await syncPublishedTestQuestionsToQuestionBank(testId, userId, test.examType)
+      const syncUserId = test.createdBy ?? userId;
+      const shouldSyncQuestionBank = test.syncQuestionBankOnPublish !== false;
+      const shouldRunQuestionBankSync =
+        shouldSyncQuestionBank &&
+        (updates.isPublished === true || (updates.syncQuestionBankOnPublish === true && test.isPublished));
+      const questionBankSync = shouldRunQuestionBankSync
+        ? await syncPublishedTestQuestionsToQuestionBank(testId, syncUserId, test.examType)
         : null;
-    const questionBankCleanup =
-      updates.isPublished === false && beforeTest?.isPublished
-        ? await cleanupUnpublishedTestQuestionsFromQuestionBank(testId, userId, beforeTest.examType)
-        : null;
+      const questionBankCleanup =
+        updates.isPublished === false && beforeTest?.isPublished
+          ? await cleanupUnpublishedTestQuestionsFromQuestionBank(testId, syncUserId, beforeTest.examType)
+          : null;
 
     let publishNotificationStudentIds: number[] = [];
 
     // Prepare student notifications when a test is first published.
-    if (updates.isPublished === true && !beforeTest?.isPublished) {
+      if (updates.isPublished === true && !beforeTest?.isPublished && test.isStudentVisible !== false) {
       const students = await db.select({
         id: usersTable.id,
         subject: usersTable.subject,
@@ -3919,10 +3947,11 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
     const [test] = await db.select({
       id: testsTable.id,
       title: testsTable.title,
-      classId: testsTable.classId,
-      examType: testsTable.examType,
-      isPublished: testsTable.isPublished,
-      passingScore: testsTable.passingScore,
+        classId: testsTable.classId,
+        examType: testsTable.examType,
+        isPublished: testsTable.isPublished,
+        isStudentVisible: testsTable.isStudentVisible,
+        passingScore: testsTable.passingScore,
     }).from(testsTable).where(eq(testsTable.id, testId));
     if (!test) return res.status(404).json({ error: "Test not found" });
 
@@ -3930,9 +3959,9 @@ router.post("/tests/:id/submit", requireAuth, async (req, res) => {
       enrolledClassIds: await getStudentEnrolledClassIds(userId),
       examKeys: getStudentExamKeys(user),
     };
-    if (!test.isPublished || !canStudentAccessTest(test, access)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
+      if (!test.isPublished || test.isStudentVisible === false || !canStudentAccessTest(test, access)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
 
     const {
       answers,
@@ -5176,10 +5205,11 @@ router.get("/calendar", requireAuth, async (req, res) => {
       if (classIds.length > 0) {
         testRows = await db.select({ id: testsTable.id, title: testsTable.title, scheduledAt: testsTable.scheduledAt, createdAt: testsTable.createdAt, classId: testsTable.classId })
           .from(testsTable)
-          .where(and(
-            eq(testsTable.isPublished, true),
-            or(inArray(testsTable.classId, classIds), isNull(testsTable.classId))
-          ));
+            .where(and(
+              eq(testsTable.isPublished, true),
+              eq(testsTable.isStudentVisible, true),
+              or(inArray(testsTable.classId, classIds), isNull(testsTable.classId))
+            ));
       }
     }
 

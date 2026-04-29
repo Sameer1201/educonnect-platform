@@ -7,6 +7,7 @@ import { InfoTip } from "@/components/ui/info-tip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -61,10 +62,11 @@ interface Test {
   instructions?: string | null;
   examConfig?: Record<string, unknown> | null;
   defaultPositiveMarks?: number | null;
-  defaultNegativeMarks?: number | null;
-  questionCount?: number | null;
-  chapterId: number | null; durationMinutes: number; passingScore: number | null; isPublished: boolean;
-  scheduledAt: string | null; className: string | null; chapterName?: string | null; subjectName?: string | null;
+    defaultNegativeMarks?: number | null;
+    questionCount?: number | null;
+    chapterId: number | null; durationMinutes: number; passingScore: number | null; isPublished: boolean;
+    syncQuestionBankOnPublish?: boolean | null; isStudentVisible?: boolean | null;
+    scheduledAt: string | null; className: string | null; chapterName?: string | null; subjectName?: string | null;
 }
 
 interface PublishSyncQuestion {
@@ -247,10 +249,12 @@ interface ExportedTestBundle {
     instructions?: string | null;
     examConfig?: Record<string, unknown> | null;
     durationMinutes?: number;
-    passingScore?: number | null;
-    defaultPositiveMarks?: number | null;
-    defaultNegativeMarks?: number | null;
-    scheduledAt?: string | null;
+      passingScore?: number | null;
+      defaultPositiveMarks?: number | null;
+      defaultNegativeMarks?: number | null;
+      syncQuestionBankOnPublish?: boolean | null;
+      isStudentVisible?: boolean | null;
+      scheduledAt?: string | null;
     sections: Array<Record<string, unknown>>;
     questions: Array<Record<string, unknown>>;
   };
@@ -987,15 +991,19 @@ export default function AdminTests() {
   const [newPassing, setNewPassing] = useState("60");
   const [newDefaultPositiveMarks, setNewDefaultPositiveMarks] = useState("1");
   const [newDefaultNegativeMarks, setNewDefaultNegativeMarks] = useState("0");
-  const [newScheduled, setNewScheduled] = useState("");
-  const [newTestCategory, setNewTestCategory] = useState<TestCategory>("mock");
-  const [newCalculatorEnabled, setNewCalculatorEnabled] = useState(false);
-  const [sectionDrafts, setSectionDrafts] = useState<SectionDraft[]>([makeSectionDraft()]);
-  const [importOpen, setImportOpen] = useState(false);
-  const [importBundle, setImportBundle] = useState<ExportedTestBundle | null>(null);
-  const [importFilename, setImportFilename] = useState("");
-  const [importExamType, setImportExamType] = useState("");
-  const [importScheduled, setImportScheduled] = useState("");
+    const [newScheduled, setNewScheduled] = useState("");
+    const [newTestCategory, setNewTestCategory] = useState<TestCategory>("mock");
+    const [newCalculatorEnabled, setNewCalculatorEnabled] = useState(false);
+    const [newSyncQuestionBankOnPublish, setNewSyncQuestionBankOnPublish] = useState(true);
+    const [newIsStudentVisible, setNewIsStudentVisible] = useState(true);
+    const [sectionDrafts, setSectionDrafts] = useState<SectionDraft[]>([makeSectionDraft()]);
+    const [importOpen, setImportOpen] = useState(false);
+    const [importBundle, setImportBundle] = useState<ExportedTestBundle | null>(null);
+    const [importFilename, setImportFilename] = useState("");
+    const [importExamType, setImportExamType] = useState("");
+    const [importScheduled, setImportScheduled] = useState("");
+    const [importSyncQuestionBankOnPublish, setImportSyncQuestionBankOnPublish] = useState(true);
+    const [importIsStudentVisible, setImportIsStudentVisible] = useState(true);
   const [metadataImportOpen, setMetadataImportOpen] = useState(false);
   const [metadataImportMode, setMetadataImportMode] = useState<QuestionBulkImportMode>("metadata");
   const [metadataImportTestId, setMetadataImportTestId] = useState<number | null>(null);
@@ -1165,10 +1173,12 @@ export default function AdminTests() {
   const resetImportDialog = () => {
     setImportOpen(false);
     setImportBundle(null);
-    setImportFilename("");
-    setImportExamType("");
-    setImportScheduled("");
-  };
+      setImportFilename("");
+      setImportExamType("");
+      setImportScheduled("");
+      setImportSyncQuestionBankOnPublish(true);
+      setImportIsStudentVisible(true);
+    };
 
   const resetMetadataImportDialog = () => {
     setMetadataImportOpen(false);
@@ -1220,10 +1230,12 @@ export default function AdminTests() {
           examSubheader: newExamSubheader.trim() || null,
           instructions: newCustomInstructions.trim() || null,
           durationMinutes: parseInt(newDuration) || 30,
-          passingScore: newPassing.trim() ? parseInt(newPassing) : null,
-          defaultPositiveMarks: parseFloat(newDefaultPositiveMarks) || 1,
-          defaultNegativeMarks: parseFloat(newDefaultNegativeMarks) || 0,
-          examConfig: {
+            passingScore: newPassing.trim() ? parseInt(newPassing) : null,
+            defaultPositiveMarks: parseFloat(newDefaultPositiveMarks) || 1,
+            defaultNegativeMarks: parseFloat(newDefaultNegativeMarks) || 0,
+            syncQuestionBankOnPublish: newSyncQuestionBankOnPublish,
+            isStudentVisible: newIsStudentVisible,
+            examConfig: {
             bulkSupported: true,
             sectionCount: sectionDrafts.filter((section) => (section.subjectLabel.trim() || section.title.trim())).length,
             sourceModes: ["manual", "bulk", "ai"],
@@ -1250,31 +1262,37 @@ export default function AdminTests() {
       }
       return r.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
-      setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setNewTestCategory("mock"); setNewCalculatorEnabled(false); setSectionDrafts([makeSectionDraft()]);
-      toast({ title: "Test created" });
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+        setCreateOpen(false); setNewExamType(""); setNewTitle(""); setNewExamHeader(""); setNewExamSubheader(""); setNewCustomInstructions(""); setNewDuration("30"); setNewPassing(""); setNewDefaultPositiveMarks("1"); setNewDefaultNegativeMarks("0"); setNewScheduled(""); setNewTestCategory("mock"); setNewCalculatorEnabled(false); setNewSyncQuestionBankOnPublish(true); setNewIsStudentVisible(true); setSectionDrafts([makeSectionDraft()]);
+        toast({ title: "Test created" });
     },
     onError: (error: Error) => toast({ title: "Failed to create test", description: error.message, variant: "destructive" }),
   });
 
   const importTestMutation = useMutation({
     mutationFn: async ({
-      bundle,
-      examType,
-      scheduledAt,
-    }: {
-      bundle: ExportedTestBundle;
-      examType: string;
-      scheduledAt: string;
-    }) => {
+        bundle,
+        examType,
+        scheduledAt,
+        syncQuestionBankOnPublish,
+        isStudentVisible,
+      }: {
+        bundle: ExportedTestBundle;
+        examType: string;
+        scheduledAt: string;
+        syncQuestionBankOnPublish: boolean;
+        isStudentVisible: boolean;
+      }) => {
       const normalizedBundle: ExportedTestBundle = {
         ...bundle,
         test: {
-          ...bundle.test,
-          examType,
-          scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-        },
+            ...bundle.test,
+            examType,
+            scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+            syncQuestionBankOnPublish,
+            isStudentVisible,
+          },
       };
       const r = await fetch(`${BASE}/api/tests/import`, {
         method: "POST",
@@ -1345,7 +1363,7 @@ export default function AdminTests() {
     },
   });
 
-  const togglePublish = useMutation({
+    const togglePublish = useMutation({
     mutationFn: async ({ id, isPublished }: { id: number; isPublished: boolean }) => {
       const r = await fetch(`${BASE}/api/tests/${id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isPublished }) });
       if (!r.ok) {
@@ -1423,10 +1441,80 @@ export default function AdminTests() {
       queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
       queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
       queryClient.invalidateQueries({ queryKey: ["admin-question-bank"] });
-    },
-  });
+      },
+    });
 
-  const deleteTestMutation = useMutation({
+    const updateTestOptionsMutation = useMutation({
+      mutationFn: async ({
+        id,
+        syncQuestionBankOnPublish,
+        isStudentVisible,
+      }: {
+        id: number;
+        syncQuestionBankOnPublish?: boolean;
+        isStudentVisible?: boolean;
+      }) => {
+        const body: Record<string, boolean> = {};
+        if (syncQuestionBankOnPublish !== undefined) body.syncQuestionBankOnPublish = syncQuestionBankOnPublish;
+        if (isStudentVisible !== undefined) body.isStudentVisible = isStudentVisible;
+        const r = await fetch(`${BASE}/api/tests/${id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          throw new Error(formatApiErrorMessage(await r.text(), "Failed to update test options"));
+        }
+        return r.json();
+      },
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries({ queryKey: ["admin-tests"] });
+        const previousTests = queryClient.getQueryData<Test[]>(["admin-tests"]);
+        queryClient.setQueryData<Test[]>(["admin-tests"], (current = []) =>
+          current.map((test) => (
+            test.id === variables.id
+              ? {
+                  ...test,
+                  ...(variables.syncQuestionBankOnPublish !== undefined ? { syncQuestionBankOnPublish: variables.syncQuestionBankOnPublish } : {}),
+                  ...(variables.isStudentVisible !== undefined ? { isStudentVisible: variables.isStudentVisible } : {}),
+                }
+              : test
+          )),
+        );
+        return { previousTests };
+      },
+      onSuccess: (data, variables) => {
+        queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+        if (variables.syncQuestionBankOnPublish !== undefined) {
+          queryClient.invalidateQueries({ queryKey: ["admin-question-bank-exams"] });
+          queryClient.invalidateQueries({ queryKey: ["admin-question-bank"] });
+        }
+        const sync = data?.questionBankSync as PublishSyncSummary | null | undefined;
+        if (sync) {
+          setPublishResultDialog({
+            testId: data?.id ?? variables.id,
+            testTitle: data?.title ?? "Test",
+            summary: sync,
+          });
+          return;
+        }
+        toast({ title: "Test options updated" });
+      },
+      onError: (error: Error, _variables, context) => {
+        if (context?.previousTests) queryClient.setQueryData(["admin-tests"], context.previousTests);
+        toast({
+          title: "Test options update failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({ queryKey: ["admin-tests"] });
+      },
+    });
+
+    const deleteTestMutation = useMutation({
     mutationFn: async (id: number) => { await fetch(`${BASE}/api/tests/${id}`, { method: "DELETE", credentials: "include" }); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["admin-tests"] }); toast({ title: "Test deleted" }); },
   });
@@ -1567,14 +1655,16 @@ export default function AdminTests() {
       }
       setImportBundle(parsed);
       setImportFilename(file.name);
-      setImportExamType(
-        normalizeExamTypeSelection(
-          parsed.test.examType ?? parsed.source?.examType ?? parsed.test.examHeader ?? parsed.test.title ?? "",
-          importExamTemplateOptions,
-        ) || importExamTemplateOptions[0]?.key || "",
-      );
-      setImportScheduled(formatDateTimeLocalValue(parsed.test.scheduledAt ?? null));
-      setImportOpen(true);
+        setImportExamType(
+          normalizeExamTypeSelection(
+            parsed.test.examType ?? parsed.source?.examType ?? parsed.test.examHeader ?? parsed.test.title ?? "",
+            importExamTemplateOptions,
+          ) || importExamTemplateOptions[0]?.key || "",
+        );
+        setImportScheduled(formatDateTimeLocalValue(parsed.test.scheduledAt ?? null));
+        setImportSyncQuestionBankOnPublish(parsed.test.syncQuestionBankOnPublish !== false);
+        setImportIsStudentVisible(parsed.test.isStudentVisible !== false);
+        setImportOpen(true);
     } catch (error) {
       toast({
         title: "Import failed",
@@ -1716,9 +1806,11 @@ export default function AdminTests() {
             const loadedQuestionCount = qs.length > 0 ? qs.length : Math.max(0, Number(test.questionCount) || 0);
             const isJsonExporting = exportingTestId === test.id;
             const isPdfExporting = exportingTestPdfId === test.id;
-            const calculatorEnabled = getCalculatorEnabledFromExamConfig(test.examConfig);
-            const testCategory = getResolvedTestCategory(test, sections);
-            const reportedQuestions = qs.filter((question) => getOpenReportCount(question) > 0);
+              const calculatorEnabled = getCalculatorEnabledFromExamConfig(test.examConfig);
+              const testCategory = getResolvedTestCategory(test, sections);
+              const syncQuestionBankOnPublish = test.syncQuestionBankOnPublish !== false;
+              const isStudentVisible = test.isStudentVisible !== false;
+              const reportedQuestions = qs.filter((question) => getOpenReportCount(question) > 0);
             const openReportedQuestionCount = reportedQuestions.length;
             const totalOpenReports = reportedQuestions.reduce((sum, question) => sum + getOpenReportCount(question), 0);
             const firstReportedQuestionId = reportedQuestions[0]?.id ?? null;
@@ -1766,9 +1858,19 @@ export default function AdminTests() {
                             className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"
                           >
                             <Calculator size={11} />
-                          </span>
-                        ) : null}
-                        {openReportedQuestionCount > 0 ? (
+                            </span>
+                          ) : null}
+                          {!isStudentVisible ? (
+                            <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              Hidden from students
+                            </span>
+                          ) : null}
+                          {!syncQuestionBankOnPublish ? (
+                            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              Q Bank sync off
+                            </span>
+                          ) : null}
+                          {openReportedQuestionCount > 0 ? (
                           <button
                             type="button"
                             onMouseEnter={() => prefetchBuilderResources(test.id)}
@@ -1786,9 +1888,37 @@ export default function AdminTests() {
                         <span className="flex items-center gap-1"><Clock size={11} />{test.durationMinutes} min</span>
                         {test.scheduledAt ? <span>{format(new Date(test.scheduledAt), "MMM d, yyyy")}</span> : null}
                       </div>
-                    </div>
-                    <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:items-end">
-                      <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
+                      </div>
+                      <div className="flex w-full shrink-0 flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+                        <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs sm:grid-cols-2">
+                          <label className="flex min-w-[150px] cursor-pointer items-center justify-between gap-3 font-medium text-slate-700">
+                            <span>Show to students</span>
+                            <Checkbox
+                              checked={isStudentVisible}
+                              disabled={updateTestOptionsMutation.isPending}
+                              className="border-[#D97706] data-[state=checked]:bg-[#D97706] data-[state=checked]:text-white"
+                              onCheckedChange={(checked) => updateTestOptionsMutation.mutate({
+                                id: test.id,
+                                isStudentVisible: Boolean(checked),
+                              })}
+                              aria-label={`Show ${test.title} to students`}
+                            />
+                          </label>
+                          <label className="flex min-w-[150px] cursor-pointer items-center justify-between gap-3 font-medium text-slate-700">
+                            <span>Q Bank sync</span>
+                            <Checkbox
+                              checked={syncQuestionBankOnPublish}
+                              disabled={updateTestOptionsMutation.isPending}
+                              className="border-[#D97706] data-[state=checked]:bg-[#D97706] data-[state=checked]:text-white"
+                              onCheckedChange={(checked) => updateTestOptionsMutation.mutate({
+                                id: test.id,
+                                syncQuestionBankOnPublish: Boolean(checked),
+                              })}
+                              aria-label={`Auto-sync ${test.title} to question bank on publish`}
+                            />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
                         {openReportedQuestionCount > 0 ? (
                           <Button
                             size="sm"
@@ -2073,12 +2203,33 @@ export default function AdminTests() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold">Student Visibility</p>
-                  <InfoTip content={`Visible to students who selected ${String(newExamType || "exam").toUpperCase()} during registration or in profile settings.`} />
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                    <Checkbox
+                      checked={newIsStudentVisible}
+                      onCheckedChange={(checked) => setNewIsStudentVisible(Boolean(checked))}
+                      className="mt-0.5 border-[#D97706] data-[state=checked]:bg-[#D97706] data-[state=checked]:text-white"
+                    />
+                    <span>
+                      <span className="flex items-center gap-2 font-semibold text-slate-900">
+                        Show test to students
+                        <InfoTip content={`Visible to students who selected ${String(newExamType || "exam").toUpperCase()} during registration or in profile settings.`} />
+                      </span>
+                      <span className="mt-1 block text-xs text-slate-500">Off rakho to publish hone ke baad bhi students ke My Tests me nahi dikhega.</span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-slate-700">
+                    <Checkbox
+                      checked={newSyncQuestionBankOnPublish}
+                      onCheckedChange={(checked) => setNewSyncQuestionBankOnPublish(Boolean(checked))}
+                      className="mt-0.5 border-[#D97706] data-[state=checked]:bg-[#D97706] data-[state=checked]:text-white"
+                    />
+                    <span>
+                      <span className="font-semibold text-slate-900">Sync to Question Bank on publish</span>
+                      <span className="mt-1 block text-xs text-slate-500">Off rakho to publish ke baad Q Bank me auto-copy nahi hoga.</span>
+                    </span>
+                  </label>
                 </div>
-              </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                 <Label className="text-sm font-medium text-slate-900">Test category</Label>
                 <p className="mt-1 text-xs text-slate-500">Students will see a badge with this label.</p>
@@ -2159,9 +2310,33 @@ export default function AdminTests() {
                   className="h-11 rounded-xl border-[#eadfcd] bg-white"
                 />
                 <p className="text-xs text-slate-500">Leave this blank to import the test as a draft without a schedule.</p>
+                </div>
               </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <Checkbox
+                    checked={importIsStudentVisible}
+                    onCheckedChange={(checked) => setImportIsStudentVisible(Boolean(checked))}
+                    className="mt-0.5 border-[#D97706] data-[state=checked]:bg-[#D97706] data-[state=checked]:text-white"
+                  />
+                  <span>
+                    <span className="font-semibold text-slate-900">Show test to students</span>
+                    <span className="mt-1 block text-xs text-slate-500">Unchecked hoga to publish ke baad bhi student list me hidden rahega.</span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-slate-700">
+                  <Checkbox
+                    checked={importSyncQuestionBankOnPublish}
+                    onCheckedChange={(checked) => setImportSyncQuestionBankOnPublish(Boolean(checked))}
+                    className="mt-0.5 border-[#D97706] data-[state=checked]:bg-[#D97706] data-[state=checked]:text-white"
+                  />
+                  <span>
+                    <span className="font-semibold text-slate-900">Sync to Question Bank on publish</span>
+                    <span className="mt-1 block text-xs text-slate-500">Unchecked hoga to publish pe Q Bank auto-sync skip hoga.</span>
+                  </span>
+                </label>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" disabled={importTestMutation.isPending} onClick={() => resetImportDialog()}>
                 Cancel
               </Button>
@@ -2170,10 +2345,12 @@ export default function AdminTests() {
                 onClick={() => {
                   if (!importBundle) return;
                   importTestMutation.mutate({
-                    bundle: importBundle,
-                    examType: importExamType,
-                    scheduledAt: importScheduled,
-                  });
+                      bundle: importBundle,
+                      examType: importExamType,
+                      scheduledAt: importScheduled,
+                      syncQuestionBankOnPublish: importSyncQuestionBankOnPublish,
+                      isStudentVisible: importIsStudentVisible,
+                    });
                 }}
               >
                 {importTestMutation.isPending ? "Importing..." : "Import Test"}

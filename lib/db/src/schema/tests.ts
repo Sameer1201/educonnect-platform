@@ -20,6 +20,8 @@ export const testsTable = pgTable("tests", {
   defaultPositiveMarks: real("default_positive_marks").notNull().default(1),
   defaultNegativeMarks: real("default_negative_marks").notNull().default(0),
   isPublished: boolean("is_published").notNull().default(false),
+  syncQuestionBankOnPublish: boolean("sync_question_bank_on_publish").notNull().default(true),
+  isStudentVisible: boolean("is_student_visible").notNull().default(true),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   createdBy: integer("created_by").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
