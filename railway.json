@@ -6,7 +6,7 @@
   },
   "deploy": {
     "startCommand": "case \"$RAILWAY_SERVICE_NAME\" in *@workspace/edtech*|*edtech*) pnpm --filter @workspace/edtech run serve ;; *) pnpm --filter @workspace/api-server run start:prod ;; esac",
-    "healthcheckPath": "/api/healthz",
+    "healthcheckPath": "/",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
