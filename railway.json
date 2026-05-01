@@ -5,7 +5,7 @@
     "buildCommand": "pnpm run typecheck:libs && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/edtech run typecheck && pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/edtech run build"
   },
   "deploy": {
-    "startCommand": "pnpm --filter @workspace/api-server run start:prod",
+    "startCommand": "case \"$RAILWAY_SERVICE_NAME\" in *@workspace/edtech*|*edtech*) pnpm --filter @workspace/edtech run serve ;; *) pnpm --filter @workspace/api-server run start:prod ;; esac",
     "healthcheckPath": "/api/healthz",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",

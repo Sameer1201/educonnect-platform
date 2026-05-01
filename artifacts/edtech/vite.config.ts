@@ -8,6 +8,19 @@ const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 5173;
 
 const basePath = process.env.BASE_PATH ?? "/";
+const apiProxyTarget =
+  process.env.API_PROXY_TARGET ??
+  process.env.VITE_API_PROXY_TARGET ??
+  (process.env.RAILWAY_ENVIRONMENT ? "http://rankpulse.railway.internal:8080" : "http://localhost:8080");
+
+const apiProxy = {
+  "/api": {
+    target: apiProxyTarget,
+    changeOrigin: true,
+    secure: false,
+    ws: true,
+  },
+};
 
 export default defineConfig({
   base: basePath,
@@ -81,17 +94,15 @@ export default defineConfig({
       deny: ["**/.*"],
     },
     proxy: {
-      "/api": {
-        target: "http://localhost:8080",
-        changeOrigin: true,
-        secure: false,
-        ws: true,
-      },
+      ...apiProxy,
     },
   },
   preview: {
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      ...apiProxy,
+    },
   },
 });
