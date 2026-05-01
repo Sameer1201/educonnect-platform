@@ -43,6 +43,7 @@ ensureRuntimeSchema()
     });
   })
   .catch((err) => {
-    logger.error({ err }, "Failed to seed default users");
+    logger.error({ err }, "Failed to initialize application");
+    console.error("Failed to initialize application", err);
     process.exit(1);
   });
