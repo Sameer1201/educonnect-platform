@@ -1,4 +1,4 @@
-export type StudentUnlockFeature = "tests" | "question-bank";
+export type StudentUnlockFeature = "tests" | "question-bank" | "test-analysis";
 export type StudentUnlockKind = "feature" | "test" | "chapter";
 
 type BuildStudentUnlockPathOptions = {
@@ -11,7 +11,9 @@ type BuildStudentUnlockPathOptions = {
 };
 
 export function getStudentUnlockFeatureLabel(feature: StudentUnlockFeature) {
-  return feature === "tests" ? "Tests" : "Question Bank";
+  if (feature === "tests") return "Tests";
+  if (feature === "question-bank") return "Question Bank";
+  return "Test Analysis";
 }
 
 export function buildStudentUnlockPath({

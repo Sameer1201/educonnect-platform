@@ -46,15 +46,21 @@ export default function StudentFeatureUnlockView({
       ? label?.trim()
         ? `Unlock ${label.trim()}`
         : "Unlock Test Access"
-      : label?.trim()
-        ? `Unlock ${label.trim()}`
-        : "Unlock Question Bank Access";
+      : feature === "question-bank"
+        ? label?.trim()
+          ? `Unlock ${label.trim()}`
+          : "Unlock Question Bank Access"
+        : label?.trim()
+          ? `Unlock ${label.trim()} Analysis`
+          : "Unlock Test Analysis";
 
   const bodyCopy =
     kind === "chapter"
       ? "This chapter is locked for your account. Complete the one-time payment to continue with this topic."
       : kind === "test"
         ? "This test is locked for your account. Complete the one-time payment to continue with the attempt."
+        : feature === "test-analysis"
+          ? "Test analysis is locked for your account. Complete the one-time payment to view detailed marks, solutions, and breakdown."
         : `This ${featureLabel.toLowerCase()} area is locked for your account. Complete the one-time payment to continue.`;
 
   return (

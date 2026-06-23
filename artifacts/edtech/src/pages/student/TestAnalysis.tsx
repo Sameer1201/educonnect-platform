@@ -111,6 +111,7 @@ export default function StudentTestAnalysis() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const isTestsLocked = isStudentFeatureLocked(user, "tests");
+  const isAnalysisLocked = isStudentFeatureLocked(user, "test-analysis");
 
   useEffect(() => {
     if (!isTestsLocked || !id) return;
@@ -139,11 +140,13 @@ export default function StudentTestAnalysis() {
       const response = await fetch(`/api/tests/${id}/my-analysis`, { credentials: "include" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || "Failed to load analysis");
+        throw Object.assign(new Error(payload?.error || "Failed to load analysis"), {
+          code: typeof payload?.code === "string" ? payload.code : null,
+        });
       }
       return response.json();
     },
-    enabled: !!id && !isSamplePreview,
+    enabled: !!id && !isSamplePreview && !isAnalysisLocked,
   });
 
   const analysisData = sampleAnalysisData ?? analysisQuery.data;
@@ -183,6 +186,59 @@ export default function StudentTestAnalysis() {
     setDatasetReady(true);
     setDatasetVersion((version) => version + 1);
   }, [dataset]);
+
+  const lockedByServer = analysisQuery.error instanceof Error
+    && (analysisQuery.error as Error & { code?: string | null }).code === "STUDENT_TEST_ANALYSIS_LOCKED";
+  const showAnalysisLock = !isSamplePreview && (isAnalysisLocked || lockedByServer);
+
+  if (showAnalysisLock) {
+    const unlockPath = buildStudentUnlockPath({
+      feature: "test-analysis",
+      kind: "test",
+      label: `Test ${id}`,
+      returnTo: `/student/tests/${id}/analysis`,
+    });
+    return (
+      <div className="relative min-h-screen overflow-hidden bg-[#F5F7FB] px-6 py-10">
+        <div className="pointer-events-none mx-auto max-w-5xl select-none blur-sm">
+          <div className="mb-6 h-24 rounded-3xl bg-white shadow-sm" />
+          <div className="grid gap-5 md:grid-cols-[260px_1fr]">
+            <div className="space-y-4">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <div key={index} className="h-16 rounded-2xl bg-white shadow-sm" />
+              ))}
+            </div>
+            <div className="space-y-5">
+              <div className="h-36 rounded-3xl bg-white shadow-sm" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="h-40 rounded-3xl bg-white shadow-sm" />
+                <div className="h-40 rounded-3xl bg-white shadow-sm" />
+              </div>
+              <div className="h-72 rounded-3xl bg-white shadow-sm" />
+            </div>
+          </div>
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center bg-white/45 px-6 backdrop-blur-[2px]">
+          <div className="max-w-md rounded-[28px] border border-[#F5D0A5] bg-white p-7 text-center shadow-[0_24px_60px_rgba(15,23,42,0.16)]">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#FFF7E8] text-[#D97706]">
+              <ArrowLeft className="h-6 w-6 rotate-180" />
+            </div>
+            <h1 className="mt-4 text-2xl font-black text-[#111827]">Test analysis locked</h1>
+            <p className="mt-3 text-sm leading-6 text-[#6B7280]">
+              Complete the one-time payment to view detailed marks, solutions, subject breakdown, and question-wise analysis.
+            </p>
+            <button
+              type="button"
+              onClick={() => setLocation(unlockPath)}
+              className="mt-6 rounded-full bg-[#D97706] px-6 py-3 text-sm font-bold text-white shadow-[0_12px_24px_rgba(217,119,6,0.24)] hover:bg-[#B45309]"
+            >
+              Pay to Unlock Analysis
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isSamplePreview && analysisQuery.isLoading) {
     return (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useGetSuperAdminDashboard, useApproveStudent, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,6 +21,7 @@ import {
   Medal, ClipboardList, ArrowRight,
   Shield, Activity, Plus, ChevronRight,
   Mail, MousePointerClick,
+  Database, Download, Upload, AlertTriangle,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -168,6 +169,9 @@ export default function SuperAdminDashboard() {
   const [reviewEmailEnabled, setReviewEmailEnabled] = useState(true);
   const [reviewQuickActionsEnabled, setReviewQuickActionsEnabled] = useState(true);
   const [savingSetting, setSavingSetting] = useState<"email" | "actions" | null>(null);
+  const [backupExporting, setBackupExporting] = useState(false);
+  const [backupImporting, setBackupImporting] = useState(false);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 60000);
@@ -239,6 +243,89 @@ export default function SuperAdminDashboard() {
       });
     } finally {
       setSavingSetting(null);
+    }
+  };
+
+  const exportPlatformBackup = async () => {
+    setBackupExporting(true);
+    try {
+      const response = await fetch(`${BASE}/api/platform-backup/export`, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error ?? "Failed to export platform backup.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename = filenameMatch?.[1] ?? `rankpulse-full-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Full backup exported",
+        description: "Keep this file safe before moving to a new database.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBackupExporting(false);
+    }
+  };
+
+  const importPlatformBackup = async (file: File | null | undefined) => {
+    if (!file) return;
+
+    const confirmed = window.confirm(
+      "This will replace current platform data with the selected backup. Continue only on a fresh/new database.",
+    );
+    if (!confirmed) {
+      if (backupFileInputRef.current) backupFileInputRef.current.value = "";
+      return;
+    }
+
+    setBackupImporting(true);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const response = await fetch(`${BASE}/api/platform-backup/import`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error ?? "Failed to import platform backup.");
+      }
+
+      toast({
+        title: "Backup imported",
+        description: "Platform data has been restored. Refreshing dashboard now.",
+      });
+      await refetch();
+    } catch (error) {
+      toast({
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "Please check the backup file and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBackupImporting(false);
+      if (backupFileInputRef.current) backupFileInputRef.current.value = "";
     }
   };
 
@@ -496,6 +583,63 @@ export default function SuperAdminDashboard() {
           color="from-rose-600 to-pink-600"
         />
       </div>
+
+      <TiltCard>
+      <Card className="border-slate-200 bg-white shadow-[0_20px_48px_rgba(15,23,42,0.12)]">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-sm">
+                <Database size={18} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-bold text-slate-950">Platform Backup</h2>
+                  <Badge variant="secondary" className="border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+                    Month-end safety
+                  </Badge>
+                </div>
+                <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
+                  Export the full portal data before changing hosting or database, then import it on the new setup.
+                </p>
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-amber-700">
+                  <AlertTriangle size={12} />
+                  <span>Import replaces current database data. Use it on a fresh database.</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+                onClick={exportPlatformBackup}
+                disabled={backupExporting || backupImporting}
+              >
+                <Download size={15} className="mr-2" />
+                {backupExporting ? "Exporting..." : "Export Full Backup"}
+              </Button>
+              <Button
+                type="button"
+                className="bg-slate-950 text-white hover:bg-slate-800"
+                onClick={() => backupFileInputRef.current?.click()}
+                disabled={backupExporting || backupImporting}
+              >
+                <Upload size={15} className="mr-2" />
+                {backupImporting ? "Importing..." : "Import Backup"}
+              </Button>
+              <input
+                ref={backupFileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(event) => importPlatformBackup(event.target.files?.[0])}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      </TiltCard>
 
       <TiltCard>
       <Card className="border-orange-200/70 bg-white shadow-[0_20px_48px_rgba(15,23,42,0.14)]">

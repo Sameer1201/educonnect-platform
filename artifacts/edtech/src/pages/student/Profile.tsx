@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Camera,
   CheckCircle,
+  CreditCard,
   Loader2,
   Mail,
   Phone,
@@ -44,6 +45,14 @@ function Avatar({ src, initials }: { src?: string | null; initials: string }) {
       {initials}
     </div>
   );
+}
+
+function formatPaymentAmount(amount: number, currency = "INR") {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 export default function StudentProfile() {
@@ -399,6 +408,52 @@ export default function StudentProfile() {
               <p className="text-sm text-muted-foreground">No additional exams added yet.</p>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CreditCard size={15} className="text-primary" /> Payment History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {Array.isArray((user as any).studentPaymentHistory) && (user as any).studentPaymentHistory.length > 0 ? (
+            <div className="space-y-3">
+              {(user as any).studentPaymentHistory.map((payment: any) => (
+                <div
+                  key={payment.id ?? payment.paymentId}
+                  className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{payment.featureLabel ?? "Feature unlock"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {payment.paidAt
+                          ? new Date(payment.paidAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
+                          : "Payment date unavailable"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-emerald-700">
+                        {formatPaymentAmount(Number(payment.amount ?? 0), payment.currency || "INR")}
+                      </p>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">{payment.status ?? "paid"}</p>
+                    </div>
+                  </div>
+                  {payment.paymentId ? (
+                    <p className="mt-3 break-all rounded-lg bg-white/80 px-3 py-2 font-mono text-xs text-muted-foreground">
+                      Payment ID: {payment.paymentId}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-muted/30 p-5 text-sm text-muted-foreground">
+              No unlock payments yet. Your payment receipts will appear here after successful unlocks.
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -1789,9 +1789,162 @@ export async function sendNewStudentReviewRequestEmail({
   });
 }
 
+export async function sendStudentFeatureLockedEmail({
+  studentName,
+  email,
+  featureLabel,
+  amount,
+  feature,
+}: {
+  studentName: string;
+  email: string;
+  featureLabel: string;
+  amount: number | null;
+  feature: "tests" | "question-bank" | "test-analysis";
+}) {
+  const safeName = escapeHtml(studentName.trim() || "Student");
+  const safeFeatureLabel = escapeHtml(featureLabel);
+  const portalUrl = readPortalUrl();
+  const unlockUrl = `${portalUrl.replace(/\/$/, "")}/student/unlock/${feature}`;
+  const safeUnlockUrl = escapeHtml(unlockUrl);
+  const amountLabel = amount
+    ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount)
+    : "configured by super admin";
+
+  const subject = `${featureLabel} access is locked`;
+  const textContent = [
+    `Hi ${studentName || "Student"},`,
+    "",
+    `Your ${featureLabel} access has been locked by the Rank Pulse super admin.`,
+    `Unlock amount: ${amountLabel}`,
+    `Pay and unlock: ${unlockUrl}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#fff7e8;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #fed7aa;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#fff7e8 0%,#ffedd5 100%);border-bottom:1px solid #fed7aa;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#d97706;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">Access Locked</div>
+          <h1 style="margin:16px 0 8px;font-size:26px;line-height:1.15;color:#111827;">${safeFeatureLabel} needs payment unlock</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">Hi ${safeName}, this area has been locked for your account.</p>
+        </div>
+        <div style="padding:28px;">
+          <div style="border:1px solid #fed7aa;border-radius:18px;background:#fffaf0;padding:18px 20px;">
+            <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9a3412;">Unlock amount</p>
+            <p style="margin:0;font-size:22px;font-weight:800;color:#111827;">${escapeHtml(amountLabel)}</p>
+          </div>
+          <div style="margin-top:24px;">
+            <a href="${safeUnlockUrl}" style="display:inline-block;background:#d97706;color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:14px;font-weight:700;">Pay to Unlock</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: email,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "student-feature-locked",
+    metadata: { studentName, feature, amount },
+  });
+}
+
+export async function sendStudentFeaturePaymentReceivedEmail({
+  adminName,
+  adminEmail,
+  studentName,
+  studentEmail,
+  featureLabel,
+  amount,
+  paymentId,
+}: {
+  adminName: string;
+  adminEmail: string;
+  studentName: string;
+  studentEmail: string | null;
+  featureLabel: string;
+  amount: number;
+  paymentId: string;
+}) {
+  const safeAdminName = escapeHtml(adminName.trim() || "Admin");
+  const safeStudentName = escapeHtml(studentName.trim() || "Student");
+  const safeStudentEmail = escapeHtml(studentEmail?.trim() || "No email");
+  const safeFeatureLabel = escapeHtml(featureLabel);
+  const amountLabel = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount);
+  const subject = `${studentName || "Student"} paid for ${featureLabel}`;
+  const textContent = [
+    `Hi ${adminName || "Admin"},`,
+    "",
+    `${studentName || "Student"} paid ${amountLabel} for ${featureLabel}.`,
+    `Student email: ${studentEmail || "No email"}`,
+    `Payment ID: ${paymentId}`,
+    "",
+    "Team Rank Pulse",
+  ].join("\n");
+
+  const htmlContent = `
+    <div style="background:#f0fdf4;padding:32px 16px;font-family:Arial,sans-serif;color:#1f2937;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #bbf7d0;border-radius:24px;overflow:hidden;">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);border-bottom:1px solid #bbf7d0;">
+          <div style="display:inline-block;padding:6px 12px;border-radius:999px;background:#16a34a;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">Payment Received</div>
+          <h1 style="margin:16px 0 8px;font-size:26px;line-height:1.15;color:#111827;">${safeFeatureLabel} unlocked</h1>
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#4b5563;">Hi ${safeAdminName}, a student completed payment.</p>
+        </div>
+        <div style="padding:28px;">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;color:#374151;">
+            <tr><td style="padding:10px 0;color:#6b7280;">Student</td><td style="padding:10px 0;text-align:right;font-weight:700;color:#111827;">${safeStudentName}</td></tr>
+            <tr><td style="padding:10px 0;color:#6b7280;">Email</td><td style="padding:10px 0;text-align:right;font-weight:700;color:#111827;">${safeStudentEmail}</td></tr>
+            <tr><td style="padding:10px 0;color:#6b7280;">Amount</td><td style="padding:10px 0;text-align:right;font-weight:700;color:#111827;">${escapeHtml(amountLabel)}</td></tr>
+            <tr><td style="padding:10px 0;color:#6b7280;">Payment ID</td><td style="padding:10px 0;text-align:right;font-weight:700;color:#111827;">${escapeHtml(paymentId)}</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  `.trim();
+
+  await sendBrevoEmail({
+    to: adminEmail,
+    subject,
+    htmlContent,
+    textContent,
+    messageType: "student-feature-payment",
+    metadata: { studentName, studentEmail, featureLabel, amount, paymentId },
+  });
+}
+
 export function queueStudentApprovedEmail(args: { studentName: string; email: string }) {
   void sendStudentApprovedEmail(args).catch((error) => {
     logger.warn({ error, email: args.email }, "Failed to send student approval email via Brevo");
+  });
+}
+
+export function queueStudentFeatureLockedEmail(args: {
+  studentName: string;
+  email: string;
+  featureLabel: string;
+  amount: number | null;
+  feature: "tests" | "question-bank" | "test-analysis";
+}) {
+  void sendStudentFeatureLockedEmail(args).catch((error) => {
+    logger.warn({ error, email: args.email, feature: args.feature }, "Failed to send student feature lock email via Brevo");
+  });
+}
+
+export function queueStudentFeaturePaymentReceivedEmail(args: {
+  adminName: string;
+  adminEmail: string;
+  studentName: string;
+  studentEmail: string | null;
+  featureLabel: string;
+  amount: number;
+  paymentId: string;
+}) {
+  void sendStudentFeaturePaymentReceivedEmail(args).catch((error) => {
+    logger.warn({ error, email: args.adminEmail, paymentId: args.paymentId }, "Failed to send student feature payment email via Brevo");
   });
 }
 

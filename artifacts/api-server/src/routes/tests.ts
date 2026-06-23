@@ -2214,7 +2214,7 @@ router.post("/tests/review-bucket/:questionId/remove", requireAuth, async (req, 
     const user = await getUser(userId);
     if (!user) return res.status(401).json({ error: "Unauthorized" });
     if (user.role !== "student") return res.status(403).json({ error: "Forbidden" });
-    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
+    if (!ensureStudentFeatureUnlocked(user, "test-analysis", res)) return;
 
     const nextDismissedIds = Array.from(
       new Set(
@@ -4539,7 +4539,7 @@ router.get("/tests/:id/my-analysis", requireAuth, async (req, res) => {
     const userId = parseInt(req.cookies.userId, 10);
     const user = await getUser(userId);
     if (!user || user.role !== "student") return res.status(403).json({ error: "Forbidden" });
-    if (!ensureStudentFeatureUnlocked(user, "tests", res)) return;
+    if (!ensureStudentFeatureUnlocked(user, "test-analysis", res)) return;
 
     const [test] = await db.select({
       id: testsTable.id, title: testsTable.title, description: testsTable.description,

@@ -951,7 +951,6 @@ function getSuperAdminExamTemplateOptions(templates: ExamTemplate[]) {
   const options = new Map<string, ExamTemplate>();
 
   templates
-    .filter((template) => template.isSystem === false)
     .forEach((template, index) => {
       const key =
         normalizeExamTemplateKey(template.key) ||
@@ -1031,10 +1030,12 @@ export default function AdminTests() {
     refetchOnReconnect: true,
   });
 
-  const { data: examTemplates = [] } = useQuery<ExamTemplate[]>({
+  const { data: examTemplates = [], refetch: refetchExamTemplates } = useQuery<ExamTemplate[]>({
     queryKey: ["exam-templates"],
     queryFn: fetchExamTemplatesList,
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
   const examTemplateOptions = useMemo(() => getExamTemplateOptions(examTemplates), [examTemplates]);
   const importExamTemplateOptions = useMemo(() => getSuperAdminExamTemplateOptions(examTemplates), [examTemplates]);
@@ -1089,6 +1090,11 @@ export default function AdminTests() {
       if (firstTemplate) applyPreset(firstTemplate.key);
     }
   }, [createOpen, examTemplateOptions, newExamType]);
+
+  useEffect(() => {
+    if (!importOpen) return;
+    void refetchExamTemplates();
+  }, [importOpen, refetchExamTemplates]);
 
   useEffect(() => {
     if (!importOpen) return;
@@ -2299,7 +2305,7 @@ export default function AdminTests() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-slate-500">Only super admin-created exam templates are available here.</p>
+                <p className="text-xs text-slate-500">Templates are loaded live from the super admin exam template library.</p>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule Date</Label>

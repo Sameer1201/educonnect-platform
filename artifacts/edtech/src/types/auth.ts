@@ -32,16 +32,32 @@ export interface StudentProfileDetails {
   featureAccess?: {
     testsLocked?: boolean;
     questionBankLocked?: boolean;
+    testAnalysisLocked?: boolean;
   };
   featureUnlockPricing?: {
     testsAmount?: number | null;
     questionBankAmount?: number | null;
+    testAnalysisAmount?: number | null;
   };
 }
 
 export interface StudentFeatureAccess {
   testsLocked?: boolean;
   questionBankLocked?: boolean;
+  testAnalysisLocked?: boolean;
+}
+
+export interface StudentPaymentHistoryEntry {
+  id: string;
+  feature: "tests" | "question-bank" | "test-analysis";
+  featureLabel: string;
+  amount: number;
+  amountPaise: number;
+  currency: string;
+  orderId: string;
+  paymentId: string;
+  status: string;
+  paidAt: string;
 }
 
 export interface AuthUser extends ApiUser {
@@ -53,5 +69,7 @@ export interface AuthUser extends ApiUser {
   studentFeaturePricing?: {
     testsAmount?: number | null;
     questionBankAmount?: number | null;
+    testAnalysisAmount?: number | null;
   } | null;
+  studentPaymentHistory?: StudentPaymentHistoryEntry[];
 }

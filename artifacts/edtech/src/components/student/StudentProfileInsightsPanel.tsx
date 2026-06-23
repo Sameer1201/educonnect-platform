@@ -164,6 +164,16 @@ export interface StudentProfileInsights {
     status: string;
     sentAt: string;
   }>;
+  paymentHistory?: Array<{
+    id: string;
+    feature: "tests" | "question-bank" | "test-analysis";
+    featureLabel: string;
+    amount: number;
+    currency: string;
+    paymentId: string;
+    paidAt: string;
+    status: string;
+  }>;
   preparationSnapshot: {
     dateOfBirth: string | null;
     whatsappOnSameNumber: boolean;

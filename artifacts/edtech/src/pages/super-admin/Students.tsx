@@ -49,11 +49,23 @@ interface User {
   studentFeatureAccess?: {
     testsLocked?: boolean;
     questionBankLocked?: boolean;
+    testAnalysisLocked?: boolean;
   } | null;
   studentFeaturePricing?: {
     testsAmount?: number | null;
     questionBankAmount?: number | null;
+    testAnalysisAmount?: number | null;
   } | null;
+  studentPaymentHistory?: Array<{
+    id: string;
+    feature: "tests" | "question-bank" | "test-analysis";
+    featureLabel: string;
+    amount: number;
+    currency: string;
+    paymentId: string;
+    paidAt: string;
+    status: string;
+  }>;
 }
 
 function getStudentTargetExam(student: User) {
@@ -110,11 +122,13 @@ export default function SuperAdminStudents() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [testsUnlockAmount, setTestsUnlockAmount] = useState("");
   const [questionBankUnlockAmount, setQuestionBankUnlockAmount] = useState("");
+  const [testAnalysisUnlockAmount, setTestAnalysisUnlockAmount] = useState("");
 
   useEffect(() => {
     if (!selectedStudent) {
       setTestsUnlockAmount("");
       setQuestionBankUnlockAmount("");
+      setTestAnalysisUnlockAmount("");
       return;
     }
 
@@ -128,9 +142,15 @@ export default function SuperAdminStudents() {
         ? String(selectedStudent.studentFeaturePricing.questionBankAmount)
         : "",
     );
+    setTestAnalysisUnlockAmount(
+      selectedStudent.studentFeaturePricing?.testAnalysisAmount != null
+        ? String(selectedStudent.studentFeaturePricing.testAnalysisAmount)
+        : "",
+    );
   }, [
     selectedStudent?.id,
     selectedStudent?.studentFeaturePricing?.questionBankAmount,
+    selectedStudent?.studentFeaturePricing?.testAnalysisAmount,
     selectedStudent?.studentFeaturePricing?.testsAmount,
   ]);
 
@@ -231,14 +251,18 @@ export default function SuperAdminStudents() {
       id,
       testsLocked,
       questionBankLocked,
+      testAnalysisLocked,
       testsAmount,
       questionBankAmount,
+      testAnalysisAmount,
     }: {
       id: number;
       testsLocked?: boolean;
       questionBankLocked?: boolean;
+      testAnalysisLocked?: boolean;
       testsAmount?: number | null;
       questionBankAmount?: number | null;
+      testAnalysisAmount?: number | null;
     }) => {
       const response = await fetch(`${BASE}/api/users/${id}/student-feature-access`, {
         method: "PATCH",
@@ -247,8 +271,10 @@ export default function SuperAdminStudents() {
         body: JSON.stringify({
           ...(testsLocked !== undefined ? { testsLocked } : {}),
           ...(questionBankLocked !== undefined ? { questionBankLocked } : {}),
+          ...(testAnalysisLocked !== undefined ? { testAnalysisLocked } : {}),
           ...(testsAmount !== undefined ? { testsAmount } : {}),
           ...(questionBankAmount !== undefined ? { questionBankAmount } : {}),
+          ...(testAnalysisAmount !== undefined ? { testAnalysisAmount } : {}),
         }),
       });
       if (!response.ok) {
@@ -264,14 +290,19 @@ export default function SuperAdminStudents() {
         title: "Student access updated",
         description:
           variables.testsAmount !== undefined || variables.questionBankAmount !== undefined
+          || variables.testAnalysisAmount !== undefined
             ? "Student unlock amounts were updated."
             : variables.testsLocked !== undefined
             ? variables.testsLocked
               ? "Tests are now locked for this student."
               : "Tests are unlocked again for this student."
             : variables.questionBankLocked
-              ? "Question bank is now locked for this student."
-              : "Question bank is unlocked again for this student.",
+            ? "Question bank is now locked for this student."
+            : variables.questionBankLocked === false
+              ? "Question bank is unlocked again for this student."
+              : variables.testAnalysisLocked
+                ? "Test analysis is now locked for this student."
+                : "Test analysis is unlocked again for this student.",
       });
     },
     onError: (error: Error) => {
@@ -590,6 +621,26 @@ export default function SuperAdminStudents() {
                   </Button>
                 ) : null}
 
+                {selectedStudent.status === "approved" ? (
+                  <Button
+                    variant="outline"
+                    className={selectedStudent.studentFeatureAccess?.testAnalysisLocked
+                      ? "justify-between border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                      : "justify-between border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100"}
+                    onClick={() => featureAccessMutation.mutate({
+                      id: selectedStudent.id,
+                      testAnalysisLocked: !Boolean(selectedStudent.studentFeatureAccess?.testAnalysisLocked),
+                    })}
+                    disabled={featureAccessMutation.isPending}
+                    data-testid={`button-lock-test-analysis-${selectedStudent.id}`}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      {selectedStudent.studentFeatureAccess?.testAnalysisLocked ? <LockOpen size={15} /> : <Lock size={15} />}
+                      {selectedStudent.studentFeatureAccess?.testAnalysisLocked ? "Unlock Analysis" : "Lock Analysis"}
+                    </span>
+                  </Button>
+                ) : null}
+
                 {selectedStudent.status === "rejected" ? (
                   <Button
                     variant="outline"
@@ -628,7 +679,7 @@ export default function SuperAdminStudents() {
                     </p>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 md:grid-cols-3">
                     <label className="space-y-2">
                       <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9A6B2C]">Tests unlock amount</span>
                       <Input
@@ -654,6 +705,19 @@ export default function SuperAdminStudents() {
                         className="h-11 rounded-2xl border-[#EBDCC4] bg-white"
                       />
                     </label>
+
+                    <label className="space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9A6B2C]">Analysis unlock amount</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={testAnalysisUnlockAmount}
+                        onChange={(event) => setTestAnalysisUnlockAmount(event.target.value)}
+                        placeholder="Enter analysis amount"
+                        className="h-11 rounded-2xl border-[#EBDCC4] bg-white"
+                      />
+                    </label>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-3">
@@ -665,6 +729,7 @@ export default function SuperAdminStudents() {
                         id: selectedStudent.id,
                         testsAmount: testsUnlockAmount.trim() ? Number(testsUnlockAmount) : null,
                         questionBankAmount: questionBankUnlockAmount.trim() ? Number(questionBankUnlockAmount) : null,
+                        testAnalysisAmount: testAnalysisUnlockAmount.trim() ? Number(testAnalysisUnlockAmount) : null,
                       })}
                     >
                       Save unlock amounts
@@ -672,6 +737,64 @@ export default function SuperAdminStudents() {
                     <p className="self-center text-xs text-slate-500">
                       Leave a field empty if the amount should not be configured yet.
                     </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedStudent.status === "approved" ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
+                    <div className="mb-3">
+                      <h4 className="text-base font-bold text-slate-900">Student test marks</h4>
+                      <p className="mt-1 text-sm text-slate-500">Recent submitted tests with score and date.</p>
+                    </div>
+                    <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                      {(studentInsightsQuery.data?.scoreTrend ?? []).length === 0 ? (
+                        <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">No submitted tests yet.</p>
+                      ) : (
+                        (studentInsightsQuery.data?.scoreTrend ?? []).slice().reverse().map((test, index) => (
+                          <div key={`${test.title}-${test.submittedAt}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="line-clamp-2 text-sm font-semibold text-slate-900">{test.title}</p>
+                              <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-800">
+                                {test.score} / {test.totalPoints}
+                              </span>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                              <span>{test.percentage}%</span>
+                              <span>{test.submittedAt ? format(new Date(test.submittedAt), "dd MMM yyyy, h:mm a") : "No date"}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
+                    <div className="mb-3">
+                      <h4 className="text-base font-bold text-slate-900">Payment history</h4>
+                      <p className="mt-1 text-sm text-slate-500">Feature unlock payments made by this student.</p>
+                    </div>
+                    <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                      {((studentInsightsQuery.data?.paymentHistory ?? selectedStudent.studentPaymentHistory ?? [])).length === 0 ? (
+                        <p className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">No unlock payments yet.</p>
+                      ) : (
+                        (studentInsightsQuery.data?.paymentHistory ?? selectedStudent.studentPaymentHistory ?? []).map((payment) => (
+                          <div key={payment.id} className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="text-sm font-semibold text-slate-900">{payment.featureLabel}</p>
+                              <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-emerald-700">
+                                {new Intl.NumberFormat("en-IN", { style: "currency", currency: payment.currency || "INR", maximumFractionDigits: 0 }).format(payment.amount)}
+                              </span>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                              <span>{payment.paidAt ? format(new Date(payment.paidAt), "dd MMM yyyy, h:mm a") : "No date"}</span>
+                              <span className="font-mono">{payment.paymentId}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : null}

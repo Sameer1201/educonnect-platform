@@ -46,13 +46,24 @@ import {
 } from "@workspace/api-zod";
 import { hashPassword } from "../lib/auth";
 import { autoEnrollStudentIntoMatchingClasses } from "../lib/batchAssignment";
-import { hasBrevoAccounts, queueStudentApprovedEmail, queueStudentRejectedEmail, queueTeacherWelcomeEmail } from "../lib/brevo";
+import {
+  hasBrevoAccounts,
+  queueStudentApprovedEmail,
+  queueStudentFeatureLockedEmail,
+  queueStudentFeaturePaymentReceivedEmail,
+  queueStudentRejectedEmail,
+  queueTeacherWelcomeEmail,
+} from "../lib/brevo";
 import { createFirebaseEmailUser, deleteFirebaseUser, deleteFirebaseUserByEmail, ensureFirebaseEmailUser, generateFirebasePasswordResetLink, isFirebaseAdminConfigured } from "../lib/firebaseAdmin";
 import { logger } from "../lib/logger";
 import { buildCustomPasswordResetUrl } from "../lib/passwordReset";
 import {
   getStudentFeatureAccess,
+  getStudentFeatureLabel,
+  getStudentFeaturePaymentHistory,
   getStudentFeatureUnlockPricing,
+  type FeatureKey,
+  appendStudentFeaturePaymentHistory,
   mergeStudentFeatureAccess,
   mergeStudentFeatureUnlockPricing,
 } from "../lib/studentFeatureAccess";
@@ -76,6 +87,7 @@ function serializeUser(user: typeof usersTable.$inferSelect) {
     profileDetails: parsedProfileDetails,
     studentFeatureAccess: getStudentFeatureAccess(parsedProfileDetails),
     studentFeaturePricing: getStudentFeatureUnlockPricing(parsedProfileDetails),
+    studentPaymentHistory: getStudentFeaturePaymentHistory(parsedProfileDetails),
   };
 }
 
@@ -96,6 +108,28 @@ function toDateValue(value: Date | string | null | undefined) {
 
 function roundMetric(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function readStudentUnlockFeature(raw: unknown): FeatureKey | null {
+  return raw === "tests" || raw === "question-bank" || raw === "test-analysis" ? raw : null;
+}
+
+function readFeatureLocked(access: ReturnType<typeof getStudentFeatureAccess>, feature: FeatureKey) {
+  if (feature === "tests") return access.testsLocked;
+  if (feature === "question-bank") return access.questionBankLocked;
+  return access.testAnalysisLocked;
+}
+
+function readFeatureAmount(pricing: ReturnType<typeof getStudentFeatureUnlockPricing>, feature: FeatureKey) {
+  if (feature === "tests") return pricing.testsAmount;
+  if (feature === "question-bank") return pricing.questionBankAmount;
+  return pricing.testAnalysisAmount;
+}
+
+function featureUnlockPatch(feature: FeatureKey, locked: boolean) {
+  if (feature === "tests") return { testsLocked: locked };
+  if (feature === "question-bank") return { questionBankLocked: locked };
+  return { testAnalysisLocked: locked };
 }
 
 function requireRole(req: any, res: any, allowedRoles: string[]): string | null {
@@ -279,13 +313,16 @@ router.patch("/users/:id/student-feature-access", async (req, res): Promise<void
 
   const testsLockedRaw = req.body?.testsLocked;
   const questionBankLockedRaw = req.body?.questionBankLocked;
+  const testAnalysisLockedRaw = req.body?.testAnalysisLocked;
   const testsAmountRaw = req.body?.testsAmount;
   const questionBankAmountRaw = req.body?.questionBankAmount;
+  const testAnalysisAmountRaw = req.body?.testAnalysisAmount;
   const updates: Record<string, boolean> = {};
   const pricingUpdates: Record<string, number | null> = {};
 
   if (typeof testsLockedRaw === "boolean") updates.testsLocked = testsLockedRaw;
   if (typeof questionBankLockedRaw === "boolean") updates.questionBankLocked = questionBankLockedRaw;
+  if (typeof testAnalysisLockedRaw === "boolean") updates.testAnalysisLocked = testAnalysisLockedRaw;
   if (testsAmountRaw === null || testsAmountRaw === "" || testsAmountRaw === undefined) {
     if (testsAmountRaw !== undefined) pricingUpdates.testsAmount = null;
   } else {
@@ -308,12 +345,24 @@ router.patch("/users/:id/student-feature-access", async (req, res): Promise<void
     pricingUpdates.questionBankAmount = Math.round(parsedQuestionBankAmount * 100) / 100;
   }
 
+  if (testAnalysisAmountRaw === null || testAnalysisAmountRaw === "" || testAnalysisAmountRaw === undefined) {
+    if (testAnalysisAmountRaw !== undefined) pricingUpdates.testAnalysisAmount = null;
+  } else {
+    const parsedTestAnalysisAmount = Number(testAnalysisAmountRaw);
+    if (!Number.isFinite(parsedTestAnalysisAmount) || parsedTestAnalysisAmount <= 0) {
+      res.status(400).json({ error: "Test analysis unlock amount must be a positive number" });
+      return;
+    }
+    pricingUpdates.testAnalysisAmount = Math.round(parsedTestAnalysisAmount * 100) / 100;
+  }
+
   if (Object.keys(updates).length === 0 && Object.keys(pricingUpdates).length === 0) {
     res.status(400).json({ error: "No valid student access or pricing updates were provided" });
     return;
   }
 
   const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
+  const previousAccess = getStudentFeatureAccess(existingProfileData);
   const nextProfileWithAccess = Object.keys(updates).length > 0
     ? mergeStudentFeatureAccess(existingProfileData, updates)
     : existingProfileData;
@@ -326,6 +375,24 @@ router.patch("/users/:id/student-feature-access", async (req, res): Promise<void
     .set({ studentProfileData: JSON.stringify(nextProfileData) })
     .where(eq(usersTable.id, user.id))
     .returning();
+
+  if (user.email && await hasBrevoAccounts()) {
+    const nextPricing = getStudentFeatureUnlockPricing(nextProfileData);
+    const lockChanges: FeatureKey[] = [];
+    if (updates.testsLocked === true && !previousAccess.testsLocked) lockChanges.push("tests");
+    if (updates.questionBankLocked === true && !previousAccess.questionBankLocked) lockChanges.push("question-bank");
+    if (updates.testAnalysisLocked === true && !previousAccess.testAnalysisLocked) lockChanges.push("test-analysis");
+
+    lockChanges.forEach((feature) => {
+      queueStudentFeatureLockedEmail({
+        studentName: user.fullName,
+        email: user.email,
+        featureLabel: getStudentFeatureLabel(feature),
+        amount: readFeatureAmount(nextPricing, feature),
+        feature,
+      });
+    });
+  }
 
   res.json(serializeUser(updated));
 });
@@ -340,7 +407,7 @@ router.post("/users/me/student-feature-unlock/order", async (req, res): Promise<
     return;
   }
 
-  const feature = req.body?.feature === "question-bank" ? "question-bank" : req.body?.feature === "tests" ? "tests" : null;
+  const feature = readStudentUnlockFeature(req.body?.feature);
   if (!feature) {
     res.status(400).json({ error: "A valid feature is required" });
     return;
@@ -355,8 +422,8 @@ router.post("/users/me/student-feature-unlock/order", async (req, res): Promise<
   const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
   const access = getStudentFeatureAccess(existingProfileData);
   const pricing = getStudentFeatureUnlockPricing(existingProfileData);
-  const isLocked = feature === "tests" ? access.testsLocked : access.questionBankLocked;
-  const amount = feature === "tests" ? pricing.testsAmount : pricing.questionBankAmount;
+  const isLocked = readFeatureLocked(access, feature);
+  const amount = readFeatureAmount(pricing, feature);
 
   if (!isLocked) {
     res.status(400).json({ error: "This feature is already unlocked for your account." });
@@ -412,7 +479,7 @@ router.post("/users/me/student-feature-unlock/verify", async (req, res): Promise
     return;
   }
 
-  const feature = req.body?.feature === "question-bank" ? "question-bank" : req.body?.feature === "tests" ? "tests" : null;
+  const feature = readStudentUnlockFeature(req.body?.feature);
   const orderId = typeof req.body?.orderId === "string" ? req.body.orderId.trim() : "";
   const paymentId = typeof req.body?.paymentId === "string" ? req.body.paymentId.trim() : "";
   const signature = typeof req.body?.signature === "string" ? req.body.signature.trim() : "";
@@ -436,8 +503,8 @@ router.post("/users/me/student-feature-unlock/verify", async (req, res): Promise
   const existingProfileData = parseStudentProfileData(user.studentProfileData ?? null);
   const access = getStudentFeatureAccess(existingProfileData);
   const pricing = getStudentFeatureUnlockPricing(existingProfileData);
-  const isLocked = feature === "tests" ? access.testsLocked : access.questionBankLocked;
-  const amount = feature === "tests" ? pricing.testsAmount : pricing.questionBankAmount;
+  const isLocked = readFeatureLocked(access, feature);
+  const amount = readFeatureAmount(pricing, feature);
 
   if (!isLocked) {
     res.json({
@@ -480,8 +547,16 @@ router.post("/users/me/student-feature-unlock/verify", async (req, res): Promise
       return;
     }
 
-    const nextProfileData = mergeStudentFeatureAccess(existingProfileData, {
-      ...(feature === "tests" ? { testsLocked: false } : { questionBankLocked: false }),
+    const unlockedProfileData = mergeStudentFeatureAccess(existingProfileData, featureUnlockPatch(feature, false));
+    const nextProfileData = appendStudentFeaturePaymentHistory(unlockedProfileData, {
+      feature,
+      amount,
+      amountPaise: expectedAmountPaise,
+      currency: payment.currency || "INR",
+      orderId,
+      paymentId,
+      status: payment.status,
+      paidAt: new Date().toISOString(),
     });
 
     const [updated] = await db
@@ -490,8 +565,29 @@ router.post("/users/me/student-feature-unlock/verify", async (req, res): Promise
       .where(eq(usersTable.id, user.id))
       .returning();
 
+    if (await hasBrevoAccounts()) {
+      const admins = await db
+        .select({ email: usersTable.email, fullName: usersTable.fullName })
+        .from(usersTable)
+        .where(or(eq(usersTable.role, "super_admin"), eq(usersTable.role, "admin")));
+
+      admins
+        .filter((admin) => Boolean(admin.email?.trim()))
+        .forEach((admin) => {
+          queueStudentFeaturePaymentReceivedEmail({
+            adminName: admin.fullName,
+            adminEmail: admin.email,
+            studentName: user.fullName,
+            studentEmail: user.email,
+            featureLabel: getStudentFeatureLabel(feature),
+            amount,
+            paymentId,
+          });
+        });
+    }
+
     res.json({
-      message: feature === "tests" ? "Tests unlocked successfully." : "Question bank unlocked successfully.",
+      message: `${getStudentFeatureLabel(feature)} unlocked successfully.`,
       user: serializeUser(updated),
     });
   } catch (error) {
@@ -625,6 +721,7 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
   ]);
 
   const profileDetails = parseStudentProfileData(user.studentProfileData ?? null);
+  const paymentHistory = getStudentFeaturePaymentHistory(profileDetails);
   const address = (profileDetails?.address && typeof profileDetails.address === "object"
     ? profileDetails.address
     : {}) as Record<string, unknown>;
@@ -977,6 +1074,7 @@ router.get("/users/:id/profile-insights", async (req, res): Promise<void> => {
     questionBankPerformance,
     sessionsHistory,
     emailHistory,
+    paymentHistory,
     preparationSnapshot: {
       dateOfBirth: profileDetails?.dateOfBirth ?? null,
       whatsappOnSameNumber: profileDetails?.whatsappOnSameNumber === true,

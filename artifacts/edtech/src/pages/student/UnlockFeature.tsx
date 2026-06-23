@@ -69,7 +69,9 @@ function sanitizeReturnPath(value: string) {
 }
 
 function getDefaultReturnPath(feature: StudentUnlockFeature) {
-  return feature === "tests" ? "/student/tests" : "/student/question-bank";
+  if (feature === "tests") return "/student/tests";
+  if (feature === "question-bank") return "/student/question-bank";
+  return "/student/tests";
 }
 
 async function loadRazorpayCheckoutScript() {
@@ -115,7 +117,7 @@ export default function StudentUnlockFeaturePage() {
   const [isPaying, setIsPaying] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
-  const safeFeature: StudentUnlockFeature = feature === "question-bank" ? "question-bank" : "tests";
+  const safeFeature: StudentUnlockFeature = feature === "question-bank" || feature === "test-analysis" ? feature : "tests";
   const amount = getStudentFeatureUnlockAmount(user, safeFeature);
   const isLocked = isStudentFeatureLocked(user, safeFeature);
 
@@ -164,7 +166,11 @@ export default function StudentUnlockFeaturePage() {
         amount: orderPayload.amountPaise,
         currency: orderPayload.currency,
         name: "RankPulse",
-        description: safeFeature === "tests" ? "Tests unlock" : "Question bank unlock",
+        description: safeFeature === "tests"
+          ? "Tests unlock"
+          : safeFeature === "question-bank"
+            ? "Question bank unlock"
+            : "Test analysis unlock",
         order_id: orderPayload.orderId,
         prefill: {
           name: user?.fullName ?? user?.username ?? "",
@@ -202,6 +208,7 @@ export default function StudentUnlockFeaturePage() {
               queryClient.invalidateQueries({ queryKey: ["student-tests"] }),
               queryClient.invalidateQueries({ queryKey: ["student-question-bank-exams"] }),
               queryClient.invalidateQueries({ queryKey: ["dashboard-question-bank-progress"] }),
+              queryClient.invalidateQueries({ queryKey: ["student-analysis"] }),
             ]);
 
             toast({

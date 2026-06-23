@@ -14,6 +14,7 @@ import { lecturePlansRouter } from "./lecturePlans";
 import { questionBankRouter } from "./questionBank";
 import { plannerRouter } from "./planner";
 import studentReviewRouter from "./studentReview";
+import platformBackupRouter from "./platformBackup";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(lecturePlansRouter);
 router.use(questionBankRouter);
 router.use(plannerRouter);
 router.use(studentReviewRouter);
+router.use(platformBackupRouter);
 
 export default router;
