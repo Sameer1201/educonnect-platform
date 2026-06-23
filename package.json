@@ -1,0 +1,9 @@
+{
+  "name": "educonnect-edtech",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd EdTech-Portal && npx --yes pnpm@10.33.0 install --frozen-lockfile --prod=false && npx --yes pnpm@10.33.0 --filter @workspace/edtech run build && npx --yes pnpm@10.33.0 --filter @workspace/api-server run build",
+    "start": "bash ./scripts/elasticbeanstalk-start.sh"
+  }
+}

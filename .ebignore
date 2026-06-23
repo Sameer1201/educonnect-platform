@@ -1,0 +1,12 @@
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+.pnpm-store
+**/node_modules
+**/.env
+**/.env.local
+**/.env.*.local
+EdTech-Portal/artifacts/api-server/dist
+EdTech-Portal/artifacts/edtech/dist
+*.zip
