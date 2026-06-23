@@ -1,9 +1,23 @@
 {
-  "name": "educonnect-edtech",
-  "version": "1.0.0",
-  "private": true,
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12.0 <23",
+    "pnpm": "10.33.0"
+  },
   "scripts": {
-    "build": "cd EdTech-Portal && npx --yes pnpm@10.33.0 install --frozen-lockfile --prod=false && npx --yes pnpm@10.33.0 --filter @workspace/edtech run build && npx --yes pnpm@10.33.0 --filter @workspace/api-server run build",
-    "start": "bash ./scripts/elasticbeanstalk-start.sh"
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "check:reachability": "pnpm --filter @workspace/scripts run reachability-check",
+    "start": "pnpm --filter @workspace/api-server run start:prod",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+  },
+  "private": true,
+  "devDependencies": {
+    "typescript": "~5.9.2",
+    "prettier": "^3.8.1"
   }
 }
